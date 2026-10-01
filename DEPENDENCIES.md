@@ -40,6 +40,8 @@
 | typescript | ^5.8.2（dev） | Apache-2.0 | npm（dev） | 类型检查 | 🟢 | 2026-10-02（补登 W0） | 建表补登 |
 | vite / @vitejs/plugin-react | ^6 / ^4（dev） | MIT | npm（dev） | 构建 | 🟢 | 2026-10-02（补登 W0） | 建表补登 |
 | @types/node / @types/react / @types/react-dom | ^22 / ^19（dev） | MIT | npm（dev） | 类型桩 | 🟢 | 2026-10-02（补登 W0） | 建表补登 |
+| husky | 9.1.7（dev；`^9.1.7` 钉自 NexBox `package.json` 实测） | MIT | npm（dev） | pre-commit 钩子承载（`npx tsc --noEmit` 全量 + 暂存含 `src-tauri/` 时 `cargo fmt --check`） | 🟢 | 2026-10-02 | 用户 2026-10-02 拍板补装；许可落 ADR-003 允许档（MIT），`core.hooksPath=.husky/_` 仅改本仓库局部配置。🔴 两条缺口：规范要求的 **Prettier / ESLint 腿尚未装**（缺 `eslint.config`/`.prettierrc`，补它们会触发全量重排版，待用户定口径）；钩子红绿双向已实测（类型错误→退出 1、`src-tauri` 格式违规→退出 1、未暂存 Rust 改动→跳过该腿） |
+| `.gitattributes`（非依赖，登记于此） | — | — | 仓库配置 | 行尾口径固定：`* text=auto eol=lf`，`*.png/*.ico/*.icns binary` | 🟢 | 2026-10-02 | 用户拍板补上；覆盖本机 `core.autocrlf=true`。加后 `git ls-files --eol` 抽查 index/worktree 均 lf，无重规范化抖动 |
 
 ## 三、移植代码登记（ADR-003 §二.5）
 

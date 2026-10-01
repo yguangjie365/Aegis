@@ -1,0 +1,19 @@
+# pre-commit 拦截：TS 类型检查（全量）；本次暂存含 src-tauri 改动时再拦 Rust 格式。
+# 规范要求的 Prettier / ESLint 两条腿尚未装（缺配置文件，补它们会触发全量重排版），先拦能诚实拦的两项。
+export PATH="$HOME/.cargo/bin:$PATH"
+
+if ! npx tsc --noEmit; then
+  echo "pre-commit: 类型检查未通过，提交已拦截" >&2
+  exit 1
+fi
+
+if git diff --cached --name-only --diff-filter=ACMR | grep -q '^src-tauri/'; then
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "pre-commit: 本次含 Rust 改动，但找不到 cargo（确认 ~/.cargo/bin 在 PATH 内）" >&2
+    exit 1
+  fi
+  if ! (cd src-tauri && cargo fmt --check); then
+    echo "pre-commit: cargo fmt --check 未通过，提交已拦截" >&2
+    exit 1
+  fi
+fi
