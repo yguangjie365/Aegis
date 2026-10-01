@@ -1,0 +1,19 @@
+[package]
+name = "aegis-elevated-helper"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+license = "GPL-3.0"
+description = "无 UI 提权子进程：命令白名单 + 参数闸门 + --dry-run（ADR-002；协议随 W0-08）"
+
+[[bin]]
+name = "aegis-elevated-helper"
+path = "src/main.rs"
+
+[dependencies]
+contracts = { path = "../contracts" }
+infra = { path = "../infra" }
+services = { path = "../services" }
+
+[lints]
+workspace = true

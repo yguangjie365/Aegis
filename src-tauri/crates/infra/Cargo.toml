@@ -1,0 +1,13 @@
+[package]
+name = "infra"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+license = "GPL-3.0"
+description = "平台与通用能力：原子写 / PathGuard / 凭据(DPAPI) / SQLite / 日志落盘（W0-09、W0-10 落地）"
+
+[dependencies]
+contracts = { path = "../contracts" }
+
+[lints]
+workspace = true

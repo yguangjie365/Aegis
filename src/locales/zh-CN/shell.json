@@ -1,0 +1,37 @@
+{
+  "app": {
+    "title": "AEGIS",
+    "codename": "工作代号（Q-01 定名前统一用此）"
+  },
+  "window": {
+    "minimize": "最小化",
+    "maximizeDisabled": "最大化（规范 §四 禁用）",
+    "close": "关闭"
+  },
+  "nav": {
+    "fold": "折叠",
+    "expand": "展开",
+    "toggleAria": "折叠或展开导航轨",
+    "group": {
+      "orchestration": "编排"
+    },
+    "item": {
+      "overview": "本机概览",
+      "appManager": "软件管理",
+      "driverManager": "驱动管理",
+      "netManager": "网络管理",
+      "fileTransfer": "文件互传",
+      "fileBackup": "文件备份",
+      "musicManager": "音乐管理",
+      "gameManager": "游戏管理",
+      "restore": "重装助手",
+      "settings": "设置"
+    }
+  },
+  "status": {
+    "ready": "就绪",
+    "version": "v0.1.0",
+    "noTelemetry": "零遥测",
+    "browserPreview": "浏览器预览模式 · 后端未接入（W0-02）"
+  }
+}

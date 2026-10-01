@@ -1,0 +1,19 @@
+[package]
+name = "aegis-worker"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+license = "GPL-3.0"
+description = "Task Scheduler 触发的定时任务二进制（备份执行/补做；形态待 ADR，见 02 册 KN-01）"
+
+[[bin]]
+name = "aegis-worker"
+path = "src/main.rs"
+
+[dependencies]
+contracts = { path = "../contracts" }
+infra = { path = "../infra" }
+services = { path = "../services" }
+
+[lints]
+workspace = true

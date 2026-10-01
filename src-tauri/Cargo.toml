@@ -1,0 +1,49 @@
+[package]
+name = "aegis"
+version = "0.1.0" # 🔴 应用版本单源 = package.json（K-S05 接线待 W6），此处与 tauri.conf.json 保持一致
+description = "Aegis（工作代号，Q-01 定名前统一用此）— Windows 系统维护桌面工具箱"
+authors = ["Aegis"]
+license = "GPL-3.0"
+edition = "2021"
+rust-version = "1.77.2"
+
+# workspace root 位于 src-tauri（04 分册 §一 目录树）；成员 = 主 crate（.）+ crates/*
+[workspace]
+members = [
+    ".",
+    "crates/contracts",
+    "crates/infra",
+    "crates/services",
+    "crates/elevated-helper",
+    "crates/worker",
+]
+
+# 🔴 lint 基线 workspace 统一（01 编码分册：clippy::all + pedantic；CI `--all-targets -- -D warnings`）。
+# 成员只允许 `[lints] workspace = true`，禁止各自放宽（W0-01 验收项）。
+[workspace.lints.rust]
+unsafe_code = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# AsyncGuard（03 测试分册）：禁忙等/禁同步睡眠出现在异步路径
+disallowed_methods = { level = "warn", priority = -1 }
+
+[lib]
+name = "aegis_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5", features = [] }
+
+[dependencies]
+# 版本基准 = NexBox 实测（src-tauri/Cargo.toml：tauri 2.10 / lock 2.11.1；插件 lock 2.4.2）
+tauri = { version = "2.10", features = ["protocol-asset", "tray-icon"] }
+tauri-plugin-single-instance = "2.4"
+# MU-1 目录选择框（版本基准 = NexBox 式实测：npm lock @tauri-apps/plugin-dialog 2.7.3 → Rust 侧 2.7 系，--precise 锁定）
+tauri-plugin-dialog = "2.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+contracts = { path = "crates/contracts" }
+infra = { path = "crates/infra" }
+services = { path = "crates/services" }

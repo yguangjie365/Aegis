@@ -1,0 +1,15 @@
+{
+  "state": {
+    "notStarted": {
+      "title": "模块尚未开工",
+      "subFeature": "{{milestone}} · 对应功能规格随 W2~W5 交付",
+      "subOutOfScope": "范围外 · 未纳入功能规格",
+      "bodyFeature": "外壳骨架已就位；本模块的采集、命令与页面随对应里程碑（TASKS W2~W5 的 M-01~M-08）逐页过「UI 先审后写」后交付。",
+      "bodyOutOfScope": "重装助手与设置暂未纳入功能规格范围（功能规格 README 范围说明），不得自行立功能需求；本页仅为外壳导航占位。"
+    },
+    "notFound": {
+      "title": "页面不存在",
+      "body": "该路由未注册到任何模块。导航请经左侧模块轨。"
+    }
+  }
+}

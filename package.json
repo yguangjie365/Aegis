@@ -1,0 +1,42 @@
+{
+  "name": "aegis",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Aegis（工作代号，Q-01 定名前统一用此）— 系统维护桌面工具（React 19 + Tauri 2）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@chakra-ui/react": "^2.10.9",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@fontsource/inter": "^5.2.5",
+    "@fontsource/jetbrains-mono": "^5.2.0",
+    "@fontsource/noto-sans-sc": "^5.3.0",
+    "@tanstack/react-query": "^5.66.0",
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-dialog": "2.7.3",
+    "framer-motion": "^11.18.2",
+    "i18next": "^26.0.5",
+    "lucide-react": "^0.487.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-i18next": "^17.0.4",
+    "react-router-dom": "^7.1.5",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4",
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.8.2",
+    "vite": "^6.0.11"
+  }
+}

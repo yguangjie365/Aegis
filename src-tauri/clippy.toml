@@ -1,0 +1,9 @@
+msrv = "1.77.2"
+
+# AsyncGuard（03 测试与验收规范）：异步上下文禁忙等自旋/同步睡眠，正解 = tokio::time::sleep 或 spawn_blocking
+disallowed-methods = [
+    { path = "std::thread::sleep", reason = "异步路径禁阻塞（01 总览 §5.1 禁 sync-over-async）；用 tokio::time::sleep 或 spawn_blocking" },
+]
+
+# 备注（W0-01 实测）：`std::process::exit` 也曾列入此表，但 `tauri::generate_context!` 等上游宏展开自带 exit 调用，
+# span 记在本工程调用处 → 全局 disallowed 必然误报。该约束改由 W0-11 架构守卫按"仅 elevated-helper/worker 允许"做文件级扫描。
