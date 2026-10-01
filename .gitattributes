@@ -1,0 +1,7 @@
+# 行尾口径：仓库内与检出一律 LF（覆盖本机 core.autocrlf=true，避免 Windows 检出翻转行尾造成 diff 噪声与 cargo fmt 误判）
+* text=auto eol=lf
+
+# 二进制资源不做行尾处理，也不进文本 diff
+*.png binary
+*.ico binary
+*.icns binary
