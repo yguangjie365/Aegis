@@ -15,6 +15,8 @@ use tauri::{
     AppHandle, Manager, RunEvent, WebviewWindow,
 };
 
+mod music_login;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     install_panic_hook();
@@ -31,7 +33,29 @@ pub fn run() {
             services::music::commands::music_scan_start,
             services::music::commands::music_scan_cancel,
             services::music::commands::music_library_get,
-            services::music::commands::music_lyric_read
+            services::music::commands::music_lyric_read,
+            services::music::proxy::music_get_proxy_port,
+            services::music::online::music_search,
+            services::music::online::music_song_url,
+            services::music::online::music_user_playlist,
+            services::music::online::music_playlist_tracks,
+            services::music::online::music_recommend_songs,
+            services::music::online::music_recommend_resource,
+            services::music::online::music_rank_list,
+            services::music::online::music_rank_songs,
+            services::music::online::music_login_status,
+            services::music::online::music_login_cookie,
+            services::music::online::music_logout,
+            services::music::online::music_lyric_online,
+            services::music::online::music_like_song,
+            services::music::online::music_liked_songs,
+            services::music::online::music_song_comments,
+            services::music::online::music_send_comment,
+            services::music::online::music_artist_detail,
+            services::music::online::music_album_detail,
+            services::music::online::music_mv_url,
+            // 🔴 窗口命令例外（music_login.rs 头注）：WebviewWindow 属宿主类型无法下沉 services
+            music_login::music_open_login_window
         ])
         .setup(|app| {
             // MU-1：music 状态托管 + 曲库缓存加载（R-7 首启静默 / 损坏降级警告）

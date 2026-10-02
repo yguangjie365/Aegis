@@ -44,6 +44,9 @@ tauri-plugin-single-instance = "2.4"
 tauri-plugin-dialog = "2.7"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# MU-4.15 登录窗口轮询（time = 异步 sleep，clippy.toml 禁 std::thread::sleep）
+tokio = { version = "1", features = ["time"] }
+tracing = "0.1"
 contracts = { path = "crates/contracts" }
 infra = { path = "crates/infra" }
 services = { path = "crates/services" }
