@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.worknotes/
+*.tsbuildinfo
+package-lock.json
+src-tauri/target/
+src-tauri/gen/
+public/
+
+# 中文文档表格不做自动对齐：Prettier 会按最宽单元格重排整张表，任何一次增删行都牵连全表抖动，
+# 与"登记表格窄列可读"的文档口径冲突；格式校验只覆盖代码与配置。
+**/*.md
