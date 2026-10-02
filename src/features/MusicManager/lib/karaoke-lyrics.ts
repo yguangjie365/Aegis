@@ -52,8 +52,10 @@ export const LYRIC_REWIND_S = 0.5;
 /** F-MU-20：当前行判定的前瞻容差（秒） */
 const ACTIVE_LOOKAHEAD_S = 0.05;
 
-/** F-MU-22：零宽/不可见字符清洗（ZWSP/ZWNJ/ZWJ/BOM/不换行空格/变体选择符/行末杂散控制符） */
-const INVISIBLE_RE = /[\u200B-\u200F\u2028\u2029\u202A-\u202E\uFEFF\u00A0\uFE00-\uFE0F\u2060]/g;
+/** F-MU-22：零宽/不可见字符清洗（ZWSP/ZWNJ/ZWJ/BOM/不换行空格/变体选择符/行末杂散控制符）
+ * 变体选择符段（\uFE00-\uFE0F）单列：它与前一范围内的码点并置会被
+ * `no-misleading-character-class` 判为"字符类里的组合字符"，拆开语义不变且规则可读。 */
+const INVISIBLE_RE = /[\u200B-\u200F\u2028\u2029\u202A-\u202E\uFEFF\u00A0\u2060]|[\uFE00-\uFE0F]/g;
 
 export function cleanInvisible(text: string): string {
   return text.replace(INVISIBLE_RE, "");

@@ -87,9 +87,7 @@ export const KaraokeLyricsView = memo(function KaraokeLyricsViewInner({
   useEffect(() => {
     if (activeIndex < 0 || !scrollRef.current) return;
     const container = scrollRef.current;
-    const activeEl = container.querySelector(
-      `[data-lyric-idx="${activeIndex}"]`,
-    ) as HTMLElement | null;
+    const activeEl = container.querySelector<HTMLElement>(`[data-lyric-idx="${activeIndex}"]`);
     if (activeEl) {
       container.scrollTo({
         top: activeEl.offsetTop - container.clientHeight * 0.5,
