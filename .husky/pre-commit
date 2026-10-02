@@ -1,6 +1,17 @@
-# pre-commit 拦截：TS 类型检查（全量）；本次暂存含 src-tauri 改动时再拦 Rust 格式。
-# 规范要求的 Prettier / ESLint 两条腿尚未装（缺配置文件，补它们会触发全量重排版），先拦能诚实拦的两项。
+# pre-commit 拦截（03-开发规范/05 §提交前检查点四条腿，全量判定，实测合计 ~10s）：
+#   ESLint --max-warnings 0 → Prettier --check → tsc --noEmit →（本次含 Rust 改动时）cargo fmt --check
+# 规范要求的检查点均为全量判定（--max-warnings 0 / 无差异），不按暂存文件收窄，避免"存量红"被绕过。
 export PATH="$HOME/.cargo/bin:$PATH"
+
+if ! npx eslint . --max-warnings 0; then
+  echo "pre-commit: ESLint 未过（--max-warnings 0），提交已拦截" >&2
+  exit 1
+fi
+
+if ! npx prettier --check . >/dev/null; then
+  echo "pre-commit: Prettier 有格式差异，先跑 npm run format" >&2
+  exit 1
+fi
 
 if ! npx tsc --noEmit; then
   echo "pre-commit: 类型检查未通过，提交已拦截" >&2
