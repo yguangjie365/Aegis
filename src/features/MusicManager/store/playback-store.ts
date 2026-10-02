@@ -100,8 +100,8 @@ interface PlaybackState {
   playSong: (
     song: LocalSong,
     queue?: LocalSong[],
-    opts?: { fromHistory?: boolean },
-  ) => Promise<void>;
+    opts?: { fromHistory?: boolean; startTime?: number },
+  ) => void;
   togglePlay: () => Promise<void>;
   closePlayback: () => void;
   nextTrack: () => void;
@@ -172,12 +172,9 @@ function ensureAudio(): HTMLAudioElement | null {
       exception: "播放出错，自愈重试一次",
       correlationId: cid,
     });
-    void usePlayback
-      .getState()
-      .playSong(st.currentSong)
-      .then(() => {
-        audio.currentTime = savedTime;
-      });
+    void usePlayback.getState().playSong(st.currentSong, undefined, {
+      startTime: savedTime,
+    });
     recovering = false;
   });
   // 真正播起来了就放开自愈额度
@@ -221,7 +218,7 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
   lyricsPanelOpen: false,
   errorMessage: null,
 
-  playSong: async (song, queue, opts) => {
+  playSong: (song, queue, opts) => {
     const cid = newCorrelationId();
     if (!isTauriRuntime()) {
       // 诚实降级：本地音频直读依赖 asset 协议，浏览器预览模式无播放能力（禁假数据）
@@ -266,7 +263,8 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
     const begin = () => {
       if (mySeq !== playSongSeq) return;
       audio.src = convertFileSrc(song.path);
-      audio.currentTime = 0;
+      // 自愈重试带 savedTime：回到出错位置续播，其余起播一律从头
+      audio.currentTime = opts?.startTime ?? 0;
       // F-MU-18：新曲从静音淡入到目标音量，避免首帧硬响
       audio.volume = 0;
       void audio
