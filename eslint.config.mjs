@@ -37,8 +37,11 @@ export default tseslint.config(
     rules: {
       // 编码规范 §一.1：禁 any 逃逸，未知形状一律 unknown + 收窄
       "@typescript-eslint/no-explicit-any": "error",
-      // 编码规范 §三：禁静默失败——空 catch 与只重新包装的 throw 在此层拦截
+      // 编码规范 §三：禁静默失败。allowEmptyCatch:false 故意把空 catch 也打红——
+      // 本工程不接受"刻意的 no-op catch"，吞异常前必须落日志（当前存量 0 处，实测无噪声）。
       "no-empty": ["error", { allowEmptyCatch: false }],
+      // 只重新包装不改做的 try/catch（同规则族，堵"看起来处理了其实没处理"）
+      "no-useless-catch": "error",
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
