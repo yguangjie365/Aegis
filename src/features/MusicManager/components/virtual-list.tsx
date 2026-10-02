@@ -19,7 +19,15 @@
  * 🔴 移植自 NexBox `src/components/VirtualList.tsx`（GPL-3.0 同源衍生），逻辑零改动。
  */
 
-import { useRef, useState, useLayoutEffect, useEffect, useCallback, memo, type ReactNode } from "react";
+import {
+  useRef,
+  useState,
+  useLayoutEffect,
+  useEffect,
+  useCallback,
+  memo,
+  type ReactNode,
+} from "react";
 import { Box, VStack, Spinner, Text } from "@chakra-ui/react";
 
 interface VirtualListProps<T> {
@@ -128,7 +136,7 @@ function VirtualListInner<T>({
       const st = el.scrollTop;
       // 顶部项未跨越边界（仍在同一项内滚动）则跳过 setState，靠 overscan 吸收误差
       setScrollTop((prev) =>
-        Math.floor(prev / itemHeight) === Math.floor(st / itemHeight) ? prev : st
+        Math.floor(prev / itemHeight) === Math.floor(st / itemHeight) ? prev : st,
       );
       if (
         onEndReached &&
@@ -141,12 +149,24 @@ function VirtualListInner<T>({
         onEndReached();
       }
     });
-  }, [itemHeight, onEndReached, hasMore, loading, viewportHeight, totalHeight, endReachedThreshold, total]);
+  }, [
+    itemHeight,
+    onEndReached,
+    hasMore,
+    loading,
+    viewportHeight,
+    totalHeight,
+    endReachedThreshold,
+    total,
+  ]);
 
   // 卸载时取消挂起的 rAF
-  useEffect(() => () => {
-    if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current);
+    },
+    [],
+  );
 
   const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
   const endIndex = Math.min(total, Math.ceil((scrollTop + viewportHeight) / itemHeight) + overscan);
@@ -175,10 +195,14 @@ function VirtualListInner<T>({
       {loading ? (
         <VStack h="100%" justify="center" py={6} spacing={2}>
           <Spinner size="sm" />
-          <Text fontSize="xs" color="var(--aegis-mute)">{loadingText}</Text>
+          <Text fontSize="xs" color="var(--aegis-mute)">
+            {loadingText}
+          </Text>
         </VStack>
       ) : total === 0 ? (
-        <Text fontSize="xs" color="var(--aegis-mute)" py={4} textAlign="center">{emptyText}</Text>
+        <Text fontSize="xs" color="var(--aegis-mute)" py={4} textAlign="center">
+          {emptyText}
+        </Text>
       ) : (
         // 撑高占位容器，保证滚动条比例正确
         <Box height={`${totalHeight + footerHeight}px`} position="relative">
@@ -210,7 +234,9 @@ function VirtualListInner<T>({
               gap={2}
             >
               <Spinner size="xs" />
-              <Text fontSize="xs" color="var(--aegis-mute)">加载更多...</Text>
+              <Text fontSize="xs" color="var(--aegis-mute)">
+                加载更多...
+              </Text>
             </Box>
           )}
         </Box>
@@ -220,5 +246,5 @@ function VirtualListInner<T>({
 }
 
 export const VirtualList = memo(VirtualListInner) as <T>(
-  props: VirtualListProps<T>
+  props: VirtualListProps<T>,
 ) => React.JSX.Element;

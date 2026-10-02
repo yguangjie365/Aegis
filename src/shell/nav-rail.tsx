@@ -39,7 +39,10 @@ const FoldBtn = styled.button<{ $folded: boolean }>`
   border: 1px solid #3a3a3a;
   border-radius: var(--aegis-rounded-sm);
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
   &:focus-visible {
     outline-color: var(--aegis-accent);
   }
@@ -80,7 +83,9 @@ const Item = styled(NavLink)`
   position: relative;
   flex: none;
   border-radius: var(--aegis-rounded-sm);
-  transition: background-color 120ms ease, color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
   /* 规范 §八：黑底焦点环用 accent（浅底才是 accent-strong） */
   &:focus-visible {
     outline-color: var(--aegis-accent);
@@ -118,11 +123,7 @@ function RailItem({ m, folded }: { m: ShellModule; folded: boolean }) {
   const label = t(m.nameKey);
   const Icon = m.icon;
   return (
-    <Item
-      to={m.route}
-      title={folded ? label : undefined}
-      aria-label={label}
-    >
+    <Item to={m.route} title={folded ? label : undefined} aria-label={label}>
       <Icon size={20} strokeWidth={1.5} aria-hidden="true" />
       {!folded && <span>{label}</span>}
     </Item>

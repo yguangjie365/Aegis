@@ -43,7 +43,13 @@ export const useLyrics = create<LyricsState>((set) => ({
     const cid = newCorrelationId();
     const mySeq = ++loadSeq;
     if (!isTauriRuntime()) {
-      set({ lines: null, plainText: null, loading: false, noticeKey: "backendUnavailable", songId: song.id });
+      set({
+        lines: null,
+        plainText: null,
+        loading: false,
+        noticeKey: "backendUnavailable",
+        songId: song.id,
+      });
       return;
     }
     // 不立即清空 lines：新词到达前保留旧内容渲染，避免切歌瞬间整块闪白

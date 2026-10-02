@@ -184,7 +184,13 @@ export const PlayerBar = memo(function PlayerBar() {
             )}
           </Box>
           <VStack spacing={0} align="start" flexShrink={0} minW={0} maxW="220px">
-            <Text color={ink} fontWeight="medium" fontSize="sm" noOfLines={1} title={currentSong.title || currentSong.name}>
+            <Text
+              color={ink}
+              fontWeight="medium"
+              fontSize="sm"
+              noOfLines={1}
+              title={currentSong.title || currentSong.name}
+            >
               {currentSong.title || currentSong.name}
             </Text>
             <Text color={mute} fontSize="xs" noOfLines={1}>
@@ -324,7 +330,13 @@ export const PlayerBar = memo(function PlayerBar() {
 
         {/* R-13：播放失败显式上报（aria-live 播报），不表现为无声 */}
         {errorMessage && (
-          <Text fontSize="xs" color="var(--aegis-error)" aria-live="polite" noOfLines={1} title={errorMessage}>
+          <Text
+            fontSize="xs"
+            color="var(--aegis-error)"
+            aria-live="polite"
+            noOfLines={1}
+            title={errorMessage}
+          >
             {errorMessage}
           </Text>
         )}

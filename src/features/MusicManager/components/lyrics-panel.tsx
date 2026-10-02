@@ -72,7 +72,10 @@ export const LyricsPanel = memo(function LyricsPanel() {
         px={2}
         sx={{
           "&::-webkit-scrollbar": { width: "8px" },
-          "&::-webkit-scrollbar-thumb": { background: "var(--aegis-hairline)", borderRadius: "4px" },
+          "&::-webkit-scrollbar-thumb": {
+            background: "var(--aegis-hairline)",
+            borderRadius: "4px",
+          },
         }}
       >
         {/* F-MU-19：无时间轴的纯文本歌词按整段纯文本显示（不做行级高亮） */}

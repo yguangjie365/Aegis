@@ -6,16 +6,7 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Box,
-  HStack,
-  IconButton,
-  Input,
-  Spinner,
-  Text,
-  Tooltip,
-  VStack,
-} from "@chakra-ui/react";
+import { Box, HStack, IconButton, Input, Spinner, Text, Tooltip, VStack } from "@chakra-ui/react";
 import styled from "@emotion/styled";
 import {
   ArrowLeft,
@@ -59,18 +50,8 @@ const statusColor: Record<string, string> = {
 export function MusicManagerPage() {
   const { t } = useTranslation(["music", "common"]);
   const store = useMusicStore();
-  const {
-    view,
-    loading,
-    error,
-    songs,
-    roots,
-    scanning,
-    progress,
-    status,
-    importing,
-    keyword,
-  } = store;
+  const { view, loading, error, songs, roots, scanning, progress, status, importing, keyword } =
+    store;
 
   useEffect(() => {
     void useMusicStore.getState().open();
@@ -186,7 +167,13 @@ export function MusicManagerPage() {
             </Box>
 
             {/* 曲库根目录清单（F-MU-01 多根合并的可见化；R-2 去重在后端） */}
-            <Text fontSize="xs" fontWeight="bold" color="var(--aegis-mute-on-soft)" mb={1} flexShrink={0}>
+            <Text
+              fontSize="xs"
+              fontWeight="bold"
+              color="var(--aegis-mute-on-soft)"
+              mb={1}
+              flexShrink={0}
+            >
               {t("music:home.rootsTitle")}
             </Text>
             <VStack spacing={1} align="start" flexShrink={0}>
@@ -196,7 +183,14 @@ export function MusicManagerPage() {
                 </Text>
               ) : (
                 roots.map((r) => (
-                  <Text key={r} fontSize="xs" color="var(--aegis-mute)" fontFamily="var(--font-mono)" noOfLines={1} title={r}>
+                  <Text
+                    key={r}
+                    fontSize="xs"
+                    color="var(--aegis-mute)"
+                    fontFamily="var(--font-mono)"
+                    noOfLines={1}
+                    title={r}
+                  >
                     {r}
                   </Text>
                 ))
@@ -225,7 +219,10 @@ export function MusicManagerPage() {
                   size="sm"
                   variant="ghost"
                   onClick={() => useMusicStore.getState().setView("home")}
-                  sx={{ color: "var(--aegis-accent-strong)", _hover: { bg: "var(--aegis-surface-inset)" } }}
+                  sx={{
+                    color: "var(--aegis-accent-strong)",
+                    _hover: { bg: "var(--aegis-surface-inset)" },
+                  }}
                 />
               </Tooltip>
               <Text fontSize="sm" fontWeight="bold" color="var(--aegis-ink)" noOfLines={1}>
@@ -280,7 +277,11 @@ export function MusicManagerPage() {
                   </Text>
                 )}
                 {!scanning && status && (
-                  <Text fontSize="xs" color={statusColor[status.tone] ?? "var(--aegis-mute)"} aria-live="polite">
+                  <Text
+                    fontSize="xs"
+                    color={statusColor[status.tone] ?? "var(--aegis-mute)"}
+                    aria-live="polite"
+                  >
                     {status.text}
                   </Text>
                 )}

@@ -57,7 +57,10 @@ export const theme = extendTheme({
       },
       "#root": { minHeight: "100vh" },
       "@media (prefers-reduced-motion: reduce)": {
-        "*, *::before, *::after": { animationDuration: "0.01ms !important", transitionDuration: "0.01ms !important" },
+        "*, *::before, *::after": {
+          animationDuration: "0.01ms !important",
+          transitionDuration: "0.01ms !important",
+        },
       },
     },
   },

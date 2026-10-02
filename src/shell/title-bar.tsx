@@ -44,7 +44,9 @@ const CapBtn = styled.button<{ disabled?: boolean; $danger?: boolean }>`
   background: transparent;
   color: ${(p) => (p.disabled ? "var(--aegis-disabled)" : "var(--aegis-on-dark-mute)")};
   cursor: ${(p) => (p.disabled ? "default" : "pointer")};
-  transition: background-color 120ms ease, color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
   &:focus-visible {
     outline-color: var(--aegis-accent);
   }
@@ -71,7 +73,12 @@ export function TitleBar() {
         >
           <Minus size={14} strokeWidth={1.5} aria-hidden="true" />
         </CapBtn>
-        <CapBtn type="button" aria-label={t("window.maximizeDisabled")} title={t("window.maximizeDisabled")} disabled>
+        <CapBtn
+          type="button"
+          aria-label={t("window.maximizeDisabled")}
+          title={t("window.maximizeDisabled")}
+          disabled
+        >
           <Square size={12} strokeWidth={1.5} aria-hidden="true" />
         </CapBtn>
         <CapBtn

@@ -120,7 +120,13 @@ export const KaraokeLyricLine = memo(function KaraokeLyricLineInner({
           {line.text}
         </Text>
         {line.translation && (
-          <Text fontSize={`${fontSize - 4}px`} color={subTextColor} mt={1} textAlign={align} noOfLines={1}>
+          <Text
+            fontSize={`${fontSize - 4}px`}
+            color={subTextColor}
+            mt={1}
+            textAlign={align}
+            noOfLines={1}
+          >
             {line.translation}
           </Text>
         )}
@@ -174,7 +180,14 @@ export const KaraokeLyricLine = memo(function KaraokeLyricLineInner({
         </span>
       </span>
       {line.translation && (
-        <Text fontSize={`${fontSize - 4}px`} color={subTextColor} opacity={0.6} mt={1} textAlign={align} noOfLines={1}>
+        <Text
+          fontSize={`${fontSize - 4}px`}
+          color={subTextColor}
+          opacity={0.6}
+          mt={1}
+          textAlign={align}
+          noOfLines={1}
+        >
           {line.translation}
         </Text>
       )}

@@ -69,7 +69,16 @@ export function EmptyStateBlock({
   return (
     <Frame aria-live="polite">
       {icon ?? (
-        <svg width="28" height="28" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: "var(--aegis-mute)" }}>
+        <svg
+          width="28"
+          height="28"
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          style={{ color: "var(--aegis-mute)" }}
+        >
           <circle cx="11" cy="11" r="6.5" />
           <path d="M16 16l4.5 4.5" />
         </svg>
@@ -98,7 +107,16 @@ export function ErrorStateBlock({
 }) {
   return (
     <Frame aria-live="assertive">
-      <svg width="28" height="28" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: "var(--aegis-error)" }}>
+      <svg
+        width="28"
+        height="28"
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        style={{ color: "var(--aegis-error)" }}
+      >
         <path d="M12 4l9 16H3l9-16zM12 10v4M12 17h.01" />
       </svg>
       <Title style={{ color: "var(--aegis-error)" }}>{title}</Title>

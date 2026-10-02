@@ -55,7 +55,10 @@ async function runTests(setLines: (ls: Line[]) => void): Promise<void> {
   let song: LocalSong | undefined;
   try {
     const largest = (lib: LocalSong[]): LocalSong | undefined =>
-      lib.reduce<LocalSong | undefined>((max, s) => (!max || s.size > max.size ? s : max), undefined);
+      lib.reduce<LocalSong | undefined>(
+        (max, s) => (!max || s.size > max.size ? s : max),
+        undefined,
+      );
     let view = await musicLibraryGet();
     let best = largest(view.library.songs);
     if (!best) {
@@ -63,7 +66,11 @@ async function runTests(setLines: (ls: Line[]) => void): Promise<void> {
       return;
     }
     if (best.size < 50 * 1024 * 1024) {
-      push("曲库", "…", `最大仅 ${(best.size / 1024 / 1024).toFixed(1)} MB，触发重扫等待大文件入库…`);
+      push(
+        "曲库",
+        "…",
+        `最大仅 ${(best.size / 1024 / 1024).toFixed(1)} MB，触发重扫等待大文件入库…`,
+      );
       await musicScanStart();
       const deadline = Date.now() + 180_000;
       for (;;) {
@@ -92,7 +99,11 @@ async function runTests(setLines: (ls: Line[]) => void): Promise<void> {
     const buf = await res.arrayBuffer();
     const cr = res.headers.get("content-range") ?? "";
     const ok = res.status === 206 && buf.byteLength === 2 && cr.startsWith("bytes 0-1/");
-    push("T1 动态授权+Range", ok ? "PASS" : "FAIL", `status=${res.status} len=${buf.byteLength} CR=${cr}`);
+    push(
+      "T1 动态授权+Range",
+      ok ? "PASS" : "FAIL",
+      `status=${res.status} len=${buf.byteLength} CR=${cr}`,
+    );
   } catch (e) {
     push("T1 动态授权+Range", "FAIL", String(e));
   }
@@ -104,7 +115,11 @@ async function runTests(setLines: (ls: Line[]) => void): Promise<void> {
     const buf = await res.arrayBuffer();
     const cr = res.headers.get("content-range") ?? "";
     const ok = res.status === 206 && buf.byteLength === 1024 && cr.endsWith(`/${size}`);
-    push("T2 中段Range", ok ? "PASS" : "FAIL", `start=${start} status=${res.status} len=${buf.byteLength} CR=${cr}`);
+    push(
+      "T2 中段Range",
+      ok ? "PASS" : "FAIL",
+      `start=${start} status=${res.status} len=${buf.byteLength} CR=${cr}`,
+    );
   } catch (e) {
     push("T2 中段Range", "FAIL", String(e));
   }
@@ -118,7 +133,11 @@ async function runTests(setLines: (ls: Line[]) => void): Promise<void> {
   } catch (e) {
     const msg = String(e);
     const ok = msg.includes("TypeError") || msg.includes("Failed to fetch");
-    push("T3 越界Range", ok ? "PASS" : "FAIL", ok ? `预期内 CORS 遮蔽（416 无 ACAO）: ${msg}` : msg);
+    push(
+      "T3 越界Range",
+      ok ? "PASS" : "FAIL",
+      ok ? `预期内 CORS 遮蔽（416 无 ACAO）: ${msg}` : msg,
+    );
   }
 
   // T8 单响应上限：请求 2MB 应被截断（asset.rs `const MAX_LEN: u64 = 1000 * 1024`，源码实测 1024000 B）
@@ -126,7 +145,11 @@ async function runTests(setLines: (ls: Line[]) => void): Promise<void> {
     const res = await fetch(url, { headers: { Range: "bytes=0-2097151" } });
     const buf = await res.arrayBuffer();
     const ok = res.status === 206 && buf.byteLength === 1000 * 1024;
-    push("T8 响应上限", ok ? "PASS" : "FAIL", `请求2MB→status=${res.status} len=${buf.byteLength}（期望1024000）`);
+    push(
+      "T8 响应上限",
+      ok ? "PASS" : "FAIL",
+      `请求2MB→status=${res.status} len=${buf.byteLength}（期望1024000）`,
+    );
   } catch (e) {
     push("T8 响应上限", "FAIL", String(e));
   }
@@ -143,7 +166,11 @@ async function runTests(setLines: (ls: Line[]) => void): Promise<void> {
     const synthetic = song.name.includes("K-S03探针");
     const diff = Math.abs(dur - expect);
     const ok = gotMeta && Number.isFinite(dur) && (diff < 1 || synthetic);
-    push("T4 元数据时长", ok ? "PASS" : "FAIL", `audio=${dur.toFixed(3)}s lofty=${expect.toFixed(3)}s${synthetic && diff >= 1 ? "（合成拼接样本豁免：预估≠帧计数）" : ""}`);
+    push(
+      "T4 元数据时长",
+      ok ? "PASS" : "FAIL",
+      `audio=${dur.toFixed(3)}s lofty=${expect.toFixed(3)}s${synthetic && diff >= 1 ? "（合成拼接样本豁免：预估≠帧计数）" : ""}`,
+    );
   } catch (e) {
     push("T4 元数据时长", "FAIL", String(e));
   }
@@ -189,7 +216,11 @@ async function runTests(setLines: (ls: Line[]) => void): Promise<void> {
     await new Promise((r) => window.setTimeout(r, 700));
     const back = a.currentTime;
     const ok = advanced > 0.8 && back > 10.5 && !a.paused;
-    push("T6 断流恢复", ok ? "PASS" : "FAIL", `尾段推进${advanced.toFixed(2)}s 回跳后${back.toFixed(2)}s paused=${a.paused}`);
+    push(
+      "T6 断流恢复",
+      ok ? "PASS" : "FAIL",
+      `尾段推进${advanced.toFixed(2)}s 回跳后${back.toFixed(2)}s paused=${a.paused}`,
+    );
   } catch (e) {
     push("T6 断流恢复", "FAIL", String(e));
   }
@@ -199,7 +230,11 @@ async function runTests(setLines: (ls: Line[]) => void): Promise<void> {
     const buffered = bufferedSeconds(a);
     const ok = buffered < dur * 0.6;
     const estMb = (size * (buffered / dur)) / 1048576;
-    push("T7 缓冲窗口", ok ? "PASS" : "FAIL", `buffered=${buffered.toFixed(1)}s/${dur.toFixed(1)}s ≈${estMb.toFixed(1)}MB/${(size / 1048576).toFixed(1)}MB`);
+    push(
+      "T7 缓冲窗口",
+      ok ? "PASS" : "FAIL",
+      `buffered=${buffered.toFixed(1)}s/${dur.toFixed(1)}s ≈${estMb.toFixed(1)}MB/${(size / 1048576).toFixed(1)}MB`,
+    );
   }
 
   a.pause();
@@ -237,7 +272,9 @@ export function KS03SelfTest() {
         overflowY: "auto",
       }}
     >
-      <div style={{ fontWeight: 700, marginBottom: 4, color: "#76b900" }}>K-S03 音频 Range 探针</div>
+      <div style={{ fontWeight: 700, marginBottom: 4, color: "#76b900" }}>
+        K-S03 音频 Range 探针
+      </div>
       {lines.length === 0 && <div>准备中…</div>}
       {lines.map((l, i) => (
         <div key={i}>

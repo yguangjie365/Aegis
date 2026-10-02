@@ -5,7 +5,15 @@
 
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
-import { HStack, VStack, Box, Text, Image as ChakraImage, IconButton, Tooltip } from "@chakra-ui/react";
+import {
+  HStack,
+  VStack,
+  Box,
+  Text,
+  Image as ChakraImage,
+  IconButton,
+  Tooltip,
+} from "@chakra-ui/react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { FileMusic, ListPlus } from "lucide-react";
 import type { LocalSong } from "@/lib/tauri/music";
@@ -32,10 +40,13 @@ interface LocalSongRowProps {
   onPlayFrom: (song: LocalSong) => void;
 }
 
-export const LocalSongRow = memo(function LocalSongRow({ song, isCurrent, onPlayFrom }: LocalSongRowProps) {
+export const LocalSongRow = memo(function LocalSongRow({
+  song,
+  isCurrent,
+  onPlayFrom,
+}: LocalSongRowProps) {
   const { t } = useTranslation(["music"]);
-  const coverUrl =
-    isTauriRuntime() && song.coverPath ? convertFileSrc(song.coverPath) : "";
+  const coverUrl = isTauriRuntime() && song.coverPath ? convertFileSrc(song.coverPath) : "";
   return (
     <HStack
       spacing={3}
@@ -88,7 +99,8 @@ export const LocalSongRow = memo(function LocalSongRow({ song, isCurrent, onPlay
           </Text>
           {song.album && (
             <Text color={subTextColor} fontSize="xs" noOfLines={1}>
-              {" "}- {song.album}
+              {" "}
+              - {song.album}
             </Text>
           )}
         </HStack>

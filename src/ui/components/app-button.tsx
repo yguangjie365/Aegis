@@ -22,25 +22,33 @@ export const AppButton = styled.button<{ variant: ButtonVariant; size?: "md" | "
     background-color 120ms ease,
     border-color 120ms ease,
     color 120ms ease;
-  ${(p) => p.variant === "primary" && `
+  ${(p) =>
+    p.variant === "primary" &&
+    `
     background: var(--aegis-accent);
     color: var(--aegis-accent-on);
     &:hover { background: color-mix(in srgb, var(--aegis-accent) 90%, var(--aegis-ink)); }
     &:active { background: var(--aegis-accent-pressed); }
   `}
-  ${(p) => p.variant === "secondary" && `
+  ${(p) =>
+    p.variant === "secondary" &&
+    `
     background: transparent;
     /* 偏离①已批准（2026-10-02）：浅底 accent 仅 2.41:1 不达文字门禁，用 accent-strong；规范 §三 已同步 */
     border-color: var(--aegis-accent-strong);
     color: var(--aegis-accent-strong);
     &:hover { background: rgba(118, 185, 0, 0.06); }
   `}
-  ${(p) => p.variant === "ghost" && `
+  ${(p) =>
+    p.variant === "ghost" &&
+    `
     background: transparent;
     color: var(--aegis-mute);
     &:hover { background: var(--aegis-surface-soft); }
   `}
-  ${(p) => p.variant === "danger" && `
+  ${(p) =>
+    p.variant === "danger" &&
+    `
     background: var(--aegis-error);
     color: var(--aegis-on-dark);
     &:hover { background: color-mix(in srgb, var(--aegis-error) 88%, var(--aegis-ink)); }

@@ -97,7 +97,11 @@ interface PlaybackState {
   /** R-13：播放失败必须显式上报，不得表现为无声 */
   errorMessage: string | null;
 
-  playSong: (song: LocalSong, queue?: LocalSong[], opts?: { fromHistory?: boolean }) => Promise<void>;
+  playSong: (
+    song: LocalSong,
+    queue?: LocalSong[],
+    opts?: { fromHistory?: boolean },
+  ) => Promise<void>;
   togglePlay: () => Promise<void>;
   closePlayback: () => void;
   nextTrack: () => void;
@@ -143,17 +147,37 @@ function ensureAudio(): HTMLAudioElement | null {
     if (recovering || !st.currentSong || !st.isPlaying) return;
     const cid = newCorrelationId();
     if (recoveredSongId === st.currentSong.id) {
-      log({ level: "error", module: "Music", action: "audio:error", result: "Failed", exception: `曲 ${st.currentSong.name} 解码/读取失败`, correlationId: cid });
-      usePlayback.setState({ isPlaying: false, errorMessage: "无法播放该本地音频文件，请检查格式是否受支持" });
+      log({
+        level: "error",
+        module: "Music",
+        action: "audio:error",
+        result: "Failed",
+        exception: `曲 ${st.currentSong.name} 解码/读取失败`,
+        correlationId: cid,
+      });
+      usePlayback.setState({
+        isPlaying: false,
+        errorMessage: "无法播放该本地音频文件，请检查格式是否受支持",
+      });
       return;
     }
     recoveredSongId = st.currentSong.id;
     recovering = true;
     const savedTime = audio.currentTime;
-    log({ level: "warn", module: "Music", action: "audio:error", result: "Success", exception: "播放出错，自愈重试一次", correlationId: cid });
-    void usePlayback.getState().playSong(st.currentSong).then(() => {
-      audio.currentTime = savedTime;
+    log({
+      level: "warn",
+      module: "Music",
+      action: "audio:error",
+      result: "Success",
+      exception: "播放出错，自愈重试一次",
+      correlationId: cid,
     });
+    void usePlayback
+      .getState()
+      .playSong(st.currentSong)
+      .then(() => {
+        audio.currentTime = savedTime;
+      });
     recovering = false;
   });
   // 真正播起来了就放开自愈额度
@@ -172,7 +196,14 @@ function persist(key: string, value: string) {
   try {
     localStorage.setItem(key, value);
   } catch (e) {
-    log({ level: "warn", module: "Music", action: "persistSetting", result: "Failed", exception: String(e), correlationId: newCorrelationId() });
+    log({
+      level: "warn",
+      module: "Music",
+      action: "persistSetting",
+      result: "Failed",
+      exception: String(e),
+      correlationId: newCorrelationId(),
+    });
   }
 }
 
@@ -194,7 +225,14 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
     const cid = newCorrelationId();
     if (!isTauriRuntime()) {
       // 诚实降级：本地音频直读依赖 asset 协议，浏览器预览模式无播放能力（禁假数据）
-      log({ level: "warn", module: "Music", action: "playSong", result: "Rejected", exception: "浏览器模式无桌面运行时，播放能力不可用", correlationId: cid });
+      log({
+        level: "warn",
+        module: "Music",
+        action: "playSong",
+        result: "Rejected",
+        exception: "浏览器模式无桌面运行时，播放能力不可用",
+        correlationId: cid,
+      });
       set({ errorMessage: "后端未接入：播放需要桌面运行时" });
       return;
     }
@@ -214,7 +252,12 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
       const idx = get().playQueue.findIndex((s) => s.id === song.id);
       if (idx >= 0) set({ currentIndex: idx });
     }
-    set({ currentSong: song, duration: song.durationMs / 1000, isPlaying: false, errorMessage: null });
+    set({
+      currentSong: song,
+      duration: song.durationMs / 1000,
+      isPlaying: false,
+      errorMessage: null,
+    });
     // F-MU-19：起播/切歌自动装载歌词（后台异步，不卡界面；空文件省一次 IPC 直接给"均无"提示）
     if (song.hasLyric) void useLyrics.getState().loadForSong(song);
     else useLyrics.getState().setNoLyric(song.id);
@@ -237,7 +280,14 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
         .catch((e: unknown) => {
           if (mySeq !== playSongSeq) return;
           audio.volume = effVolume;
-          log({ level: "error", module: "Music", action: "playSong", result: "Failed", exception: String(e), correlationId: cid });
+          log({
+            level: "error",
+            module: "Music",
+            action: "playSong",
+            result: "Failed",
+            exception: String(e),
+            correlationId: cid,
+          });
           set({ isPlaying: false, errorMessage: "无法播放该本地音频文件，请检查格式是否受支持" });
         });
     };
@@ -277,7 +327,14 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
       } catch (e) {
         cancelVolumeFade();
         audio.volume = effVolume;
-        log({ level: "error", module: "Music", action: "togglePlay", result: "Failed", exception: String(e), correlationId: newCorrelationId() });
+        log({
+          level: "error",
+          module: "Music",
+          action: "togglePlay",
+          result: "Failed",
+          exception: String(e),
+          correlationId: newCorrelationId(),
+        });
         set({ isPlaying: false, errorMessage: "播放失败：无法启动音频输出" });
       }
     }
@@ -434,7 +491,10 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
       return;
     }
     // 移除的是当前曲：保持播放，队列显示变化、当前指针悬空（-1 = 不在队内）
-    set({ playQueue: newQueue, currentIndex: newQueue.length > 0 && currentIndex < newQueue.length ? currentIndex : -1 });
+    set({
+      playQueue: newQueue,
+      currentIndex: newQueue.length > 0 && currentIndex < newQueue.length ? currentIndex : -1,
+    });
   },
 
   // R-11：清空队列同时清空播放历史；当前曲不受打断（继续播完）
@@ -452,7 +512,9 @@ function recordHistory(song: LocalSong, fromHistory: boolean) {
   if (!fromHistory) {
     const prev = lastPlayedSong;
     if (prev && prev.id !== song.id) {
-      usePlayback.setState((st) => ({ playHistory: [...st.playHistory, prev].slice(-MAX_PLAY_HISTORY) }));
+      usePlayback.setState((st) => ({
+        playHistory: [...st.playHistory, prev].slice(-MAX_PLAY_HISTORY),
+      }));
     }
   }
   lastPlayedSong = song;
