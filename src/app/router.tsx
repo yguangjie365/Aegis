@@ -10,6 +10,7 @@ import { MusicManagerPage } from "@/features/MusicManager/pages/music-page";
 // 各 M-xx 开工时逐模块在 PAGE_OVERRIDES 登记真实页，未登记者继续落 ModulePlaceholder。
 const PAGE_OVERRIDES: Record<string, ReactElement> = {
   "music-manager": <MusicManagerPage />,
+  // MU-4.13：在线音乐页面已集成到 MusicManagerPage 内部（通过标签页切换）
 };
 
 export const router = createBrowserRouter([

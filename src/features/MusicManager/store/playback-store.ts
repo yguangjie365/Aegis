@@ -262,7 +262,8 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
     const effVolume = get().isMuted ? 0 : get().volume;
     const begin = () => {
       if (mySeq !== playSongSeq) return;
-      audio.src = convertFileSrc(song.path);
+      // 在线曲走本地代理（http URL 直填）；本地曲经 asset 协议直读
+      audio.src = /^https?:\/\//.test(song.path) ? song.path : convertFileSrc(song.path);
       // 自愈重试带 savedTime：回到出错位置续播，其余起播一律从头
       audio.currentTime = opts?.startTime ?? 0;
       // F-MU-18：新曲从静音淡入到目标音量，避免首帧硬响

@@ -37,8 +37,15 @@ export async function invoke<T>(
     throw new BackendUnavailableError(command);
   }
   try {
+    // 顶层展开 payload 键：兼容 `envelope + 平铺参数（platform/songId…）` 形状的 command；
+    // 只收 envelope 的 command 会忽略多余键，行为不变。
+    const extra =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : {};
     const result = await tauriInvoke<T>(command, {
       envelope: { correlationId, payload },
+      ...extra,
     });
     log({
       level: "info",
