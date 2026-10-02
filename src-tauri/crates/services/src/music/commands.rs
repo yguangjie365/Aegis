@@ -61,7 +61,9 @@ pub struct LyricResult {
     pub text: String,
 }
 
-fn payload_as<T: serde::de::DeserializeOwned>(envelope: &CmdEnvelope) -> Result<T, String> {
+pub(crate) fn payload_as<T: serde::de::DeserializeOwned>(
+    envelope: &CmdEnvelope,
+) -> Result<T, String> {
     let raw = envelope
         .payload
         .clone()

@@ -17,6 +17,29 @@ infra = { path = "../infra" }
 # MU-1 移植依赖（版本以 NexBox lockfile 实测钉版：lofty 0.21.1 / image 0.25.10，ADR-003 五步登记见 TASKS §五）
 lofty = "0.21"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico"] }
+# MU-4 凭据加密：跨平台 keyring（MIT/Apache-2.0，Windows 侧走 Credential Manager）
+# 以下 MU-4 段 17 个 crate 已按 ADR-003 五步登记于 ../../DEPENDENCIES.md §一（2026-10-02）
+keyring = { version = "3.6", features = ["windows-native"] }
+# MU-4 结构化日志
+tracing = "0.1"
+# MU-4 音频/封面代理（移植自 NexBox：axum + reqwest + futures-util）
+axum = "0.7"
+reqwest = { version = "0.12", features = ["stream", "json"] }
+futures-util = "0.3"
+tokio = { version = "1", features = ["net", "sync"] }
+# MU-4.6/4.7 网易云 API 加密依赖
+md-5 = "0.10"
+aes = "0.8"
+cbc = { version = "0.1", features = ["block-padding"] }
+num-bigint = "0.4"
+hex = "0.4"
+chrono = "0.4"
+rand = "0.8"
+base64 = "0.22"
+urlencoding = "2.1"
+# MU-4.8 QQ 音乐签名与工具依赖
+sha1 = "0.10"
+regex = "1"
 
 [lints]
 workspace = true
