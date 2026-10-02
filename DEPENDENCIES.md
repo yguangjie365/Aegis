@@ -40,7 +40,12 @@
 | typescript | ^5.8.2（dev） | Apache-2.0 | npm（dev） | 类型检查 | 🟢 | 2026-10-02（补登 W0） | 建表补登 |
 | vite / @vitejs/plugin-react | ^6 / ^4（dev） | MIT | npm（dev） | 构建 | 🟢 | 2026-10-02（补登 W0） | 建表补登 |
 | @types/node / @types/react / @types/react-dom | ^22 / ^19（dev） | MIT | npm（dev） | 类型桩 | 🟢 | 2026-10-02（补登 W0） | 建表补登 |
-| husky | 9.1.7（dev；`^9.1.7` 钉自 NexBox `package.json` 实测） | MIT | npm（dev） | pre-commit 钩子承载（`npx tsc --noEmit` 全量 + 暂存含 `src-tauri/` 时 `cargo fmt --check`） | 🟢 | 2026-10-02 | 用户 2026-10-02 拍板补装；许可落 ADR-003 允许档（MIT），`core.hooksPath=.husky/_` 仅改本仓库局部配置。🔴 两条缺口：规范要求的 **Prettier / ESLint 腿尚未装**（缺 `eslint.config`/`.prettierrc`，补它们会触发全量重排版，待用户定口径）；钩子红绿双向已实测（类型错误→退出 1、`src-tauri` 格式违规→退出 1、未暂存 Rust 改动→跳过该腿） |
+| husky | 9.1.7（dev；`^9.1.7` 钉自 NexBox `package.json` 实测） | MIT | npm（dev） | pre-commit 钩子承载（四条腿全量判定，见下行 eslint/prettier） | 🟢 | 2026-10-02 | 用户 2026-10-02 拍板补装；许可落 ADR-003 允许档（MIT），`core.hooksPath=.husky/_` 仅改本仓库局部配置。🟢 原"缺 Prettier/ESLint 腿"缺口已于同日补齐（commit `2a4a562`）；钩子红绿双向已实测：ESLint 违规→退出 1、Prettier 差异→退出 1、`src-tauri` 可达模块格式违规→退出 1、未暂存 Rust 改动→跳过该腿。 探针教训：孤儿 `.rs`（`lib.rs` 无 `pub mod`）`cargo fmt` 不遍历，钩子拦不住，测腿必须用可达模块 |
+| eslint | 9.39.5（dev；`^9.39.5` 钉自 NexBox lockfile 实测，其 `package.json` 声明 `^9.22.0`） | MIT | npm（dev） | 提交前检查点之一：`eslint . --max-warnings 0` | 🟢 | 2026-10-02 | 用户授权补装（"装依赖→补配置→全量格式化单独 commit→钩子加腿→登记"）。🔴 上游状态：9.39.5 为 `maintenance` 分支末版（`latest` 已转 10.11.0），装时报 deprecated 告警；按"逐包钉 NexBox 实测"纪律不擅自跳大版本，升级窗口随 NexBox 侧对账再议 |
+| @eslint/js | 9.39.5（dev） | MIT | npm（dev） | flat config 的 `js.configs.recommended` 底座 | 🟢 | 2026-10-02 | 同上批 |
+| typescript-eslint | 8.71.0（dev；NexBox lockfile 实测 8.70.0，`^8` 范围内） | MIT | npm（dev） | `recommendedTypeChecked` + 项目服务解析（`projectService`，覆盖 tsconfig 外的 `vite.config.ts`） | 🟢 | 2026-10-02 | 同上批；`no-explicit-any` 按编码规范 §一.1 显式设 error |
+| eslint-plugin-react-hooks | 5.2.0（dev；钉 NexBox lockfile 实测同版） | MIT | npm（dev） | `rules-of-hooks` + `exhaustive-deps`（后者规范 §三 要求 error 且禁整文件禁用） | 🟢 | 2026-10-02 | 同上批 |
+| prettier | 3.9.6（dev；钉 NexBox lockfile 实测同版，其 `package.json` 声明 `^3.5.3`） | MIT | npm（dev） | 提交前检查点之一：`prettier --check .` | 🟢 | 2026-10-02 | 同上批。`.prettierrc` 四字段照抄编码规范 §四（与 NexBox 一致）；`.prettierignore` 排除 `**/*.md`：Prettier 按最宽单元格重排中文表格，任何一次增删行都牵连整表抖动，与登记表窄列可读口径冲突 |
 | `.gitattributes`（非依赖，登记于此） | — | — | 仓库配置 | 行尾口径固定：`* text=auto eol=lf`，`*.png/*.ico/*.icns binary` | 🟢 | 2026-10-02 | 用户拍板补上；覆盖本机 `core.autocrlf=true`。加后 `git ls-files --eol` 抽查 index/worktree 均 lf，无重规范化抖动 |
 
 ## 三、移植代码登记（ADR-003 §二.5）
