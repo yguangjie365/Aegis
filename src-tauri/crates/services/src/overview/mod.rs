@@ -24,5 +24,6 @@ pub mod live;
 pub mod processes;
 pub mod sensor_bridge;
 pub mod snapshot;
+pub mod software;
 pub mod state;
 pub mod system_info;

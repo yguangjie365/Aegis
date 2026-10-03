@@ -178,5 +178,17 @@
     "health": "健康度",
     "noData": "未检测到存储设备（需管理员权限）",
     "noSmart": "仅温度（本机未提供 SMART 属性）"
+  },
+  "software": {
+    "sectionTitle": "已安装软件",
+    "title": "已安装软件",
+    "name": "名称",
+    "version": "版本",
+    "publisher": "发布商",
+    "installDate": "安装日期",
+    "size": "大小",
+    "totalApps": "共 {{count}} 个应用",
+    "noData": "没有匹配的软件 · 清空搜索框可看全部",
+    "emptyState": "未检测到已安装的桌面应用（需管理员权限读取注册表）"
   }
 }

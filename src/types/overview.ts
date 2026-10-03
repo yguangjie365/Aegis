@@ -138,3 +138,21 @@ export interface SnapshotDto {
   fingerprint: string;
   payload: HardwareDetailDto;
 }
+
+/** F-07 已安装软件清单一行 */
+export interface SoftwareRow {
+  name: string;
+  version: string | null;
+  publisher: string | null;
+  installDate: string | null;
+  /** 估计占用字节数（前端格式化为 KB/MB/GB） */
+  sizeBytes: number | null;
+}
+
+/** F-07 软件清单上行 */
+export interface SoftwareList {
+  apps: SoftwareRow[];
+  total: number;
+  /** 空态原因（R-08：无数据必写为什么是空的） */
+  reason: string | null;
+}

@@ -13,6 +13,7 @@ import type {
   MonitorStatus,
   NetEndpoints,
   SnapshotDto,
+  SoftwareList,
   TopProcesses,
 } from "@/types/overview";
 
@@ -61,5 +62,15 @@ export async function writeSnapshot(payload: HardwareDetailDto): Promise<void> {
     OVERVIEW,
     "overviewSnapshotWrite",
     payload
+  );
+}
+
+/** F-07 已安装软件清单（慢变量，不进 2 秒节拍） */
+export async function fetchSoftwareList(): Promise<SoftwareList> {
+  return invoke<SoftwareList>(
+    "overview_software_list",
+    OVERVIEW,
+    "overviewSoftwareList",
+    null
   );
 }

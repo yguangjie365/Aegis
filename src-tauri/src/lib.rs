@@ -203,6 +203,8 @@ pub fn run() {
             services::overview::commands::overview_static_info,
             services::overview::commands::overview_snapshot_read,
             services::overview::commands::overview_snapshot_write,
+            // F-07 已安装软件清单（慢变量，不进 2 秒节拍）
+            services::overview::commands::overview_software_list,
 
             // ── B-G1 Steam 主线（2026-10-03）：NexBox steam.rs（2188 行）原样搬入 ──
             // 注册顺序与 NexBox src-tauri/src/lib.rs:1209-1227 逐行一致；19 个命令全注册

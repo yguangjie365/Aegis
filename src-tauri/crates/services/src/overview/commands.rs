@@ -174,6 +174,39 @@ pub async fn overview_snapshot_write(
     snapshot::write_snapshot(&payload)
 }
 
+/// F-07 已安装软件清单（慢变量，不进 2 秒节拍）。
+///
+/// # Errors
+///
+/// 仅入参级错误：`correlationId` 缺失或全空白。采集失败返回带降级说明的 DTO（R-10），不整体报错。
+#[tauri::command]
+pub async fn overview_software_list(
+    envelope: CmdEnvelope,
+) -> Result<super::dto::SoftwareListDto, String> {
+    check_envelope(&envelope)?;
+    let apps = super::software::list_installed_apps();
+    let total = apps.len();
+    let reason = if apps.is_empty() {
+        Some("未检测到已安装的桌面应用（需管理员权限读取注册表）".to_string())
+    } else {
+        None
+    };
+    Ok(super::dto::SoftwareListDto {
+        apps: apps
+            .into_iter()
+            .map(|app| super::dto::SoftwareRowDto {
+                name: app.name,
+                version: app.display_version,
+                publisher: app.publisher,
+                install_date: app.install_date,
+                size_bytes: app.estimated_size_bytes,
+            })
+            .collect(),
+        total,
+        reason,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

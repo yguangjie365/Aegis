@@ -7,11 +7,12 @@
 import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { REFRESH_INTERVAL_MS, usePageLiveness } from "@/lib/timing/use-tick";
-import { fetchLiveSample, fetchTopProcesses, fetchNetEndpoints } from "@/lib/tauri/overview";
+import { fetchLiveSample, fetchTopProcesses, fetchNetEndpoints, fetchSoftwareList } from "@/lib/tauri/overview";
 
 export const OVERVIEW_LIVE_KEY = ["overview", "live"] as const;
 export const OVERVIEW_PROCESSES_KEY = ["overview", "processes"] as const;
 export const OVERVIEW_ENDPOINTS_KEY = ["overview", "endpoints"] as const;
+export const OVERVIEW_SOFTWARE_KEY = ["overview", "software"] as const;
 
 export function useOverviewLive() {
   const live = usePageLiveness();
@@ -58,6 +59,16 @@ export function useNetEndpoints() {
     refetchInterval: live ? REFRESH_INTERVAL_MS : false,
     refetchOnWindowFocus: false,
     staleTime: REFRESH_INTERVAL_MS,
+  });
+}
+
+/** F-07 已安装软件清单（慢变量，不进 2 秒节拍，只在挂载时取一次） */
+export function useSoftwareList() {
+  return useQuery({
+    queryKey: OVERVIEW_SOFTWARE_KEY,
+    queryFn: fetchSoftwareList,
+    refetchOnWindowFocus: false,
+    staleTime: Infinity, // 慢变量：除非手动刷新，否则不重新取
   });
 }
 

@@ -22,6 +22,29 @@ pub struct LiveSampleDto {
     pub disk_health: Vec<DiskHealthRowDto>,
 }
 
+/// F-07 已安装软件清单一行
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftwareRowDto {
+    pub name: String,
+    pub version: Option<String>,
+    pub publisher: Option<String>,
+    pub install_date: Option<String>,
+    /// 估计占用字节数（前端格式化为 KB/MB/GB）
+    pub size_bytes: Option<u64>,
+}
+
+/// F-07 软件清单上行
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftwareListDto {
+    pub apps: Vec<SoftwareRowDto>,
+    /// 过滤后的应用总数
+    pub total: usize,
+    /// 空态原因（R-08：无数据必写为什么是空的）
+    pub reason: Option<String>,
+}
+
 /// 页头条信息项（规格 §五 页头；快照状态随片2 追加字段）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

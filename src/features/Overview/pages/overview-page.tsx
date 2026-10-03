@@ -9,8 +9,9 @@ import { ErrorStateBlock, LoadingSkeleton } from "@/ui/components/state-block";
 import { DiskHealthPanel } from "@/ui/components/disk-health-panel";
 import { DualProcessTables } from "@/ui/components/process-table";
 import { NetEndpointsPanel } from "@/ui/components/net-endpoints-panel";
+import { SoftwareListPanel } from "@/ui/components/software-list-panel";
 import { ChannelStatus } from "../components/channel-status";
-import { useManualRefresh, useOverviewLive, useTopProcesses, useNetEndpoints } from "../hooks/use-overview-live";
+import { useManualRefresh, useOverviewLive, useTopProcesses, useNetEndpoints, useSoftwareList } from "../hooks/use-overview-live";
 import { formatUptime, joinHeader } from "../lib/format";
 
 // 本机概览页（M-01 片1+片2）：页头条 + 实时概览四卡 + 传感器通道状态行 + 硬件详情区 + 系统信息区。
@@ -44,6 +45,7 @@ export function OverviewPage() {
   const { live, data, isPending, isError, error, refetch, isFetching } = useOverviewLive();
   const { data: processesData } = useTopProcesses();
   const { data: endpointsData } = useNetEndpoints();
+  const { data: softwareData } = useSoftwareList();
   const refreshAll = useManualRefresh();
 
   const uptimeText = data
@@ -152,6 +154,14 @@ export function OverviewPage() {
             <>
               <SectionTitle>{t("diskHealth.sectionTitle")}</SectionTitle>
               <DiskHealthPanel rows={data.diskHealth} />
+            </>
+          )}
+
+          {/* F-07 已安装软件清单（慢变量，不进 2 秒节拍） */}
+          {softwareData && softwareData.apps.length > 0 && (
+            <>
+              <SectionTitle>{t("software.sectionTitle")}</SectionTitle>
+              <SoftwareListPanel data={softwareData} />
             </>
           )}
         </>
