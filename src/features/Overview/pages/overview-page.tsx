@@ -7,8 +7,10 @@ import { StatCard } from "@/ui/components/stat-card";
 import { SectionTitle } from "@/ui/components/section-title";
 import { ErrorStateBlock, LoadingSkeleton } from "@/ui/components/state-block";
 import { DiskHealthPanel } from "@/ui/components/disk-health-panel";
+import { DualProcessTables } from "@/ui/components/process-table";
+import { NetEndpointsPanel } from "@/ui/components/net-endpoints-panel";
 import { ChannelStatus } from "../components/channel-status";
-import { useManualRefresh, useOverviewLive } from "../hooks/use-overview-live";
+import { useManualRefresh, useOverviewLive, useTopProcesses, useNetEndpoints } from "../hooks/use-overview-live";
 import { formatUptime, joinHeader } from "../lib/format";
 
 // 本机概览页（M-01 片1+片2）：页头条 + 实时概览四卡 + 传感器通道状态行 + 硬件详情区 + 系统信息区。
@@ -40,6 +42,8 @@ const CardGrid = styled.div`
 export function OverviewPage() {
   const { t } = useTranslation("overview");
   const { live, data, isPending, isError, error, refetch, isFetching } = useOverviewLive();
+  const { data: processesData } = useTopProcesses();
+  const { data: endpointsData } = useNetEndpoints();
   const refreshAll = useManualRefresh();
 
   const uptimeText = data
@@ -127,25 +131,21 @@ export function OverviewPage() {
             </>
           )} */}
 
-          {/* F-04 进程榜（片3-e 待集成） */}
-          {/* {data.processes && (
+          {/* F-04 进程榜（CPU/内存双榜单，2 秒心跳更新） */}
+          {processesData && (
             <>
               <SectionTitle>{t("processes.sectionTitle")}</SectionTitle>
-              <DualProcessTables
-                cpuRows={data.processes.cpu}
-                memoryRows={data.processes.memory}
-                hasBaseline={data.processes.hasBaseline}
-              />
+              <DualProcessTables data={processesData} />
             </>
-          )} */}
+          )}
 
-          {/* F-05 网络端点面板（片3-e 待集成） */}
-          {/* {data.endpoints && (
+          {/* F-05 网络端点面板（按进程归属的端点数前列） */}
+          {endpointsData && (
             <>
               <SectionTitle>{t("endpoints.sectionTitle")}</SectionTitle>
-              <NetEndpointsPanel data={data.endpoints} />
+              <NetEndpointsPanel data={endpointsData} />
             </>
-          )} */}
+          )}
 
           {/* F-06 磁盘健康面板（慢变量，只在首次/全量采集时更新） */}
           {data.diskHealth && data.diskHealth.length > 0 && (

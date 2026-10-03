@@ -7,9 +7,11 @@
 import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { REFRESH_INTERVAL_MS, usePageLiveness } from "@/lib/timing/use-tick";
-import { fetchLiveSample } from "@/lib/tauri/overview";
+import { fetchLiveSample, fetchTopProcesses, fetchNetEndpoints } from "@/lib/tauri/overview";
 
 export const OVERVIEW_LIVE_KEY = ["overview", "live"] as const;
+export const OVERVIEW_PROCESSES_KEY = ["overview", "processes"] as const;
+export const OVERVIEW_ENDPOINTS_KEY = ["overview", "endpoints"] as const;
 
 export function useOverviewLive() {
   const live = usePageLiveness();
@@ -33,6 +35,30 @@ export function useOverviewLive() {
   }, [live, queryClient]);
 
   return { live, ...query };
+}
+
+/** F-04 实时进程榜（2 秒心跳同步更新） */
+export function useTopProcesses() {
+  const live = usePageLiveness();
+  return useQuery({
+    queryKey: OVERVIEW_PROCESSES_KEY,
+    queryFn: fetchTopProcesses,
+    refetchInterval: live ? REFRESH_INTERVAL_MS : false,
+    refetchOnWindowFocus: false,
+    staleTime: REFRESH_INTERVAL_MS,
+  });
+}
+
+/** F-05 网络端点面板（2 秒心跳同步更新） */
+export function useNetEndpoints() {
+  const live = usePageLiveness();
+  return useQuery({
+    queryKey: OVERVIEW_ENDPOINTS_KEY,
+    queryFn: fetchNetEndpoints,
+    refetchInterval: live ? REFRESH_INTERVAL_MS : false,
+    refetchOnWindowFocus: false,
+    staleTime: REFRESH_INTERVAL_MS,
+  });
 }
 
 /** F-10 手动全量刷新：片1 覆盖面 = 实时三路（硬件/系统/软件的慢变量随片2~片4 接入同一入口） */
