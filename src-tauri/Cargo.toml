@@ -42,6 +42,8 @@ tauri = { version = "2.10", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-single-instance = "2.4"
 # MU-1 目录选择框（版本基准 = NexBox 式实测：npm lock @tauri-apps/plugin-dialog 2.7.3 → Rust 侧 2.7 系，--precise 锁定）
 tauri-plugin-dialog = "2.7"
+# 阶段一 100% 复刻（2026-10-03）：NexBox lib.rs:312 注册 plugin-store，供音乐凭据/设置持久化使用
+tauri-plugin-store = "2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # MU-4.15 登录窗口轮询（time = 异步 sleep，clippy.toml 禁 std::thread::sleep）

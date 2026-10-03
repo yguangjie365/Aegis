@@ -24,13 +24,13 @@ keyring = { version = "3.6", features = ["windows-native"] }
 tracing = "0.1"
 # MU-4 音频/封面代理（移植自 NexBox：axum + reqwest + futures-util）
 axum = "0.7"
-reqwest = { version = "0.12", features = ["stream", "json"] }
+reqwest = { version = "0.12", features = ["stream", "json", "blocking", "cookies"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["net", "sync"] }
 # MU-4.6/4.7 网易云 API 加密依赖
 md-5 = "0.10"
 aes = "0.8"
-cbc = { version = "0.1", features = ["block-padding"] }
+cbc = { version = "0.1", features = ["block-padding", "alloc"] }
 num-bigint = "0.4"
 hex = "0.4"
 chrono = "0.4"
@@ -42,6 +42,119 @@ sha1 = "0.10"
 regex = "1"
 # M-01 本机概览 片1（2026-10-03）：占用/容量/系统信息采集（版本钉 NexBox lockfile 实测 0.30.13）
 sysinfo = "0.30"
+# M-01 本机概览 片2（2026-10-03）：WMI / NVML 属 FFI 类系统访问，按 04 分册 §一 准入表
+# （"FFI 只出现在 infra 与 elevated-helper"）声明在 crates/infra，本 crate 经 infra::wmi / infra::nvml 使用。
+# 版本与许可登记见 ../../../DEPENDENCIES.md §一，K-004 收窄口径见同文件 §五
+# libloading：system_info.rs 动态加载 ntdll RtlGetVersion（NexBox 同路径）
+libloading = "0.8"
+# M-01 片2-e：快照指纹计算（SHA-256；hex 已在 MU-4 段声明）
+sha2 = "0.10"
+
+# ── B-G1 Steam 主线新增（2026-10-03，来源：NexBox steam.rs 原样搬入）──
+# winreg：读 Windows 注册表取 Steam 安装路径 / 账号（版本钉 NexBox Cargo.toml 实测 0.52）
+winreg = "0.52"
+
+# ── 阶段一 100% 复刻新增（2026-10-03，来源：NexBox music_api 原样搬入，版本钉 NexBox Cargo.toml）──
+# log：NexBox 音乐侧统一用 log::info!/warn!/error!，Aegis 本仓其余部分用 tracing
+log = "0.4"
+# url：NexBox music_api/mod.rs 的 URL 解析（Cookie 域判定等）
+url = "2"
+# tauri-plugin-store：NexBox 用它持久化各平台登录凭据（StoreExt::store）
+tauri-plugin-store = "2"
+# 随 NexBox hotkey.rs（全局热键/媒体键）搬入所需
+tauri-plugin-global-shortcut = "2"
+# uuid：NexBox migu.rs（咪咕）生成请求 ID 用
+uuid = { version = "1", features = ["v4", "serde"] }
+# 以下 4 项为 NexBox music_api 搬入所需（版本钉 NexBox Cargo.toml 实测）
+# dirs：凭据文件目录 / mod.rs 音频代理缓存目录
+dirs = "5.0"
+# zip：qishui.rs 解压加密资源包
+zip = "2"
+# encoding_rs：qqmusic.rs 处理 GBK 编码响应
+encoding_rs = "0.8"
+
+# windows-sys：随 NexBox media_keys.rs（媒体键注册）搬入所需，版本钉 NexBox Cargo.toml
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_GdiPlus",
+    "Win32_UI_Accessibility",
+    "Win32_UI_ColorSystem",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Power",
+    "Win32_System_Memory",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_Etw",
+    "Win32_System_Time",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_System_Services",
+    "Win32_System_Registry",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_Media_Multimedia",
+    "Win32_Devices_Display",
+] }
+# windows：NexBox audio_eq.rs（虚拟声卡/均衡器 COM 互操作）与 audio_engine.rs（WASAPI）搬入所需
+# 注：这两个文件使用宿主类型，与本 crate 原「禁 UI 宿主类型」的约束冲突 —— 属 §〇·0.4
+# 「音乐模块工程层照搬 NexBox」的豁免范围，阶段二如需回归约束再统一收口。
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_System_Com",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Accessibility",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_Security",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_Devices_Properties",
+    "Devices_Bluetooth",
+    "Devices_Bluetooth_Advertisement",
+    "Devices_Bluetooth_GenericAttributeProfile",
+    "Devices_Enumeration",
+    "Foundation",
+    "Foundation_Collections",
+    "Media",
+    "Media_Control",
+    "Storage",
+    "Storage_Streams",
+    "Win32_System_WinRT",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_Media",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_Properties",
+    "Win32_System_Services",
+    "Win32_Storage",
+    "Win32_Storage_FileSystem",
+    "UI_UIAutomation",
+    "UI_Notifications",
+    "UI_Notifications_Management",
+    "ApplicationModel",
+    "implement",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_LibraryLoader",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Media_MediaFoundation",
+    "Win32_Media_Multimedia",
+    "Win32_System_Power",
+] }
 
 [lints]
 workspace = true

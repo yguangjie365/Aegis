@@ -61,6 +61,18 @@ export interface LiveSample {
   monitor: MonitorStatus;
   /** R-13 重入闸门：本拍是否有采集在途 */
   inFlight: boolean;
+  /** F-06 磁盘健康面板（慢变量，只在首次/全量采集时更新） */
+  diskHealth: DiskHealthRowDto[];
+}
+
+/** F-06 磁盘健康一行 */
+export interface DiskHealthRowDto {
+  deviceName: string;
+  temperatureC: number | null;
+  smartAttributeCount: number;
+  healthStatus: string;
+  healthPercent: number | null;
+  reason: string | null;
 }
 
 /** 进程榜一行（F-04；null = 宁缺毋滥，R-17） */
@@ -97,4 +109,32 @@ export interface NetEndpoints {
   rows: EndpointRow[];
   /** 空面板原因（R-08：空态必写为什么是空的） */
   reason: string | null;
+}
+
+/** F-02 硬件详情卡的一行键值 */
+export interface KvRowDto {
+  key: string;
+  value: string | null;
+}
+
+/** F-02 一张详情卡 */
+export interface DetailCardDto {
+  kind: string;
+  index: number;
+  rows: KvRowDto[];
+  reason: string | null;
+}
+
+/** F-02 静态硬件详情上行 */
+export interface HardwareDetailDto {
+  cards: DetailCardDto[];
+  collectedAtMs: number;
+}
+
+/** F-09 快照载体 */
+export interface SnapshotDto {
+  collectedAtMs: number;
+  writtenAtMs: number;
+  fingerprint: string;
+  payload: HardwareDetailDto;
 }

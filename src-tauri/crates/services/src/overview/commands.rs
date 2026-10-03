@@ -16,7 +16,9 @@ use tauri::State;
 
 use contracts::CmdEnvelope;
 
-use super::dto::{LiveSampleDto, MonitorStatusDto, NetEndpointsDto, TopProcessesDto};
+use super::dto::{HardwareDetailDto, LiveSampleDto, MonitorStatusDto, NetEndpointsDto, TopProcessesDto};
+use super::hardware;
+use super::snapshot;
 use super::state::OverviewState;
 
 /// 实时概览上行（F-01/F-08/F-10）。
@@ -136,6 +138,40 @@ pub async fn overview_monitor_status(
         correlation_id: envelope.correlation_id,
         status: super::live::monitor_status(&inner),
     })
+}
+
+/// 静态硬件详情上行（F-02；片2-e 注册命令时经 `spawn_blocking` 投递到阻塞线程池）。
+///
+/// # Errors
+///
+/// 仅入参级错误：`correlationId` 缺失或全空白。采集失败返回带降级卡的 DTO（R-10），不整体报错。
+#[tauri::command]
+pub async fn overview_static_info(envelope: CmdEnvelope) -> Result<HardwareDetailDto, String> {
+    check_envelope(&envelope)?;
+    // 🔴 同步采集：由命令层在 spawn_blocking 中调用本函数，避免 COM 套间与异步运行时冲突
+    Ok(hardware::collect())
+}
+
+/// 读取快照（F-09 快照秒显）。
+///
+/// 缺失/损坏/超龄均返回 `None`，调用方走冷启动全量采集。
+#[tauri::command]
+pub async fn overview_snapshot_read(_envelope: CmdEnvelope) -> Result<Option<snapshot::Snapshot>, String> {
+    Ok(snapshot::read_snapshot())
+}
+
+/// 写入快照（F-09 快照秒显）。
+///
+/// # Errors
+///
+/// 序列化或原子写失败时返回原因。
+#[tauri::command]
+pub async fn overview_snapshot_write(
+    envelope: CmdEnvelope,
+    payload: HardwareDetailDto,
+) -> Result<(), String> {
+    check_envelope(&envelope)?;
+    snapshot::write_snapshot(&payload)
 }
 
 #[cfg(test)]

@@ -12,11 +12,11 @@
 use std::time::Duration;
 
 use contracts::CmdEnvelope;
-use services::music::auth::{self, MusicPlatform};
 use services::music::login_window::{
     build_cookie_from_webview, is_netease_domain, is_qq_domain, login_popup_should_close,
     NETEASE_COOKIE_PRIORITY, QQ_COOKIE_PRIORITY,
 };
+use services::music::music_api::cookie as music_cookie;
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 /// WebView2 参数：与主窗口口径一致（禁 Chromium 自动媒体会话，避免与 SMTC 会话重复）
@@ -29,7 +29,6 @@ struct LoginFlow {
     login_url: &'static str,
     /// 登录态不完整时跳转的预热 URL（QQ：触发更完整的 cookie 写入）
     warmup_url: Option<&'static str>,
-    platform: MusicPlatform,
     provider: &'static str,
     priority: &'static [&'static str],
     domain_check: fn(&str) -> bool,
@@ -49,12 +48,11 @@ static NETEASE_FLOW: LoginFlow = LoginFlow {
     title: "网易云音乐登录",
     login_url: "https://music.163.com/#/login",
     warmup_url: None,
-    platform: MusicPlatform::Netease,
     provider: "netease",
     priority: NETEASE_COOKIE_PRIORITY,
     domain_check: is_netease_domain,
-    done: services::music::cookie::netease_cookie_has_login,
-    has_login: services::music::cookie::netease_cookie_has_login,
+    done: services::music::music_api::cookie::netease_cookie_has_login,
+    has_login: services::music::music_api::cookie::netease_cookie_has_login,
     poll_interval: Duration::from_secs(2),
     timeout_accept: None,
     inner_size: (940.0, 760.0),
@@ -66,14 +64,13 @@ static QQ_FLOW: LoginFlow = LoginFlow {
     title: "QQ 音乐登录",
     login_url: "https://y.qq.com/n/ryqq/profile",
     warmup_url: Some("https://y.qq.com/n/ryqq/player"),
-    platform: MusicPlatform::QQ,
     provider: "qq",
     priority: QQ_COOKIE_PRIORITY,
     domain_check: is_qq_domain,
-    done: services::music::cookie::qq_cookie_has_playback,
-    has_login: services::music::cookie::qq_cookie_has_login,
+    done: services::music::music_api::cookie::qq_cookie_has_playback,
+    has_login: services::music::music_api::cookie::qq_cookie_has_login,
     poll_interval: Duration::from_millis(1200),
-    timeout_accept: Some(services::music::cookie::qq_cookie_has_login),
+    timeout_accept: Some(services::music::music_api::cookie::qq_cookie_has_login),
     inner_size: (900.0, 720.0),
     min_size: (760.0, 560.0),
 };
@@ -81,21 +78,37 @@ static QQ_FLOW: LoginFlow = LoginFlow {
 /// 打开平台官方登录窗口（页面默认即扫码登录）
 ///
 /// 同平台重复点击：清空浏览数据并回登录页（NexBox 语义）。
+///
+/// 🔴 契约适配记录（2026-10-03，修复登录窗口调用失败）：
+/// 本命令初版签名为 `(app, envelope: CmdEnvelope, platform: String)`，但前端
+/// `MusicManager/store/music-store.ts` 是 **NexBox 原件复刻**，其调用形状为
+/// `invoke("music_open_login_window", { provider })`——直连 `@tauri-apps/api/core`、
+/// 不经 `@/lib/tauri/invoke`、不带 envelope。两处不一致导致 Tauri v2 参数校验失败
+/// （缺必填 `envelope` + 无 `platform` 键），登录流程在运行时直接报错。
+/// 核对 `Source/NexBox/src-tauri/src/music_api/mod.rs:938`，原件签名本就是
+/// `(app, provider: String)`，**原件是自洽的**，契约错配源自 Aegis 自建时单方面
+/// 改签名未同步复刻前端。
+/// 故按「铁律冲突优先保持复用」修正为：
+///   1. 参数名回到原件口径 `provider`（不动复刻前端）；
+///   2. `envelope` 放宽为 `Option`——经 `@/lib/tauri/invoke` 调用时仍能取到
+///      `correlationId` 串日志，复刻前端直连时降级为 `unknown`，不再报错。
 #[tauri::command]
 pub async fn music_open_login_window(
     app: AppHandle,
-    envelope: CmdEnvelope,
-    platform: String,
+    provider: String,
+    envelope: Option<CmdEnvelope>,
 ) -> Result<String, String> {
-    let correlation_id = envelope.correlation_id.clone();
-    let flow = match platform.as_str() {
+    let correlation_id = envelope
+        .map(|e| e.correlation_id)
+        .unwrap_or_else(|| "unknown".to_string());
+    let flow = match provider.as_str() {
         "netease" => &NETEASE_FLOW,
         "qq" => &QQ_FLOW,
         _ => {
             tracing::warn!(
                 correlation_id = correlation_id,
                 command = "music_open_login_window",
-                platform = %platform,
+                platform = %provider,
                 action = "open_validate",
                 result = "failure",
                 duration_ms = 0,
@@ -103,7 +116,7 @@ pub async fn music_open_login_window(
                 user_id = "",
                 "不支持的音乐平台"
             );
-            return Err(format!("不支持的音乐平台: {platform}"));
+            return Err(format!("不支持的音乐平台: {provider}"));
         }
     };
 
@@ -361,32 +374,35 @@ async fn finish_login(
     cookie_str: String,
     correlation_id: &str,
 ) {
-    let save_result = auth::save_credential(flow.platform, &cookie_str, correlation_id);
-    match save_result {
-        auth::CredentialResult::Success => {}
-        auth::CredentialResult::SystemError(e) => {
-            tracing::error!(
-                correlation_id = correlation_id,
-                command = "music_open_login_window",
-                platform = flow.provider,
-                action = "credential_save",
-                result = "failure",
-                duration_ms = 0,
-                error_code = "CREDENTIAL_SAVE_FAILED",
-                user_id = "",
-                "凭据保存失败: {e}"
-            );
-            close_login_window_with_popups(app, flow.label);
-            let _ = app.emit("music-login-failed", format!("凭据保存失败: {e}"));
-            return;
-        }
-        _ => {}
+    // 凭据保存改走 **NexBox 原路径** `music_api::cookie::save_cookie`（tauri-plugin-store
+    // 的 settings.json，键 `cookie_<provider>`）。
+    //
+    // 🔴 2026-10-03 变更：原实现调 Aegis 自造的 `auth::save_credential`（Windows
+    // Credential Manager），该文件随「全删 Aegis 自造层」整体删除。改接 NexBox 原路径后：
+    //   - 存储位置从 Credential Manager 变为 settings.json（与 NexBox 一致，复刻保真）；
+    //   - 键名沿用 `cookie_<provider>`，NexBox 侧 `load_cookie` / `clear_cookie` 可直接读；
+    //   - `LoginFlow.platform` 字段随之删除（`provider` 字符串即 `save_cookie` 所需键）。
+    if let Err(e) = music_cookie::save_cookie(app, flow.provider, &cookie_str) {
+        tracing::error!(
+            correlation_id = correlation_id,
+            command = "music_open_login_window",
+            platform = flow.provider,
+            action = "credential_save",
+            result = "failure",
+            duration_ms = 0,
+            error_code = "CREDENTIAL_SAVE_FAILED",
+            user_id = "",
+            "凭据保存失败: {e}"
+        );
+        close_login_window_with_popups(app, flow.label);
+        let _ = app.emit("music-login-failed", format!("凭据保存失败: {e}"));
+        return;
     }
     close_login_window_with_popups(app, flow.label);
 
     let info = match flow.provider {
-        "netease" => services::music::netease::login_status(&cookie_str).await,
-        _ => services::music::qqmusic::login_info(&cookie_str).await,
+        "netease" => services::music::music_api::netease::login_status(&cookie_str).await,
+        _ => services::music::music_api::qqmusic::login_info(&cookie_str).await,
     };
     match info {
         Ok(info) if info.logged_in => {

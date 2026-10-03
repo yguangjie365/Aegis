@@ -13,6 +13,18 @@
 //! 一律经 `windows` / `windows-sys` crate 官方生成绑定（01 总览 §二）。
 
 pub mod fs;
+// M-01 片2-c（2026-10-03）：显示器分辨率/刷新率 + EDID 注册表读（FFI 层，准入表 §一）。
+#[cfg(windows)]
+pub mod display;
 pub mod net_tcp_table;
+// M-01 片2-b（2026-10-03）：静态硬件采集的两条 FFI 通道（WMI/COM、NVML/libloading）
+// 按 §一 准入表只准落本 crate，`services` 经这两个模块使用。
+#[cfg(windows)]
+pub mod nvml;
 pub mod registry;
 pub mod sidecar;
+// M-01 片3-c（2026-10-03）：SMART 硬盘健康度检测（CrystalDiskInfo 移植，FFI 层）
+#[cfg(windows)]
+pub mod smart;
+#[cfg(windows)]
+pub mod wmi;

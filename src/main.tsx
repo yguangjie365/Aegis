@@ -17,30 +17,35 @@ import { theme } from "@/ui/theme";
 import { router } from "@/app/router";
 import "@/i18n";
 
+// ── 阶段一 100% 复刻（2026-10-03）：音乐域 Provider 链 ──
+// NexBox `src/main.tsx:123-138` 的嵌套为：
+//   AppStartup > Update > Background > ThemeColor > Font > LiquidGlassSvgFilter > ThemeMode > App
+// 其中 Update（更新检查）与 ThemeMode（主题模式）属 NexBox 壳层、Aegis 无对应能力，本轮不引入；
+// 音乐页面实际消费的是以下 4 个 Provider + SVG filter，**嵌套顺序照抄 NexBox**。
+import { AppStartupProvider } from "@/features/MusicManager/contexts/app-startup-context";
+import { BackgroundProvider } from "@/features/MusicManager/contexts/background-context";
+import { ThemeColorProvider } from "@/features/MusicManager/contexts/theme-color-context";
+import { LiquidGlassSvgFilter } from "@/features/MusicManager/components/liquid-glass-svg-filter";
+
 // W0-15 完整装配（AbortSignal 透传 invoke）在途；此处先立 QueryClient 挂载点
 const queryClient = new QueryClient();
-
-// K-S03 探针（spike）：仅当构建期注入 VITE_SPIKE=K-S03 时挂载；常规构建该分支为
-// 静态 false，死代码被摇树剔除，探针代码不进产物。
-const SpikePanel =
-  (import.meta.env.VITE_SPIKE as string | undefined) === "K-S03"
-    ? React.lazy(() =>
-        import("@/features/MusicManager/spike/k-s03-selftest").then((m) => ({
-          default: m.KS03SelfTest,
-        })),
-      )
-    : null;
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ChakraProvider theme={theme}>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-        {SpikePanel && (
-          <React.Suspense fallback={null}>
-            <SpikePanel />
-          </React.Suspense>
-        )}
+        {/* 音乐域 Provider 链（顺序对齐 NexBox main.tsx:123-138） */}
+        <AppStartupProvider>
+          <BackgroundProvider>
+            <ThemeColorProvider>
+              {/* 🔴 FontProvider 已随桌面歌词能力一并移除（2026-10-03 用户裁决：
+                  Aegis 未实现多窗口，桌面歌词浮窗无法打开 → 该能力整体移除，
+                  其依赖的 font-context / fonts / hotkey-recorder / desktop-lyrics-* 一并删除）*/}
+              <LiquidGlassSvgFilter />
+              <RouterProvider router={router} />
+            </ThemeColorProvider>
+          </BackgroundProvider>
+        </AppStartupProvider>
       </QueryClientProvider>
     </ChakraProvider>
   </React.StrictMode>,

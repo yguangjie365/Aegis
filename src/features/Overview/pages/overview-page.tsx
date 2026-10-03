@@ -4,14 +4,16 @@ import { PageHeader } from "@/ui/components/page-header";
 import { AppButton } from "@/ui/components/app-button";
 import { LiveDot } from "@/ui/components/live-dot";
 import { StatCard } from "@/ui/components/stat-card";
+import { SectionTitle } from "@/ui/components/section-title";
 import { ErrorStateBlock, LoadingSkeleton } from "@/ui/components/state-block";
+import { DiskHealthPanel } from "@/ui/components/disk-health-panel";
 import { ChannelStatus } from "../components/channel-status";
 import { useManualRefresh, useOverviewLive } from "../hooks/use-overview-live";
 import { formatUptime, joinHeader } from "../lib/format";
 
-// 本机概览页（M-01 片1）：页头条 + 实时概览四卡 + 传感器通道状态行。
+// 本机概览页（M-01 片1+片2）：页头条 + 实时概览四卡 + 传感器通道状态行 + 硬件详情区 + 系统信息区。
 // 布局母本 = Source/SystemToolkit 的 OverviewView.xaml（单列垂直流 + 顶部四卡等宽一排），
-// 已按批准方案的六分区线框落地第 1 分区；其余分区随片2~片4 逐片追加在同一列流里。
+// 已按批准方案的六分区线框落地第 1-3 分区；其余分区随片3~片4 逐片追加在同一列流里。
 
 const Page = styled.div`
   max-width: 1280px;
@@ -100,6 +102,58 @@ export function OverviewPage() {
             ))}
           </CardGrid>
           <ChannelStatus monitor={data.monitor} />
+
+          {/* F-02 硬件详情区（片2-e 待集成） */}
+          {/* {data.detail && data.detail.cards.length > 0 && (
+            <>
+              <SectionTitle>{t("detail.sectionTitle")}</SectionTitle>
+              <DetailGrid>
+                {data.detail.cards.map((card, idx) => (
+                  <KeyValueCard key={`${card.kind}-${card.index}-${idx}`} card={card} />
+                ))}
+              </DetailGrid>
+            </>
+          )} */}
+
+          {/* F-03 系统信息区（片2-e 待集成） */}
+          {/* {data.systemInfo && data.systemInfo.length > 0 && (
+            <>
+              <SectionTitle>{t("systemInfo.sectionTitle")}</SectionTitle>
+              <DetailGrid>
+                {data.systemInfo.map((card, idx) => (
+                  <KeyValueCard key={`sys-${card.kind}-${idx}`} card={card} />
+                ))}
+              </DetailGrid>
+            </>
+          )} */}
+
+          {/* F-04 进程榜（片3-e 待集成） */}
+          {/* {data.processes && (
+            <>
+              <SectionTitle>{t("processes.sectionTitle")}</SectionTitle>
+              <DualProcessTables
+                cpuRows={data.processes.cpu}
+                memoryRows={data.processes.memory}
+                hasBaseline={data.processes.hasBaseline}
+              />
+            </>
+          )} */}
+
+          {/* F-05 网络端点面板（片3-e 待集成） */}
+          {/* {data.endpoints && (
+            <>
+              <SectionTitle>{t("endpoints.sectionTitle")}</SectionTitle>
+              <NetEndpointsPanel data={data.endpoints} />
+            </>
+          )} */}
+
+          {/* F-06 磁盘健康面板（慢变量，只在首次/全量采集时更新） */}
+          {data.diskHealth && data.diskHealth.length > 0 && (
+            <>
+              <SectionTitle>{t("diskHealth.sectionTitle")}</SectionTitle>
+              <DiskHealthPanel rows={data.diskHealth} />
+            </>
+          )}
         </>
       ) : null}
     </Page>

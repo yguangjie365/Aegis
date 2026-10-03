@@ -26,66 +26,228 @@ pub fn run() {
             focus_main(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        // 阶段一 100% 复刻（2026-10-03）：NexBox lib.rs:312 同款注册，供音乐域凭据/设置持久化
+        .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             // 🔴 注册点：此处只允许 `services::<域>::<command>` 薄转发，禁在本 crate 写 command 实体
             services::sys::sys_runtime_ping,
-            services::music::commands::music_scan_import_root,
-            services::music::commands::music_scan_start,
-            services::music::commands::music_scan_cancel,
-            services::music::commands::music_library_get,
-            services::music::commands::music_lyric_read,
-            services::music::proxy::music_get_proxy_port,
-            services::music::online::music_search,
-            services::music::online::music_song_url,
-            services::music::online::music_user_playlist,
-            services::music::online::music_playlist_tracks,
-            services::music::online::music_recommend_songs,
-            services::music::online::music_recommend_resource,
-            services::music::online::music_rank_list,
-            services::music::online::music_rank_songs,
-            services::music::online::music_login_status,
-            services::music::online::music_login_cookie,
-            services::music::online::music_logout,
-            services::music::online::music_lyric_online,
-            services::music::online::music_like_song,
-            services::music::online::music_liked_songs,
-            services::music::online::music_song_comments,
-            services::music::online::music_send_comment,
-            services::music::online::music_artist_detail,
-            services::music::online::music_album_detail,
-            services::music::online::music_mv_url,
+            // 🔴 Aegis 自造层的 6 个命令注册已删除（2026-10-03 用户裁决「全删自造层」）：
+            //    music_scan_import_root / music_scan_start / music_scan_cancel /
+            //    music_library_get / music_lyric_read / music_get_proxy_port。
+            //    实测依据：① 13 个自造命令全部零前端调用（前端走 NexBox 原名）；
+            //    ② 其前端门面 src/lib/tauri/music.ts 整个文件零 import。
+            //    保留下方 music_api::* 全部 NexBox 原命令 + cmd_get_proxy_port（前端在用）。
+
+            // ── B4 阶段一复刻（2026-10-03）：music-store.ts（NexBox 原样搬入）调用的命令 ──
+// 按 NexBox src-tauri/src/lib.rs 的注册口径分组：music_api::（平台 API）/ music::（本地曲库）
+// / smtc::（系统媒体会话）/ external_player::（外部播放器接管）。
+// 命令实现均为 B1/B2 已搬入的 NexBox 原件，此处仅补注册。
+            services::music::music_api::audio_proxy::cmd_get_proxy_port,
+            services::music::music_api::kugou_liked_hashes,
+            services::music::music_api::kugou_lyric,
+            services::music::music_api::kugou_rank_list,
+            services::music::music_api::kugou_song_url,
+            services::music::music_api::migu_artist_search,
+            services::music::music_api::migu_artist_songs,
+            services::music::music_api::migu_lyric,
+            services::music::music_api::migu_rank_list,
+            services::music::music_api::migu_rank_songs,
+            services::music::music_api::migu_recommend_playlists,
+            services::music::music_api::migu_song_url,
+            services::music::music_api::music_get_playback_source,
+            services::music::music_api::music_like,
+            services::music::music_api::music_likelist,
+            services::music::music_api::music_lyric,
+            services::music::music_api::music_playlist_detail,
+            services::music::music_api::music_switch_provider,
+            services::music::music::get_music_files,
+
+            // ── 终检补注册（2026-10-03）：对齐 NexBox lib.rs 音乐侧全量口径 ──
+// 上列命令前端当前零引用（NexBox 侧亦仅供壳层/其它页面使用），
+// 但按「100% 复刻 = 能力不缺」口径一并注册，避免阶段二接入时再缺。
+//
+// 🔴 例外：`music_api::music_open_login_window`（mod.rs:945）已**移除注册**（2026-10-03）。
+//     它与宿主层 `music_login::music_open_login_window`（lib.rs:236）**同名**，而 Tauri
+//     对同名 command 的解析不确定 → 可能命中「只开窗、不轮询 cookie、不写凭据」的旧版，
+//     表现为「点了登录、窗口开了、但登录态永远不落库」的功能性失效。
+//     保留功能完整（轮询 + cookie 捕获 + `save_cookie` + emit 事件）的宿主版本，勿加回。
+            services::external_player::external_player_state,
+            services::music::music_api::kugou_guess_like,
+            services::music::music_api::kugou_login_cookie,
+            services::music::music_api::kugou_rank_songs,
+            services::music::music_api::music_login_qr_check,
+            services::music::music_api::music_login_qr_create,
+            services::music::music_api::music_login_qr_key,
+            services::music::music_api::music_personalized,
+            services::music::music_api::music_playlist_info_with_track_ids,
+            services::music::music_api::music_qq_recommend_playlists,
+            services::music::music_api::qq_login_cookie,
+            services::media_keys::set_media_keys_enabled,
+
+            // ── EQ 调音命令（2026-10-03 补注册）──
+// audio_eq.rs 随 NexBox 原件搬入（20 个 tauri 命令），但 lib.rs 未注册；
+// 对照 NexBox src-tauri/src/lib.rs:938-957 的注册段逐条补齐（含虚拟声卡
+// install/uninstall_virtual_audio_driver —— 涉及系统驱动变更，
+// AGENTS.md「特权操作一律经提权通道」对本模块暂不豁免，实机验证前不得执行）。
+            services::music::audio_eq::check_virtual_audio_driver,
+            services::music::audio_eq::install_virtual_audio_driver,
+            services::music::audio_eq::uninstall_virtual_audio_driver,
+            services::music::audio_eq::start_eq_engine,
+            services::music::audio_eq::stop_eq_engine,
+            services::music::audio_eq::get_eq_engine_status,
+            services::music::audio_eq::get_eq_presets,
+            services::music::audio_eq::apply_eq_preset,
+            services::music::audio_eq::import_eq_preset,
+            services::music::audio_eq::delete_eq_preset,
+            services::music::audio_eq::save_eq_preset,
+            services::music::audio_eq::export_fac_file,
+            services::music::audio_eq::get_audio_levels,
+            services::music::audio_eq::get_spectrum,
+            services::music::audio_eq::get_default_audio_device,
+            services::music::audio_eq::list_audio_devices,
+            services::music::audio_eq::update_eq_bands,
+            services::music::audio_eq::update_eq_preamp,
+            services::music::audio_eq::update_eq_effects,
+            services::music::audio_eq::get_eq_effects,
+
+            // ── B5 补注册（2026-10-03）：按平台分派的 34 个命令 ──
+// 起因：B4 补注册时按 `invoke("xxx")` 直接字面量扫描，漏了 loadUserPlaylistsFor /
+// loginStatusFor 等函数内的**三元分派**串（如 `kugou ? "kugou_user_playlists" : ...`），
+// 导致这些命令后端已实现但未注册 → 运行时 command not found →
+// 界面表现：登录态显示正常（走 music_login_status 等已注册命令），
+// 但歌单/歌手/搜索/分页区空白（走 qq_user_playlists 等未注册命令）。
+// 全部命令实现均在 B1 搬入的 NexBox `music_api/mod.rs`（汽水 3 个在 `qishui.rs`）内，此处仅补注册。
+            services::music::music_api::kugou_artist_search,
+            services::music::music_api::kugou_artist_songs,
+            services::music::music_api::kugou_like_toggle,
+            services::music::music_api::kugou_login_status,
+            services::music::music_api::kugou_logout,
+            services::music::music_api::kugou_playlist_search,
+            services::music::music_api::kugou_playlist_tracks,
+            services::music::music_api::kugou_playlist_tracks_range,
+            services::music::music_api::kugou_search,
+            services::music::music_api::kugou_user_playlists,
+            services::music::music_api::migu_login_status,
+            services::music::music_api::migu_logout,
+            services::music::music_api::migu_playlist_search,
+            services::music::music_api::migu_playlist_tracks,
+            services::music::music_api::migu_playlist_tracks_range,
+            services::music::music_api::migu_search,
+            services::music::music_api::migu_user_playlists,
+            services::music::music_api::music_get_login_statuses,
+            services::music::music_api::qishui::qishui_logout,
+            services::music::music_api::qishui::qishui_playlist_tracks,
+            services::music::music_api::qishui::qishui_feed_modes,
+            services::music::music_api::qishui::qishui_user_playlists,
+            services::music::music_api::qq_artist_search,
+            services::music::music_api::qq_artist_songs,
+            services::music::music_api::qq_like_toggle,
+            services::music::music_api::qq_login_status,
+            services::music::music_api::qq_logout,
+            services::music::music_api::qq_playlist_search,
+            services::music::music_api::qq_playlist_tracks,
+            services::music::music_api::qq_playlist_tracks_range,
+            services::music::music_api::qq_search,
+            services::music::music_api::qq_user_playlists,
+            services::music::music_api::qishui::qishui_deps_download,
+            services::music::music_api::qishui::qishui_deps_status,
+            services::music::music_api::qishui::qishui_feed,
+            services::music::music_api::qishui::qishui_lyric,
+            services::music::music_api::qishui::qishui_qr_check,
+            services::music::music_api::qishui::qishui_qr_get,
+            services::music::music_api::qishui::qishui_search,
+            services::music::music_api::qishui::qishui_search_artists,
+            services::music::music_api::qishui::qishui_search_playlists,
+            services::music::music_api::qishui::qishui_song_url,
+            services::music::music_api::qishui::qishui_status,
+            services::music::music_api::qq_liked_hashes,
+            services::music::music_api::qq_lyric,
+            services::music::music_api::qq_rank_list,
+            services::music::music_api::qq_rank_songs,
+            services::music::music_api::qq_song_url,
+            services::music::music::delete_cover_cache_files,
+            services::music::music::get_local_lyric,
+            services::music::music::import_local_music,
+            services::music::music::import_local_music_folder,
+            services::music::music::verify_local_covers,
+            services::music::smtc::smtc_clear,
+            services::music::smtc::smtc_update_state,
+            services::external_player::external_control,
+            services::music::music_api::music_search,
+            services::music::music_api::music_song_url,
+            services::music::music_api::music_user_playlist,
+            services::music::music_api::music_playlist_tracks,
+            services::music::music_api::music_recommend_songs,
+            services::music::music_api::music_recommend_resource,
+            services::music::music_api::music_playlist_subscribe,
+            services::music::music_api::music_playlist_search,
+            services::music::music_api::music_artist_search,
+            services::music::music_api::music_artist_songs,
+            services::music::music_api::music_artist_albums,
+            services::music::music_api::music_artist_mvs,
+            services::music::music_api::music_simi_song,
+            services::music::music_api::music_playlist_tracks_range,
+            services::music::music_api::music_login_status,
+            services::music::music_api::music_login_cookie,
+            services::music::music_api::music_logout,
+            services::music::music_api::music_song_comments,
+            services::music::music_api::music_send_comment,
+            services::music::music_api::music_artist_detail,
+            services::music::music_api::music_album_detail,
+            services::music::music_api::music_mv_url,
             // M-01 片1：本机概览采集面（只读命令；传感器通道生命周期在 services 内部）
             services::overview::commands::overview_live_sample,
             services::overview::commands::overview_top_processes,
             services::overview::commands::overview_net_endpoints,
             services::overview::commands::overview_monitor_status,
+            services::overview::commands::overview_static_info,
+            services::overview::commands::overview_snapshot_read,
+            services::overview::commands::overview_snapshot_write,
+
+            // ── B-G1 Steam 主线（2026-10-03）：NexBox steam.rs（2188 行）原样搬入 ──
+            // 注册顺序与 NexBox src-tauri/src/lib.rs:1209-1227 逐行一致；19 个命令全注册
+            // 口径原为「能力不缺」，但 uninstall_steam_game 经用户裁决删除（卸载归客户端），实为 18 个。
+            services::steam::steam::get_steam_install_info,
+            services::steam::steam::get_steam_users,
+            services::steam::steam::get_steam_libraries,
+            services::steam::steam::get_steam_games,
+            services::steam::steam::get_steam_all_data,
+            services::steam::steam::launch_steam_client,
+            services::steam::steam::launch_steam_game,
+            services::steam::steam::open_steam_store_page,
+            services::steam::steam::open_game_folder,
+            services::steam::steam::switch_steam_account,
+            services::steam::steam::delete_steam_account,
+            // 🔴 uninstall_steam_game 已按用户裁决（2026-10-03）删除 —— 卸载由 Steam 客户端管理
+            services::steam::steam::install_steam_game,
+            services::steam::steam::format_file_size,
+            services::steam::steam::get_steam_stats,
+            services::steam::steam::get_library_disk_info,
+            services::steam::steam::steam_debug,
+            services::steam::steam::get_steam_user_avatars,
+            services::steam::steam::get_steam_inventory,
+
+            // ── Steam 在线库存（Aegis 新增 · 2026-10-03 用户裁决）──
+            // NexBox 的 get_steam_inventory 纯本地、无 API Key 路径（source 只有
+            // cache/none），故按 SystemToolkit 的 GetOwnedGames 补全在线能力。
+            // API Key 的**录入 UI 放设置页**（用户明确要求不放游戏管理页）。
+            // 同样必须写全路径（inventory_online 不是 steam::steam）。
+            services::steam::inventory_online::steam_api_key_status,
+            services::steam::inventory_online::steam_save_api_key,
+            services::steam::inventory_online::get_steam_inventory_online,
+            services::steam::inventory_online::steam_installed_appids,
+
             // 🔴 窗口命令例外（music_login.rs 头注）：WebviewWindow 属宿主类型无法下沉 services
             music_login::music_open_login_window
         ])
         .setup(|app| {
-            // MU-1：music 状态托管 + 曲库缓存加载（R-7 首启静默 / 损坏降级警告）
-            {
-                use services::music::library::MusicState;
-                let state = MusicState::new();
-                match app.path().app_data_dir() {
-                    Ok(dir) => {
-                        let outcome = state.load_from_disk(&dir);
-                        if outcome.cache_warning {
-                            eprintln!("[music] 曲库缓存损坏，已重置（R-7）");
-                        }
-                        if outcome.pruned > 0 {
-                            eprintln!("[music] 启动自愈剔除 {} 条已消失曲目", outcome.pruned);
-                        }
-                    }
-                    Err(e) => eprintln!("[music] app_data_dir 获取失败，本次会话从空曲库开始: {e}"),
-                }
-                // MU-2（Q-16）：启动时把已登记曲库根重新授予 asset 协议（授权不跨进程持久）
-                let handle = app.handle().clone();
-                for root in state.snapshot().roots {
-                    services::music::commands::allow_asset_root(&handle, &root);
-                }
-                app.manage(state);
-            }
+            // 🔴 MU-1 曲库状态托管段已删除（2026-10-03 用户裁决「全删 Aegis 自造层」）：
+            //     原先在此 new MusicState + 从 app_data_dir 加载曲库缓存 + 对各曲库根
+            //     重授 asset 协议（services::music::{library, commands}），随自造层整体移除。
+            //     现音乐域为纯 NexBox 复刻形态：曲库读取走 music_api 的本地扫描命令，
+            //     登录凭据走 music_api::cookie::save_cookie（见 music_login.rs）。
+            //     如后续要恢复 Aegis 自建本地曲库（目录树 + 元数据标签 + 封面代理），
+            //     应作为**新功能**重新设计，不再挂回 MU-1 的过渡形态。
             // M-01 片1：概览域状态托管（传感器桥 + 缓存 + sysinfo 实例；随应用生命周期释放，
             // 桥的 `Drop` 负责收掉 sidecar 子进程，🔴 本壳不含任何域逻辑）
             {

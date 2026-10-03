@@ -6,7 +6,7 @@
 //! 🔴 设计纪律：**凡"要不要显示"的判定都在 Rust 侧做完**（R-07 回退链、R-08 状态诚实、R-09 徽章分级），
 //! 前端只按 `Option`/枚举渲染，不再二次猜测——否则同一口径会在两端各长一遍并漂移。
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// 一次实时节拍的上行包（`overview_live_sample` 载荷）。
 #[derive(Debug, Clone, Serialize)]
@@ -18,6 +18,8 @@ pub struct LiveSampleDto {
     pub monitor: MonitorStatusDto,
     /// R-13 重入闸门：本拍是否有采集在途（true 时前端跳过并给出原因）
     pub in_flight: bool,
+    /// F-06 磁盘健康面板（慢变量，只在首次/全量采集时更新）
+    pub disk_health: Vec<DiskHealthRowDto>,
 }
 
 /// 页头条信息项（规格 §五 页头；快照状态随片2 追加字段）。
@@ -171,6 +173,77 @@ pub struct NetEndpointsDto {
     pub reason: Option<String>,
 }
 
+/// 详情卡类目（规格 §五「详细信息」的逐卡键值行；F-02，片2-b）。
+///
+/// 🔴 类目名与前端 i18n 的键一一对应：新增类目必须同时改 `src/locales/zh-CN/overview.ts`，
+/// 否则前端只会退化成裸键名。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DetailKind {
+    Cpu,
+    Gpu,
+    Storage,
+    Memory,
+    Board,
+    Bios,
+    Network,
+    Audio,
+    /// 随片2-c（`infra::display` + EDID）上屏，本批不产出
+    Display,
+    /// 系统信息：操作系统面板（片2-d）
+    Os,
+    /// 系统信息：用户/区域面板（片2-d）
+    UserRegion,
+}
+
+/// 详情卡的一行键值（F-02）。
+///
+/// `key` 是 i18n 键（🔴 不是中文文案，文案归前端，与 `HeaderDto` 同一口径）；
+/// `value = None` 一律渲染成"未检测"（R-08），🔴 不得用型号或容量冒充缺失值。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KvRowDto {
+    pub key: String,
+    pub value: Option<String>,
+}
+
+/// 一张详情卡（F-02）。同类多设备按 `index` 全列（R-01），单值卡恒 0。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetailCardDto {
+    pub kind: DetailKind,
+    pub index: usize,
+    pub rows: Vec<KvRowDto>,
+    /// 整卡降级原因（R-08/L-08：类目采集失败时卡仍在、行仍空，🔴 不得让面板整体消失）
+    pub reason: Option<String>,
+}
+
+/// 静态硬件详情上行（F-02；`overview_static_info` 载荷，命令面随片2-e 注册）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HardwareDetailDto {
+    pub cards: Vec<DetailCardDto>,
+    /// 采集时刻（Unix 毫秒）；供片2-e 快照的新鲜度与指纹比对
+    pub collected_at_ms: u64,
+}
+
+/// 磁盘健康一行（F-06：设备名、最高温度、SMART 属性数）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskHealthRowDto {
+    pub device_name: String,
+    /// 温度（摄氏度）；无 SMART 时也可能有盘温
+    pub temperature_c: Option<i32>,
+    /// SMART 属性数量（用于判断是否有完整 SMART 数据）
+    pub smart_attribute_count: usize,
+    /// 健康状态（healthy/warning/unhealthy/unknown）
+    pub health_status: String,
+    /// 健康度百分比 0-100（None = 无法判定）
+    pub health_percent: Option<u8>,
+    /// 失败原因（R-08：空态必写为什么是空的）
+    pub reason: Option<String>,
+}
+
 /// 把任意浮点占用率钳制到 0–100（R-07 一律钳制）。
 #[must_use]
 pub fn clamp_percent(value: f64) -> f64 {
@@ -206,6 +279,27 @@ pub fn gib_text(bytes: u64) -> String {
 #[allow(clippy::cast_precision_loss)] // 同 `gib_text`
 pub fn mb_value(bytes: u64) -> f64 {
     bytes as f64 / (1024.0 * 1024.0)
+}
+
+/// 一行键值（`value` 为 `None` 时前端出"未检测"，R-08）。
+#[must_use]
+pub fn kv(key: &str, value: Option<String>) -> KvRowDto {
+    KvRowDto {
+        key: key.to_string(),
+        value,
+    }
+}
+
+/// 一行键值（直接给字符串，空串当没取到）。
+#[must_use]
+pub fn kv_text(key: &str, value: Option<&str>) -> KvRowDto {
+    kv(
+        key,
+        value
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(ToString::to_string),
+    )
 }
 
 #[cfg(test)]
@@ -266,5 +360,56 @@ mod tests {
             serde_json::to_value(ValueSource::SensorLoad).expect("value source 应可序列化"),
             "sensorLoad"
         );
+    }
+
+    #[test]
+    fn detail_dto_serializes_in_camel_case() {
+        let card = DetailCardDto {
+            kind: DetailKind::Gpu,
+            index: 0,
+            reason: None,
+            rows: vec![KvRowDto {
+                key: "detail.gpu.model".to_string(),
+                value: Some("NVIDIA GeForce RTX 4070".to_string()),
+            }],
+        };
+        let json = serde_json::to_value(&card).expect("DetailCardDto 应可序列化");
+        assert_eq!(json["kind"], "gpu");
+        assert_eq!(json["index"], 0);
+        assert_eq!(json["reason"], serde_json::Value::Null);
+        let first_row = &json["rows"][0];
+        assert_eq!(first_row["key"], "detail.gpu.model");
+        assert_eq!(first_row["value"], "NVIDIA GeForce RTX 4070");
+    }
+
+    #[test]
+    fn hardware_detail_dto_has_collected_at_ms() {
+        let detail = HardwareDetailDto {
+            cards: Vec::new(),
+            collected_at_ms: 1_728_000_000_000,
+        };
+        let json = serde_json::to_value(&detail).expect("HardwareDetailDto 应可序列化");
+        assert_eq!(json["collectedAtMs"], serde_json::Value::Number(serde_json::Number::from(1_728_000_000_000_i64)));
+        assert_eq!(json["cards"], serde_json::Value::Array(Vec::new()));
+    }
+
+    #[test]
+    fn detail_kind_variants_are_camel_case() {
+        for (variant, expected) in [
+            (DetailKind::Cpu, "cpu"),
+            (DetailKind::Gpu, "gpu"),
+            (DetailKind::Storage, "storage"),
+            (DetailKind::Memory, "memory"),
+            (DetailKind::Board, "board"),
+            (DetailKind::Bios, "bios"),
+            (DetailKind::Network, "network"),
+            (DetailKind::Audio, "audio"),
+            (DetailKind::Display, "display"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(variant).expect("detail kind 应可序列化"),
+                expected
+            );
+        }
     }
 }

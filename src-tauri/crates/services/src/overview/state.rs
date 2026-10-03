@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use sysinfo::System;
 
+use super::dto::DiskHealthRowDto;
 use super::sensor_bridge::{SensorBridge, SensorSnapshot};
 
 /// 一次全量/慢变量采集确定的存储汇总（R-12：不随 2 秒节拍变化）。
@@ -57,6 +58,8 @@ pub struct OverviewInner {
     /// 进程 CPU 差分轮次（首拍无上一值 → 榜单显示"首次采样中…"，R-08）。
     pub process_refreshes: AtomicU32,
     pub storage: Mutex<Option<StorageSummary>>,
+    /// F-06 磁盘健康面板数据（慢变量，只在首次/全量采集时更新）
+    pub disk_health: Mutex<Vec<DiskHealthRowDto>>,
     pub identity: Mutex<Option<SystemIdentity>>,
 }
 
@@ -83,6 +86,7 @@ impl OverviewInner {
             process_baseline: Mutex::new(HashMap::new()),
             process_refreshes: AtomicU32::new(0),
             storage: Mutex::new(None),
+            disk_health: Mutex::new(Vec::new()),
             identity: Mutex::new(None),
         })
     }
@@ -188,6 +192,16 @@ impl OverviewInner {
 
     pub fn store_identity(&self, identity: SystemIdentity) {
         *Self::guard(&self.identity) = Some(identity);
+    }
+
+    /// F-06 磁盘健康面板数据（慢变量，只在首次/全量采集时更新）
+    #[must_use]
+    pub fn disk_health(&self) -> Vec<DiskHealthRowDto> {
+        Self::guard(&self.disk_health).clone()
+    }
+
+    pub fn store_disk_health(&self, rows: Vec<DiskHealthRowDto>) {
+        *Self::guard(&self.disk_health) = rows;
     }
 }
 

@@ -67,5 +67,116 @@
     "error": {
       "title": "概览采集失败"
     }
+  },
+  "detail": {
+    "cpu": {
+      "model": "型号",
+      "temperature": "温度",
+      "cores": "核心 / 线程",
+      "frequency": "主频",
+      "cacheL3": "三级缓存",
+      "architecture": "架构"
+    },
+    "gpu": {
+      "model": "型号",
+      "vendor": "厂商",
+      "temperature": "温度",
+      "utilization": "负载",
+      "memory": "显存",
+      "resolution": "分辨率",
+      "driverVersion": "驱动版本"
+    },
+    "storage": {
+      "model": "型号",
+      "media": "介质",
+      "capacity": "容量",
+      "serial": "序列号"
+    },
+    "memory": {
+      "totalCapacity": "总容量",
+      "type": "类型",
+      "frequency": "频率",
+      "sticks": "条数",
+      "serial": "序列号"
+    },
+    "board": {
+      "model": "型号",
+      "manufacturer": "制造商"
+    },
+    "bios": {
+      "version": "版本",
+      "manufacturer": "制造商",
+      "date": "日期"
+    },
+    "network": {
+      "model": "型号",
+      "connectionName": "连接名称",
+      "adapterType": "适配器类型",
+      "linkSpeed": "链路速度"
+    },
+    "audio": {
+      "model": "型号",
+      "manufacturer": "制造商"
+    },
+    "display": {
+      "model": "型号",
+      "manufacturer": "制造商",
+      "resolution": "分辨率",
+      "refreshRate": "刷新率"
+    },
+    "os": {
+      "title": "操作系统",
+      "osName": "操作系统名称",
+      "version": "版本",
+      "installDate": "安装日期",
+      "systemType": "系统类型",
+      "servicePack": "体验扩展包",
+      "deviceName": "设备名称",
+      "workgroupOrDomain": "工作组/域",
+      "systemDirectory": "系统目录",
+      "bootMode": "启动模式",
+      "runtimeEnvironment": "运行时环境",
+      "uptime": "运行时长"
+    },
+    "userRegion": {
+      "title": "用户 / 区域",
+      "username": "当前用户",
+      "userType": "用户类型",
+      "userProfile": "用户目录",
+      "lastLogon": "上次登录时间",
+      "displayLanguage": "显示语言",
+      "systemLocale": "系统区域",
+      "timezone": "时区",
+      "keyboardLayout": "键盘布局"
+    }
+  },
+  "processes": {
+    "sectionTitle": "实时占用进程榜",
+    "firstSampling": "首次采样中…",
+    "noData": "暂无进程数据",
+    "cpuTitle": "CPU 占用最高",
+    "memoryTitle": "内存占用最高",
+    "name": "进程名",
+    "cpuPercent": "CPU%",
+    "memoryMb": "内存"
+  },
+  "endpoints": {
+    "sectionTitle": "网络连接",
+    "title": "网络连接",
+    "totalEndpoints": "TCP 端点总数",
+    "processName": "进程名",
+    "endpointCount": "端点数",
+    "listenPorts": "监听端口",
+    "noData": "未获取到 TCP 端点"
+  },
+  "diskHealth": {
+    "sectionTitle": "磁盘健康",
+    "title": "磁盘健康",
+    "deviceName": "设备名",
+    "maxTemperature": "最高温度",
+    "smartAttributes": "SMART 属性数",
+    "health": "健康度",
+    "noData": "未检测到存储设备（需管理员权限）",
+    "noSmart": "仅温度（本机未提供 SMART 属性）"
   }
 }

@@ -16,10 +16,25 @@ contracts = { path = "../contracts" }
 # 与 `overlay_panel.rs` 已用同一 IpHelper 绑定）；features 只开本文件用到的三项，不抄全量。
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+# M-01 本机概览 片2-a/2-b（2026-10-03）：静态硬件采集的两条 FFI 通道同样只能落本 crate
+# （04 分册 §一 准入表"FFI 只出现在 infra 与 elevated-helper"）。
+# 版本钉 NexBox `Cargo.toml` 声明 + 其 `Cargo.lock` 实测（wmi 0.14 → 0.14.5 / nvml-wrapper 0.10 → 0.10.0）；
+# ADR-003 五步登记见 ../../../DEPENDENCIES.md §一，NVML 只供静态规格项的 K-004 闸见同文件 §五。
+# features 取默认值：wmi 的 `chrono`（本层不用 chrono 类型，但 NexBox 同版同 features）、
+# nvml-wrapper 的 `default = []`（🔴 不开 legacy-functions / serde，只用现行 API）。
+wmi = "0.14"
+nvml-wrapper = "0.10"
+# M-01 片3-c（2026-10-03）：SMART 读取日志
+log = "0.4"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_NetworkManagement_IpHelper",
     "Win32_Networking_WinSock",
+    # SMART: DeviceIoControl / CreateFileW 所需
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Win32_System_IO",
 ] }
 
 [lints]

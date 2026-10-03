@@ -7,7 +7,14 @@
 
 import { invoke } from "./invoke";
 import type { LogModule } from "@/lib/logging";
-import type { LiveSample, MonitorStatus, NetEndpoints, TopProcesses } from "@/types/overview";
+import type {
+  HardwareDetailDto,
+  LiveSample,
+  MonitorStatus,
+  NetEndpoints,
+  SnapshotDto,
+  TopProcesses,
+} from "@/types/overview";
 
 const OVERVIEW: LogModule = "Overview";
 
@@ -25,4 +32,34 @@ export async function fetchNetEndpoints(): Promise<NetEndpoints> {
 
 export async function fetchMonitorStatus(): Promise<MonitorStatus> {
   return invoke<MonitorStatus>("overview_monitor_status", OVERVIEW, "overviewMonitorStatus", null);
+}
+
+/** F-02 静态硬件详情（片2-b/c/d 产出，含系统信息两面板） */
+export async function fetchStaticInfo(): Promise<HardwareDetailDto> {
+  return invoke<HardwareDetailDto>(
+    "overview_static_info",
+    OVERVIEW,
+    "overviewStaticInfo",
+    null
+  );
+}
+
+/** F-09 读快照（缺失/损坏/超龄返回 null） */
+export async function readSnapshot(): Promise<SnapshotDto | null> {
+  return invoke<SnapshotDto | null>(
+    "overview_snapshot_read",
+    OVERVIEW,
+    "overviewSnapshotRead",
+    null
+  );
+}
+
+/** F-09 写快照 */
+export async function writeSnapshot(payload: HardwareDetailDto): Promise<void> {
+  return invoke<void>(
+    "overview_snapshot_write",
+    OVERVIEW,
+    "overviewSnapshotWrite",
+    payload
+  );
 }

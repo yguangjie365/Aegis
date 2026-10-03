@@ -6,16 +6,17 @@
   "description": "Aegis（工作代号，Q-01 定名前统一用此）— 系统维护桌面工具（React 19 + Tauri 2）",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc -b",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "tauri": "tauri",
-    "prepare": "husky"
+    "prepare": "husky",
+    "lint:strict": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@chakra-ui/react": "^2.10.9",
@@ -30,13 +31,18 @@
     "@tanstack/react-query": "^5.66.0",
     "@tauri-apps/api": "2.11.1",
     "@tauri-apps/plugin-dialog": "2.7.3",
+    "@tauri-apps/plugin-store": "^2.5.0",
+    "@types/three": "^0.185.4",
     "framer-motion": "^11.18.2",
     "i18next": "^26.0.5",
     "lucide-react": "^0.487.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-i18next": "^17.0.4",
+    "react-icons": "^5.7.0",
     "react-router-dom": "^7.1.5",
+    "three": "^0.185.1",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

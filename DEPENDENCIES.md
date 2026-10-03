@@ -37,10 +37,44 @@
 | sysinfo | 0.30.13 | MIT OR Apache-2.0 | crate 引用 | 本机概览占用采集（CPU/内存/磁盘容量、进程榜，M-01 片1） | 🟢 | 2026-10-03 | OV-1 新增；版本钉 NexBox lockfile 实测 0.30.13（其 `hardware.rs` 同源用法）。🔴 移植时踩坑已登记：Windows 进程 CPU 值为"占一个核"口径，整机% 须先除核数再钳 0–100 |
 | winreg | 0.52.0 | MIT OR Apache-2.0 | crate 引用（`infra`，`cfg(windows)`） | PawnIO 只读注册表检测（`registry.rs`，M-01 片1） | 🟢 | 2026-10-03 | OV-1 新增；钉 NexBox `cargo.toml` 实测 0.52。🟡 lock 内另存 0.55.0 为传递依赖，我方直接依赖为 `0.52.0` |
 | windows-sys | 0.59.0 | MIT OR Apache-2.0 | crate 引用（`infra`，features: `Win32_Foundation` / `Win32_NetworkManagement_IpHelper` / `Win32_Networking_WinSock`） | `GetExtendedTcpTable` 官方绑定（`net_tcp_table.rs`，M-01 片1） | 🟢 | 2026-10-03 | OV-1 新增；版本与 features 子集钉 NexBox 实测（其 `Cargo.toml` 声明 `windows-sys = "0.59"` 且同含 IpHelper/WinSock，用于 `game_ping.rs`、`overlay_panel.rs` 的 `GetIfTable2`）。🔴 非手写 FFI，满足 02 分册 KN-04"FFI 只在 infra"与禁裸绑定红线。🟡 lock 内 0.45/0.48/0.52/0.60.2 均为传递依赖链 |
+| wmi | 0.14.5 | MIT OR Apache-2.0 | crate 引用（🔴 **`crates/infra`** 的 `[target.'cfg(windows)'.dependencies]`，default features = `chrono`；`services` 经 `infra::wmi` 使用） | 本机概览片2 静态硬件采集：`Win32_Processor` / `Win32_BaseBoard` / `Win32_BIOS` / `Win32_PhysicalMemory` / `Win32_DiskDrive` / `Win32_SoundDevice` / `Win32_NetworkAdapter` / `WmiMonitorID`（F-02 八类详情卡） | 🟢 | 2026-10-03 | OV-2 新增；版本钉 NexBox 实测（`Source/NexBox/src-tauri/Cargo.toml:47` 声明 `"0.14"`，其 `Cargo.lock` = 0.14.5，checksum `7787dacd…8e71`）——🔴 同版零偏差。传递依赖逐查见下方「片2-a 传递依赖逐查」；🔴 **落点更正（片2-b，2026-10-03）**：本行原记 `services`，违反 [04 分册 §一](../Docs/开发文档/03-开发规范/04-文件与目录规范.md) 准入表"FFI 只出现在 infra 与 elevated-helper"（WMI 走 COM），已迁至 `crates/infra` |
+| nvml-wrapper | 0.10.0 | MIT OR Apache-2.0 | crate 引用（🔴 **`crates/infra`** 的 `[target.'cfg(windows)'.dependencies]`，**default features 为空**，未开 `legacy-functions` / `serde`；`services` 经 `infra::nvml` 使用） | NVIDIA GPU **显存总量 + 驱动版本**两项静态规格（F-02 显卡卡，M-01 片2）。🔴 温度/负载/显存已用**不用本 crate**，只走 sidecar——收口口径见 §五 | 🟢 | 2026-10-03 | OV-2 新增；🔴 **不是新增技术路线**：NexBox `Cargo.toml:55` 已带 `nvml-wrapper = "0.10"`（lock 0.10.0，checksum `0c9bff0a…38c5`），母本实现即 `hardware.rs:741 get_nvidia_gpus_with_nvml()`（取 `name/memory_info/temperature/utilization_rates/sys_driver_version`），本工程属②档移植而非自造。🔴 **分发面**：经 `libloading 0.8.9` **运行时动态加载用户机器上随 NVIDIA 驱动已装好的 `nvml.dll`**，Aegis 包内🟰**零 NVIDIA 二进制/零 `nvml.h`**（取证见 §五）；🔴 **落点更正（片2-b）**：原记 `services`，因 NVML 走 `libloading` C 互操作属 FFI，按 04 分册 §一 准入表迁入 `crates/infra` |
 
 > 🟡 **MU-4 钉版偏差如实申报**：上表 6 个 crate（tokio / regex / futures-util / chrono / rand / sha1）实测版本**高于 NexBox lockfile 基线**，均为 `Cargo.toml` 声明区间内的依赖解析漂移，非本工程主动跳版本。🔴 tauri 全家桶（含 `tauri-plugin-*`）**零偏差**，符合"全家桶锁 NexBox"红线。收口动作 = 把 MU-4 这批声明补成 NexBox 实测精确版本或整体抬基线，**须用户拍板**（见 TASKS §三 Q-23）。许可证档位本身全部落在 ADR-003 允许档（MIT / Apache-2.0 / MIT OR Apache-2.0），无许可风险。
 
 内部 crate（`contracts` / `infra` / `services` / `elevated-helper` / `worker`，path 引用）随仓库整体 GPL-3.0，不占本表。
+
+### 片2-a 传递依赖逐查（2026-10-03，M-01 概览批；脚本 `.worknotes/dep-audit.mjs` 可重放）
+
+口径 = ADR-003 §三 逐档判定，🔴 不看包名看实物：许可证字符串从**本地 cargo 解包源的 `Cargo.toml`** 读取（`~/.cargo/registry/src/<repo>/<pkg>-<ver>/Cargo.toml`），并同时列出包内实际存在的 LICENSE 文件名，非凭记忆、非查网页。
+
+实测口径两处（🔴 均为**实物解包读 `Cargo.toml` 的 license 字段**，非凭记忆）：
+
+- **落点迁移后重测（片2-b，2026-10-03，脚本 `.worknotes/dep_closure_infra.py` 可重放）**：`cargo tree -p infra -e normal` 取 `wmi` + `nvml-wrapper` 两条子树，按 **(name, version) 去重后闭包 48 个包**，其中 **34 个已在 HEAD `Cargo.lock` 内**，**新引入 14 个** —— 与下方 14 行表**逐条一致**，落点由 `services` 迁到 `infra` 不改变许可结论。
+- 迁移前的初测（脚本 `.worknotes/dep-audit.mjs`）曾报"39 个包 / 25 已在 HEAD / 新引入 14"：**新引入面同为 14 个**，前两项数字偏小是因为 `cargo tree -p services` 里这些包多数已挂在音乐/系统侧父节点下、子树被去重未展开。🔴 以本节的 48/34/14 为准。
+
+新引入的 **14 个**全部落 🟢 档：
+
+| 包 | 版本 | license 字段（实测） | 包内 LICENSE 文件 |
+|---|---|---|---|
+| wmi | 0.14.5 | MIT OR Apache-2.0 | LICENSE-APACHE / LICENSE-MIT |
+| futures | 0.3.34 | MIT OR Apache-2.0 | LICENSE-APACHE / LICENSE-MIT |
+| windows | 0.59.0 | MIT OR Apache-2.0 | license-apache-2.0 / license-mit |
+| windows-core | 0.59.0 | MIT OR Apache-2.0 | 同上 |
+| windows-implement | 0.59.0 | MIT OR Apache-2.0 | 同上 |
+| windows-strings | 0.3.1 | MIT OR Apache-2.0 | 同上 |
+| nvml-wrapper | 0.10.0 | MIT OR Apache-2.0 | 🟡 包内无 LICENSE 文件（crates.io 元数据字段为准） |
+| nvml-wrapper-sys | 0.8.0 | MIT OR Apache-2.0 | 🟡 同上 |
+| libloading | 0.8.9 | **ISC** | LICENSE |
+| static_assertions | 1.1.0 | MIT OR Apache-2.0 | LICENSE-APACHE / LICENSE-MIT |
+| wrapcenum-derive | 0.4.1 | MIT/Apache-2.0 | LICENSE-APACHE / LICENSE-MIT |
+| darling | 0.20.11 | MIT | LICENSE |
+| darling_core | 0.20.11 | MIT | LICENSE |
+| darling_macro | 0.20.11 | MIT | LICENSE |
+
+🟢 `ISC` 与 `MIT/Apache-2.0`（斜杠写法）均在 ADR-003 §三 🟢 白名单内（`libloading 0.8.9` 与 `wrapcenum-derive` 是这两例）。🔴 NOTICE：两个 nvml 包**发布物内不含 LICENSE 文件**，`NOTICE` 汇总时须从上游仓库取文本随包分发（发布前义务见 §五），不能只凭 `Cargo.toml` 字段就认为"声明已随包"。
+
+🟡 **一条待用户确认项（不阻塞开发，阻塞发布）**：`nvml-wrapper-sys` 的 `src/bindings.rs` 是 bindgen 0.68.1 从 NVIDIA SDK 头文件 `nvml.h` 生成的**符号名与常量声明**。实测取证：生成脚本带 `--no-doc-comments`（见该包 `gen_bindings.sh`），解包物里**没有 `nvml.h`、没有 NVIDIA 版权/许可文本**，只有 API 形状常量。按"宽松许可 crate + 零 NVIDIA 材料分发"我判 🟢 可引入（与 `windows` crate 转写 MS 头文件的业界同例，且 NexBox 基线已同样携带）；但"头文件派生的常量面是否构成 NVIDIA 许可材料"属法律解释，🔴 **发布前请用户或法务确认一次**，本表按我的 🟢 判定先行、结论若变再回改。
 
 ## 二、npm 直接依赖（`package-lock.json` 实测）
 
@@ -97,9 +131,9 @@
 | NexBox `src/pages/MusicPage.tsx` 在线区段 + `src/stores/music-store.ts` 在线切片 | GPL-3.0（同向） | 源码/逻辑移植改造（搜索·歌单·推荐·榜单·登录态；🔴 凭据存储与词表归一按本工程红线重做；`playable` 不预拦截、由取地址结果裁定；平台切换重置 + 过期响应守卫为规格补写） | `src/features/MusicManager/online/`、`store/online-store.ts`、`types/music.ts` | MU-4.4~4.14 片，2026-10-02；🟡 UI 仍为"Aegis 适配版"，完整复刻留 P4（Q-22 ④→①→③） |
 | Aegis 自建（无 NexBox 对应实现）：凭据加密层 | — | 新实现（DP-1 检索结论：NexBox 用明文 JSON `music-cookies.json`，触本工程"禁明文落盘"红线，属🔴 有意偏离而非可移植项；超长凭据自动分片 + `cookie.meta` 提交标记，规避 Credential Manager 单条 2560 字节上限） | `crates/services/src/music/auth.rs` | MU-4.1 片，2026-10-02；实现约束登记见 [02 专题设计 §5.3](../Docs/开发文档/02-专题设计/02-安全与特权通道.md) |
 | NexBox `monitor/`（`Program.cs` `SensorReader.cs` `NexBoxMonitor.csproj`，net48 + LibreHardwareMonitorLib 0.9.6） | GPL-3.0（同向） | 源码移植改造（②）：stdio 行协议（`{"cmd":"read"}`/`{"cmd":"exit"}`）、`SensorVisitor`、NaN/Infinity JSON 兜底零改动；🔴 **摘除 PawnIO 分发/安装联动**（改判为"仅只读探测"，见本节下行与 §四）；输出字段按 Aegis DTO 需要裁剪 | `Aegis/monitor/{AegisMonitor.csproj,Program.cs,SensorReader.cs}`、`Aegis/tools/build-monitor.ps1` | M-01 片1（Q-12=B），2026-10-03；构建可复现性见 `spikes/K-Q12-1-monitor-build.md` |
-| NexBox `src-tauri/src/sensor.rs`（传感器桥生命周期） | GPL-3.0（同向） | 源码移植改造（②）：15s Open 兜底 / 8s 读超时 / 30s 冷却 / 连败 5 次禁用的参数实测值沿用；🔴 三处有意偏离——① 母本 `WaitForSingleObject` FFI + `std::thread::sleep` 轮询 → 改读线程 + `mpsc::recv_timeout`（02 册 KN-04、clippy.toml 禁令）；② 母本全局 `lazy_static + Mutex<Option<..>>` → 状态收进 `OverviewState`（不留跨域全局可变量）；③ 母本 `find_monitor_exe` 方案G 的 `CARGO_MANIFEST_DIR` 编译期兜底 → 改向上回溯祖先目录。桥与传输原语拆为两文件（`infra::sidecar` 零业务判断） | `crates/infra/src/sidecar.rs`、`crates/services/src/overview/sensor_bridge.rs` | M-01 片1，2026-10-03 |
+| NexBox `src-tauri/src/sensor.rs`（传感器桥生命周期） | GPL-3.0（同向） | 源码移植改造（②）：15s Open 兜底 / 8s 读超时 / 30s 冷却 / 连败 5 次禁用的参数实测值沿用；🔴 三处有意偏离——① 母本 `WaitForSingleObject` FFI + `std::thread::sleep` 轮询 → 改读线程 + `mpsc::recv_timeout`（02 册 KN-04、clippy.toml 禁令）；② 母本全局 `lazy_static + Mutex<Option<..>>` → 状态收进 `OverviewState`（不留跨域全局可变量）；③ 母本 `find_monitor_exe` 方案G 的 `CARGO_MANIFEST_DIR` 编译期兜底 → 改向上回溯祖先目录。桥与传输原语拆为两文件（`infra::sidecar` 零业务判断） | `crates/infra/src/sidecar.rs`、`crates/services/src/overview/sensor_bridge.rs`（片2-0 起为该域门面，实物在 `sensor_bridge/{bridge,exe,types,matching}.rs`） | M-01 片1，2026-10-03；🟠 同日片2-0 因 500 行硬线拆为子模块，🔴 零行为变更（声明名集合 71/71 无增无丢） |
 | NexBox `src-tauri/src/pawnio_driver.rs` **仅 L21-43 / L46-60**（只读注册表检测半区） | GPL-3.0（同向） | 源码移植改造（②）+ 🔴 **整段截断**：母本 L110 起 `Start-Process -Verb RunAs` 静默装驱动、以及随包分发 `resources/binaries/PawnIO_setup.exe`（`installer/pack-payload.ps1:72`）**一律不移植**——PawnIO 上游许可实测 GPL-2.0（=🔴 禁分发档，见 §四），且按需提权红线禁应用自发起 UAC。本工程采零分发/零安装/仅只读检测 + 纯文字引导（用户 2026-10-03 拍板） | `crates/infra/src/registry.rs` | M-01 片1，2026-10-03；🔴 取证口径：`grep -rn "PawnIO_setup" Aegis/` 与 `grep -rn "Verb RunAs" Aegis/src-tauri/crates` 须零命中（本批已实测，仅文档/注释命中） |
-| NexBox `src-tauri/src/hardware.rs`（占用与容量采集） | GPL-3.0（同向） | ②改造移植：sysinfo 同库同版（`sysinfo = "0.30"`，lock 实测 0.30.13）的 CPU/内存/`Disks` 取数路径；存储卡口径采"卷（DriveInfo）单一来源、已用率取多卷最大值"（与 SystemToolkit 2026-09-02 起同向，R-06）；🔴 **不移植 `long_os_version`**：母本用 `libloading` + 手写 `RtlGetVersion` FFI 取内核版本，本工程禁手写 Win32 绑定（01 总览 §二），改采 sysinfo 的注册表实现（同读 `HKLM\...\CurrentVersion`，语义等价） | `crates/services/src/overview/live.rs` | M-01 片1，2026-10-03；型号精简（R-21）与回退链（R-07）为本域纯函数新实现，见 `badges.rs` |
+| NexBox `src-tauri/src/hardware.rs`（占用与容量采集） | GPL-3.0（同向） | ②改造移植：sysinfo 同库同版（`sysinfo = "0.30"`，lock 实测 0.30.13）的 CPU/内存/`Disks` 取数路径；存储卡口径采"卷（DriveInfo）单一来源、已用率取多卷最大值"（与 SystemToolkit 2026-09-02 起同向，R-06）；🔴 **不移植 `long_os_version`**：母本用 `libloading` + 手写 `RtlGetVersion` FFI 取内核版本，本工程禁手写 Win32 绑定（01 总览 §二），改采 sysinfo 的注册表实现（同读 `HKLM\...\CurrentVersion`，语义等价） | `crates/services/src/overview/live.rs`（片2-0 起为该域门面，实物在 `live/{storage,cards,status,sampling}.rs`） | M-01 片1，2026-10-03；型号精简（R-21）与回退链（R-07）为本域纯函数新实现，见 `badges.rs`；🟠 同日片2-0 因 500 行硬线拆为子模块，🔴 零行为变更（声明名集合 37/37 无增无丢） |
 | SystemToolkit `src/SystemToolkit.Core/Utilities/NetAdapterFilter.cs` | GPL-3.0（同向，C#→Rust 重写） | 源码移植改造（②跨栈）：35 条垃圾特征黑名单**逐条照搬、未增未减**，每条保留母本的实机实证（2026-09-02 Killer WLAN + Hyper-V + 蓝牙机型；2026-09-10 火绒 NDIS 过滤驱动）；🔴 全工程唯一实现（R-20），描述与连接名两路都要查 | `crates/services/src/network/visibility.rs` | M-01 片1，2026-10-03；本批修回一处移植写反的幽灵网卡判据（禁用且仅 APIPA 的"干净名"真卡不得当驱动残留隐藏） |
 | SystemToolkit `TopProcessSampler`（进程 CPU 差分采样思路） | GPL-3.0（同向） | ③仅思路复用（非代码移植）：两轮差分才出 CPU 值，🔴 拒绝 WMI `PerfProc` 路线（母本实测冷启动 6291ms）；新增口径：sysinfo Windows 进程 CPU 是"占一个核"语义，展示前先除逻辑核数再钳 0–100（R-17），PID 0 不入榜，无计数器上一值一律 `None`（R-08 禁 0% 冒充） | `crates/services/src/overview/processes.rs` | M-01 片1 提前建（原计划片3），2026-10-03 |
 | SystemToolkit `TcpConnectionTable`（`GetExtendedTcpTable` + `MIB_TCPTABLE_OWNER_PID`） | GPL-3.0（同向） | ③仅思路复用（C#→Rust，非代码移植）：改走 `windows-sys` 0.59 官方绑定；🔴 刻意**不采本机/远端 IP**（F-05 数据视图只需端点总数 + 进程归属 + 监听端口摘要，隐私面收窄） | `crates/infra/src/net_tcp_table.rs`、`crates/services/src/overview/endpoints.rs` | M-01 片1 提前建（原计划片3），2026-10-03 |
@@ -125,3 +159,14 @@ sidecar `Aegis/monitor/` 编译产物随包分发，其 NuGet 依赖逐个核可
 - 🟡 **对 NexBox 的有意偏离**（DP-2 口径下必须显式登记）：NexBox 采「随包分发 `src-tauri/resources/binaries/PawnIO_setup.exe` + `Start-Process -Verb RunAs` 静默装驱动」（`src-tauri/src/pawnio_driver.rs:110`，`installer/pack-payload.ps1:72` 列入 payload），Aegis **一律不移植该段**；只移植其 L21 的只读注册表检测半区。
 - 🔴 **取证口径（每批收口必跑）**：`grep -rn "PawnIO_setup" Aegis/` = 0 命中；`grep -rn "Verb RunAs" Aegis/src-tauri/crates` = 0 命中。
 - 🟢 **"不分发驱动"的实证**：对 `LibreHardwareMonitorLib.dll` / `RAMSPDToolkit-NDD.dll` 做字节扫描，命中 `PawnIO`/`WinRing0` 处全部为 **interop 声明符号**（`IPawnIODriver`、`PawnIOSMBusIdentifier`、`RAMSPDToolkit.I2CSMBus.Interop.PawnIO`），`.sys` 关键字 **0 命中** → LHM 0.9.6 不自带内核驱动，走的是"运行时若已装 PawnIO 则用之"的探测路径。故随包这几个 dll **不构成 PawnIO 的分发**，只需在其 NOTICE 里声明 MPL 部件与"部分传感器需第三方内核驱动、本应用不含该驱动"。
+
+## 五、NVML（`nvml.dll`）运行期加载边界与 K-004 单一传感器出口（M-01 片2-a，2026-10-03）
+
+用户拍板②"显卡显存通道 = 追加 `nvml-wrapper`"落地时的约束。🔴 **先更正一处事实**：这**不是新增技术路线**——母本 `Source/NexBox/src-tauri/Cargo.toml:55 nvml-wrapper = "0.10"`（lock 实测 0.10.0）早已携带并使用，其实现在 `hardware.rs:741 get_nvidia_gpus_with_nvml()`（`:764` 取 `memory_info().total`、`:769` 温度、`:773` 负载、`:776` `sys_driver_version()`）。本节要收窄的是**移植范围**，不是许可档位。
+
+- 🔴 **K-004 单一传感器出口在本域的切分**：NVML 只允许补**静态规格项**——显存**总量**（`memory_info().total`）与**驱动版本**（`sys_driver_version()`）。GPU **温度 / 负载 / 显存已用量** 🚫 一律只准来自 C# sidecar（`services::overview::sensor_bridge`），母本 `hardware.rs:769`/`:773` 两处读取**不移植**；🔴 也不得用 WMI `AdapterRAM` 顶替 NVML 的显存值（WMI 该项在 >4GB 卡上截断，正是母本改用 NVML 的原因，见其 `:1572` 注释）。
+- 🔴 **不移植 `std::panic::catch_unwind`**：母本在 `:1073`/`:1228`/`:1571` 三处用 `catch_unwind` 兜 NVML 崩溃。本工程按 [02 分册](../Docs/开发文档/02-专题设计/02-安全与特权通道.md) 的"禁静默失败 + 以 `Result` 表达失败"口径，改走 `Nvml::init()` 返回的 `Result` 做 R-08 降级（显存/驱动版本显"未检测"），不用 panic 捕获作为常规控制流。
+- 🟢 **零 NVIDIA 材料分发**：`nvml-wrapper-sys 0.8.0` 发布物内**只有** `src/bindings.rs`（bindgen 0.68.1 生成，`gen_bindings.sh` 带 `--no-doc-comments`）与 `src/lib.rs`，🔴 **无 `nvml.h`、无 NVIDIA 版权/许可文本**；运行期经 `libloading` 动态加载**系统目录里已存在**的 `nvml.dll`。故随包不构成对 NVIDIA 专有头文件/二进制库的分发：禁复制 `nvml.dll`、禁下载、禁进安装包。
+- 🟢 **本机实证**：`C:\Windows\System32\nvml.dll` = 1,499,368 B（2026-09-19），`nvcuda.dll` 与 `ProgramData\NVIDIA Corporation` 同在 → 正向路径成立；无 NVIDIA 设备/无 `nvml.dll` 时显存与驱动版本显"未检测"，显卡卡整体按 [01 册 R-07](../Docs/功能规格/01-本机概览.md) 处理（负载与温度皆无则整卡缺席，不留空槽）。
+- 🟡 **发布前义务**：`nvml-wrapper` / `nvml-wrapper-sys` 的发布物**不含 LICENSE 文件**（本地解包实测目录清单核实），而其 `Cargo.toml` 声明 MIT——NOTICE 须取上游仓库的 MIT 文本补齐。另有一条待确认项：`bindings.rs` 是 bindgen 从 NVIDIA 头文件派生的常量/签名面，是否构成需声明的许可材料，🔴 **待用户或法务确认**（详见 §一「片2-a 传递依赖逐查」）。
+- 🔴 **每批取证口径**：`find Aegis -iname 'nvml*'` = 0 命中（不得出现任何 nvml 相关文件实体）；`grep -rn "temperature(" Aegis/src-tauri/crates/services/src/overview` 命中只准出现在 `sensor_bridge` 一侧。
