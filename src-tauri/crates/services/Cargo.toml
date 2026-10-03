@@ -40,6 +40,8 @@ urlencoding = "2.1"
 # MU-4.8 QQ 音乐签名与工具依赖
 sha1 = "0.10"
 regex = "1"
+# M-01 本机概览 片1（2026-10-03）：占用/容量/系统信息采集（版本钉 NexBox lockfile 实测 0.30.13）
+sysinfo = "0.30"
 
 [lints]
 workspace = true

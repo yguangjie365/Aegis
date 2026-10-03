@@ -13,3 +13,6 @@
 //! 一律经 `windows` / `windows-sys` crate 官方生成绑定（01 总览 §二）。
 
 pub mod fs;
+pub mod net_tcp_table;
+pub mod registry;
+pub mod sidecar;

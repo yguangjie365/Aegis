@@ -1,0 +1,71 @@
+{
+  "page": {
+    "title": "本机概览"
+  },
+  "uptime": {
+    "prefix": "运行 {{value}}",
+    "day": "天",
+    "hour": "小时",
+    "minute": "分钟",
+    "belowMinute": "不足 1 分钟"
+  },
+  "live": {
+    "on": "LIVE · 每 2 秒",
+    "paused": "已暂停"
+  },
+  "refresh": {
+    "label": "立即刷新",
+    "hint": "重新采集一次当前数据",
+    "busy": "采集中，请稍候…"
+  },
+  "card": {
+    "title": {
+      "cpu": "处理器",
+      "gpu": "显卡",
+      "memory": "内存",
+      "storage": "存储"
+    },
+    "abbr": {
+      "cpu": "CPU",
+      "gpu": "GPU",
+      "memory": "RAM",
+      "storage": "DISK"
+    },
+    "caption": {
+      "cpu": "使用率",
+      "gpu": "使用率",
+      "memory": "内存使用",
+      "storage": "存储已用",
+      "temperature": "温度顶位（无占用读数）"
+    },
+    "badge": {
+      "undetected": "未检测"
+    }
+  },
+  "badge": {
+    "level": {
+      "normal": "温度正常",
+      "warning": "温度偏高",
+      "critical": "温度过热"
+    }
+  },
+  "monitor": {
+    "reason": {
+      "unknown": "原因未上报"
+    },
+    "driver": {
+      "guide": "温度类增强项需要第三方内核传感器驱动（本应用不附带、不安装，请自行评估后获取）："
+    },
+    "state": {
+      "starting": "传感器通道接入中",
+      "coolingDown": "传感器通道冷却中",
+      "disabled": "传感器通道已停用",
+      "exeMissing": "传感器采集组件缺失"
+    }
+  },
+  "state": {
+    "error": {
+      "title": "概览采集失败"
+    }
+  }
+}

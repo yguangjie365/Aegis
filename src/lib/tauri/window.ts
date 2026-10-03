@@ -10,3 +10,36 @@ export function revealMainWindow(): void {
   const win = getCurrentWindow();
   void win.show().then(() => win.setFocus());
 }
+
+/**
+ * 订阅窗口聚焦变化（M-01 R-19：实时节拍的启停信号）。
+ *
+ * 返回退订函数。🔔 只报"焦点"，不含"是否最小化"——宿主二者都走这条事件，
+ * 但文档可见性仍需 `visibilitychange` 兜底，兜底侧在 `lib/timing/use-tick.ts`。
+ * 浏览器预览模式退回 DOM 的 focus/blur（无原生窗口）。
+ */
+export function onWindowFocusChanged(cb: (focused: boolean) => void): () => void {
+  if (!isTauriRuntime()) {
+    const onFocus = (): void => cb(true);
+    const onBlur = (): void => cb(false);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+    };
+  }
+  const win = getCurrentWindow();
+  let unlisten: (() => void) | undefined;
+  let disposed = false;
+  void win
+    .onFocusChanged((event) => cb(event.payload))
+    .then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    });
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}

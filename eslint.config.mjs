@@ -53,7 +53,7 @@ export default tseslint.config(
   },
   {
     // 配置文件跑在 Node 下、不在 tsconfig include 内，故只套非类型感知规则
-    files: ["vite.config.ts", "eslint.config.mjs"],
+    files: ["vite.config.ts", "vitest.config.ts", "eslint.config.mjs"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
       globals: globals.node,

@@ -8,6 +8,19 @@ description = "平台与通用能力：原子写 / PathGuard / 凭据(DPAPI) / S
 
 [dependencies]
 contracts = { path = "../contracts" }
+# M-01 本机概览（2026-10-03）：FFI 边界只允许出现在本 crate（02 册 KN-04），
+# 故注册表只读探测与 IPv4 TCP 表读取的 Windows 依赖挂在这里。
+# 🔴 sidecar 的 stdio 报文结构（serde）不放本 crate：本层只管进程与行的收发，
+# 协议语义归 `services::overview`，这样本 crate 零新增通用依赖。
+# winreg / windows-sys 版本均钉 NexBox `Cargo.toml` 实测（0.52 / 0.59，后者其 `game_ping.rs`
+# 与 `overlay_panel.rs` 已用同一 IpHelper 绑定）；features 只开本文件用到的三项，不抄全量。
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+] }
 
 [lints]
 workspace = true

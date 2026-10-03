@@ -16,4 +16,6 @@
 //! 契约化（envelope/错误包络生成物接线）随 W0-07 落地。
 
 pub mod music;
+pub mod network;
+pub mod overview;
 pub mod sys;

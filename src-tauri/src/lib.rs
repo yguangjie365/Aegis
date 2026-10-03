@@ -54,6 +54,11 @@ pub fn run() {
             services::music::online::music_artist_detail,
             services::music::online::music_album_detail,
             services::music::online::music_mv_url,
+            // M-01 片1：本机概览采集面（只读命令；传感器通道生命周期在 services 内部）
+            services::overview::commands::overview_live_sample,
+            services::overview::commands::overview_top_processes,
+            services::overview::commands::overview_net_endpoints,
+            services::overview::commands::overview_monitor_status,
             // 🔴 窗口命令例外（music_login.rs 头注）：WebviewWindow 属宿主类型无法下沉 services
             music_login::music_open_login_window
         ])
@@ -80,6 +85,12 @@ pub fn run() {
                     services::music::commands::allow_asset_root(&handle, &root);
                 }
                 app.manage(state);
+            }
+            // M-01 片1：概览域状态托管（传感器桥 + 缓存 + sysinfo 实例；随应用生命周期释放，
+            // 桥的 `Drop` 负责收掉 sidecar 子进程，🔴 本壳不含任何域逻辑）
+            {
+                use services::overview::state::OverviewState;
+                app.manage(OverviewState::new());
             }
             build_tray(app)?;
             Ok(())
