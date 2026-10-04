@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>M-05 片1 · 配对码输入对话框 · 布局示意（待审）</title>
+    <style>
+      /* 示意稿：颜色/圆角/间距一律引用本页已在用的令牌名（实现时走 var(--aegis-*)），
+         此处给出近似值仅为让示意可读，不代表最终像素。 */
+      :root {
+        --aegis-canvas: #faf9f5;
+        --aegis-surface-soft: #f2f0ea;
+        --aegis-surface-inset: #e9e6de;
+        --aegis-ink: #1f2430;
+        --aegis-mute: #6b7280;
+        --aegis-hairline: #dcd8cd;
+        --aegis-border-strong: #b9b3a4;
+        --aegis-accent: #d97757;
+        --aegis-disabled: #c9c5ba;
+        --aegis-radius-sm: 6px;
+        --aegis-radius-full: 9999px;
+        --aegis-space-xs: 4px;
+        --aegis-space-sm: 8px;
+        --aegis-space-md: 12px;
+        --aegis-space-lg: 16px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 22px 26px;
+        background: var(--aegis-canvas);
+        color: var(--aegis-ink);
+        font:
+          13px/1.5 "Microsoft YaHei",
+          "Segoe UI",
+          sans-serif;
+      }
+      h1 {
+        font-size: 15px;
+        margin: 0 0 2px;
+      }
+      .sub {
+        color: var(--aegis-mute);
+        font-size: 12px;
+        margin-bottom: 18px;
+      }
+      h2 {
+        font-size: 12.5px;
+        margin: 20px 0 8px;
+        color: var(--aegis-mute);
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .frame {
+        position: relative;
+        border: 1px solid var(--aegis-hairline);
+        border-radius: 10px;
+        background: #fff;
+        padding: 14px 16px;
+        max-width: 620px;
+      }
+      .dim {
+        opacity: 0.38;
+      }
+      .rowline {
+        display: flex;
+        align-items: center;
+        gap: var(--aegis-space-sm);
+        padding: 6px 8px;
+        border-radius: var(--aegis-radius-sm);
+      }
+      .rowline.hot {
+        background: var(--aegis-surface-soft);
+        outline: 1px solid var(--aegis-border-strong);
+      }
+      .label {
+        color: var(--aegis-mute);
+        font-size: 12px;
+      }
+      .mono {
+        font-family: Consolas, monospace;
+        font-size: 12.5px;
+      }
+      .btn {
+        border: 1px solid var(--aegis-border-strong);
+        background: var(--aegis-surface-soft);
+        border-radius: var(--aegis-radius-sm);
+        padding: 4px 12px;
+        font-size: 12.5px;
+      }
+      .btn.primary {
+        background: var(--aegis-accent);
+        border-color: var(--aegis-accent);
+        color: #fff;
+      }
+      .btn.ghost {
+        background: transparent;
+      }
+
+      /* 对话框 */
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background: rgba(31, 36, 48, 0.28);
+        border-radius: 10px;
+      }
+      .dialog {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 412px;
+        background: #fff;
+        border: 1px solid var(--aegis-border-strong);
+        border-radius: 10px;
+        box-shadow: 0 10px 34px rgba(31, 36, 48, 0.2);
+        overflow: hidden;
+      }
+      .dlg-head {
+        padding: 12px 16px 0;
+        font-weight: 700;
+        font-size: 13.5px;
+      }
+      .dlg-body {
+        padding: 8px 16px 14px;
+      }
+      .dlg-body p {
+        margin: 0 0 10px;
+      }
+      .code-input {
+        width: 168px;
+        letter-spacing: 0.34em;
+        font-family: Consolas, monospace;
+        font-size: 19px;
+        padding: 7px 10px;
+        border: 1px solid var(--aegis-border-strong);
+        border-radius: var(--aegis-radius-sm);
+        text-align: center;
+        text-transform: uppercase;
+      }
+      .remember {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--aegis-mute);
+        font-size: 12px;
+        margin-top: 10px;
+      }
+      .dlg-foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--aegis-space-sm);
+        padding: 10px 16px;
+        background: var(--aegis-surface-soft);
+        border-top: 1px solid var(--aegis-hairline);
+      }
+      .err {
+        color: #b3402a;
+        font-size: 12px;
+        margin-top: 8px;
+      }
+      .warn {
+        color: #8a6a1f;
+        font-size: 12px;
+        margin-top: 8px;
+      }
+      .spin {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border: 2px solid var(--aegis-disabled);
+        border-top-color: var(--aegis-accent);
+        border-radius: var(--aegis-radius-full);
+      }
+      .note {
+        color: var(--aegis-mute);
+        font-size: 12px;
+        margin: 6px 0 0;
+      }
+      .tag {
+        display: inline-block;
+        background: var(--aegis-surface-inset);
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-family: Consolas, monospace;
+        font-size: 11.5px;
+      }
+      ul {
+        margin: 6px 0 0 18px;
+        padding: 0;
+      }
+      li {
+        margin: 3px 0;
+      }
+      .legend {
+        display: flex;
+        gap: 18px;
+        flex-wrap: wrap;
+        max-width: 900px;
+      }
+      .legend > div {
+        flex: 1 1 260px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>M-05 片1 · 发送时的「配对码输入」对话框 — 布局示意（待用户确认）</h1>
+    <div class="sub">
+      方案 A（你已选定）：点「发送文件」或把文件拖到设备行之后、真正发送之前弹出。 🔴
+      本页代码在你说「可以」之前不会动手。
+    </div>
+
+    <h2>① 正常态（首次发给该设备）</h2>
+    <div class="frame" style="padding-top: 16px">
+      <p class="note" style="margin: 0 0 8px">背景（页面设备行，弹框出现时会被半透明遮罩压暗）：</p>
+      <div
+        class="dim"
+        style="
+          border: 1px dashed var(--aegis-hairline);
+          border-radius: var(--aegis-radius-sm);
+          padding: 4px 6px;
+        "
+      >
+        <div class="rowline">
+          <span class="label">在线</span><span>书房台式机</span>
+          <span class="mono">192.168.1.24:18889</span>
+          <span class="btn ghost" style="margin-left: auto">发送文件</span>
+        </div>
+      </div>
+      <p class="note" style="margin: 14px 0 8px">
+        前景（居中于遮罩之上，本示意平铺展示以便看清）：
+      </p>
+      <div class="dialog" style="position: static; transform: none; width: auto">
+        <div class="dlg-head">输入配对码</div>
+        <div class="dlg-body">
+          <p>
+            请输入 <b>书房台式机</b>（<span class="mono">192.168.1.24:18889</span>）上显示的
+            <b>6 位</b>配对码。
+          </p>
+          <input class="code-input" value="K7M2Q9" readonly />
+          <div class="remember">
+            <input type="checkbox" /> 本次运行期内不再询问此设备（免码，仅本次）
+          </div>
+        </div>
+        <div class="dlg-foot">
+          <span class="btn">取消</span>
+          <span class="btn primary">发送</span>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      说明：码已按 R-2 全大写显示（比较大小写不敏感）；输入框自动聚焦、回车即「发送」；
+      粘贴时自动去掉空格与不可见字符。<br />
+      勾选框对应 F-FT-13 的「本次服务运行期内该地址免码」，🔴 **不落盘**，服务重启即失效。
+    </p>
+
+    <div class="legend">
+      <div>
+        <h2>② 错误态：码不对 / 已用过</h2>
+        <div class="frame">
+          <div class="dialog" style="position: static; transform: none; width: auto">
+            <div class="dlg-head">输入配对码</div>
+            <div class="dlg-body">
+              <p>
+                请输入 <b>书房台式机</b>（<span class="mono">192.168.1.24:18889</span>）上显示的 6
+                位配对码。
+              </p>
+              <input class="code-input" value="K7M2Q8" readonly style="border-color: #b3402a" />
+              <div class="err">
+                配对码无效或已过期，请从接收端获取最新配对码。<span class="tag"
+                  >PAIRING_INVALID</span
+                >
+              </div>
+            </div>
+            <div class="dlg-foot">
+              <span class="btn">取消</span><span class="btn primary">重试</span>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          原因码来自后端回执（`reasons` 的 16 码冻结表），界面直接显示，不自行解释。
+        </p>
+      </div>
+
+      <div>
+        <h2>③ 节流态：同一设备连续 5 次失败</h2>
+        <div class="frame">
+          <div class="dialog" style="position: static; transform: none; width: auto">
+            <div class="dlg-head">输入配对码</div>
+            <div class="dlg-body">
+              <p>
+                请输入 <b>书房台式机</b>（<span class="mono">192.168.1.24:18889</span>）上显示的 6
+                位配对码。
+              </p>
+              <input class="code-input" value="" readonly disabled />
+              <div class="warn">
+                连续输错次数过多，请等待 <b>47 秒</b>后再试。<span class="tag">R-5 节流</span>
+              </div>
+            </div>
+            <div class="dlg-foot">
+              <span class="btn">取消</span
+              ><span class="btn primary" style="opacity: 0.5">发送</span>
+            </div>
+          </div>
+        </div>
+        <p class="note">倒计时按后端给的剩余毫秒本地递减（与配对码轮换同一套 1 秒节拍封装）。</p>
+      </div>
+
+      <div>
+        <h2>④ 进行态：已提交，等对端回执</h2>
+        <div class="frame">
+          <div class="dialog" style="position: static; transform: none; width: auto">
+            <div class="dlg-head">输入配对码</div>
+            <div class="dlg-body">
+              <p>
+                请输入 <b>书房台式机</b>（<span class="mono">192.168.1.24:18889</span>）上显示的 6
+                位配对码。
+              </p>
+              <input class="code-input" value="K7M2Q9" readonly disabled />
+              <div class="note" style="margin-top: 8px">
+                <span class="spin"></span> 正在发送「报告.pdf」…
+              </div>
+            </div>
+            <div class="dlg-foot">
+              <span class="btn" style="opacity: 0.5">取消</span
+              ><span class="btn primary" style="opacity: 0.5">发送</span>
+            </div>
+          </div>
+        </div>
+        <p class="note">「取消」在传输已开始后转为「取消任务」语义（本期先只关闭对话框）。</p>
+      </div>
+    </div>
+
+    <h2>⑤ 交互与边界（实现要点，供你核对）</h2>
+    <ul>
+      <li>
+        <b>拖放路径同样适用</b>：拖到设备行松手 → 先弹这个框 →
+        通过后才真正发送（多文件时**只问一次**，随后逐文件发送）。
+      </li>
+      <li>
+        <b>免码记忆只在运行期</b>：勾选后同一 IP
+        在该次服务运行期内不再弹框；服务停止→启动即恢复询问。
+      </li>
+      <li><b>取消 = 零副作用</b>：取消不发任何帧、不建任务、不写日志（除一条 Cancelled 记录）。</li>
+      <li>
+        <b>不发码能力已达上限</b>：输入框只收 6 位、自动大写、粘贴清洗；不足 6 位时「发送」禁用。
+      </li>
+      <li>
+        <b>不进 URL / 不留存</b
+        >：配对码只经握手帧传输，不写进设置、不进历史（R-2：码不进入会被长期留存的载体）。
+      </li>
+      <li><b>无障碍</b>：对话框 `role="dialog"` + `aria-modal`，Esc = 取消，焦点圈定在框内。</li>
+    </ul>
+
+    <p class="note" style="margin-top: 16px">
+      待你确认的点：<b>① 弹框时机</b>（发送前 vs 选中设备时）｜<b>② 勾选框</b
+      >要不要（不要则每次都问）｜ <b>③ 多文件只问一次</b>是否可接受。
+    </p>
+  </body>
+</html>
