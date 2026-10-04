@@ -897,7 +897,7 @@ fn handle_connection(
     // 本次接收的冲突策略：初值取设置，但准入闭包可在**用户裁决之后**就地覆盖它
     // （弹窗里的「同名文件」三个选项只作用于本次，不写设置）
     let mut policy = ctx.settings.conflict_policy;
-    let outcome = transport::receive_file(
+    let outcome = transport::receive_any(
         stream,
         &ctx.receive_root,
         &peer_token,
@@ -965,6 +965,90 @@ fn handle_connection(
             }
             verdict
         },
+        // ── 文本通道的准入（F-FT-33）──
+        //
+        // 🔴 文本**不适用**文件那些闸门：没有分块大小、没有文件大小上限、也不占磁盘。
+        //    适用的是：**来源白名单** + **接收前询问**（Q-15 默认开）。
+        //
+        // 🟠 **已知缺口**：`Text` 帧**没有配对码字段** ⇒ 配对闸门覆盖不到文本。
+        //    这不是这里能补的（要改帧格式），已在 `send_text_tracked` 的文档里登记。
+        |facts: &transport::TextFacts<'_>| {
+            if ctx.settings.require_known_peer && !ctx.is_known_peer(peer.ip()) {
+                return Admission::Rejected {
+                    gate: admission::Gate::Whitelist,
+                    reason: reasons::PEER_NOT_DISCOVERED,
+                };
+            }
+            if ctx.settings.require_receive_confirmation {
+                let id = format!("{}|text|{}", peer.ip(), facts.task_id);
+                // 🔴 准入阶段看不到正文（正文在 body 里、由文本事务持有），
+                //    故这里只给"这是文本 + 多大"，**不假装**有预览；
+                //    120 字预览在 commit 闭包里生成（那里才有正文）。
+                let label = format!("文本消息（{} 字节）", facts.bytes);
+                ctx.confirm.ask(confirm::PendingConfirmation {
+                    id: id.clone(),
+                    peer_label: peer.to_string(),
+                    file_name: label,
+                    file_size: facts.bytes,
+                    // 文本不落盘：目录留空，弹窗按既有规则渲染成"—"
+                    save_directory: String::new(),
+                    // 文本与磁盘无关：不显示剩余空间（弹窗的磁盘行待按文本隐藏）
+                    available_bytes: None,
+                    name_conflict: false,
+                });
+                let (decision, _policy) = ctx.confirm.await_decision(&id);
+                if decision == confirm::Decision::Reject {
+                    return Admission::Rejected {
+                        gate: admission::Gate::Confirm,
+                        reason: reasons::USER_REJECT,
+                    };
+                }
+            }
+            Admission::Admitted {
+                disk_unknown: false,
+            }
+        },
+        // ── 文本的"落交付"：写剪贴板（F-FT-34）──
+        // 🔴 失败**必须**变成 CLIPBOARD_WRITE_FAILED 回给发送方，
+        //    而不是"已送达"——这是本通道唯一能让发送方察觉真相的地方。
+        |text: &str| {
+            let result = infra::clipboard::set_text(text).map_err(|error| error.to_string());
+            // 文本是一次性事务：台账与历史在这里**一次写齐**（没有进度可报，
+            // 故不留"进行中"的行；与文件收尾口径一致，只是没有中间态）。
+            let state = if result.is_ok() {
+                TaskState::Completed
+            } else {
+                TaskState::Failed
+            };
+            let reason = result
+                .as_ref()
+                .err()
+                .map(|_| reasons::CLIPBOARD_WRITE_FAILED);
+            let finished_at_ms = super::sink::now_unix_ms();
+            let id = ctx.next_task_id();
+            let preview = super::text::preview(text);
+            ctx.lock_tasks().begin(
+                id.clone(),
+                Direction::Receive,
+                peer.to_string(),
+                preview.clone(),
+                super::text::byte_count(text) as u64,
+                finished_at_ms,
+            );
+            ctx.lock_tasks().finish(&id, state, reason, finished_at_ms);
+            // 🔴 历史里**只留预览**，绝不留正文（F-FT-35 隐私要求）
+            ctx.record_history(super::history::HistoryEntry {
+                id,
+                direction: Direction::Receive,
+                peer_label: peer.to_string(),
+                file_name: preview,
+                file_size: super::text::byte_count(text) as u64,
+                state,
+                reason_code: reason.map(str::to_owned),
+                finished_at_ms,
+            });
+            result
+        },
         cancel,
         // 分块进度：🔴 每块如实报一次，但**按 100ms 合并**后才写台账——
         // 2 MiB 的块在千兆网上每秒几十次，逐次写会既费锁又让界面抖。
@@ -982,7 +1066,18 @@ fn handle_connection(
     // 进度已在过程中按 100ms 合并上报；此处只收尾，并让最后一帧不被节流吞掉。
     progress.force_next();
     if let Some(id) = task_id_slot.borrow_mut().take() {
-        let (state, reason) = receive_terminal_state(&outcome);
+        // 文本分支的台账与历史在 commit 闭包里已经写齐（那里才有正文），
+        // 故这里只可能是文件路径；`task_id_slot` 非空本身就说明登记的是文件任务。
+        let (state, reason) = match &outcome {
+            Ok(transport::AnyOutcome::File(file)) => receive_terminal_state(file),
+            Err(TransportError::Cancelled { reason_code }) => {
+                (TaskState::Cancelled, Some(reason_code.clone()))
+            }
+            _ => (
+                TaskState::Failed,
+                Some(reasons::PEER_DISCONNECTED.to_owned()),
+            ),
+        };
         let finished_at_ms = super::sink::now_unix_ms();
         // 🔴 先从**台账**取一份快照：历史要的是当时的事实（文件名/大小/对端），
         //    而它们在准入闭包里，此处已出作用域。台账正好持有它们。
@@ -1005,9 +1100,8 @@ fn handle_connection(
         }
     }
 
-    // 🔴 对外报 `AnyOutcome`：接收侧从此可以既收文件也收文本（F-FT-33），
-    //    而调用方只关心"这条连接有没有出错"，故本步只是把文件结论包一层。
-    outcome.map(transport::AnyOutcome::File)
+    // `receive_any` 已经直接给出 `AnyOutcome`（文件或文本），无需再包一层。
+    outcome
 }
 
 /// 接收会话计数守卫。
@@ -1166,27 +1260,18 @@ pub fn send_to(
 /// 🔴 对端明确说的话一律**原样回传**（R-16："以对端回传的原因码为准"）：
 /// `Rejected` 与 `Cancelled` 都带自己的 `reason_code`，不要替换成我们自己的措辞。
 #[must_use]
-fn receive_terminal_state(
-    outcome: &Result<ReceiveOutcome, TransportError>,
-) -> (TaskState, Option<String>) {
+fn receive_terminal_state(outcome: &ReceiveOutcome) -> (TaskState, Option<String>) {
     match outcome {
-        Ok(ReceiveOutcome::Committed { .. }) => (TaskState::Completed, None),
-        Ok(ReceiveOutcome::Skipped) => {
-            (TaskState::Skipped, Some(reasons::CONFLICT_SKIP.to_owned()))
-        }
-        Ok(ReceiveOutcome::HashMismatch) => {
+        ReceiveOutcome::Committed { .. } => (TaskState::Completed, None),
+        ReceiveOutcome::Skipped => (TaskState::Skipped, Some(reasons::CONFLICT_SKIP.to_owned())),
+        ReceiveOutcome::HashMismatch => {
             (TaskState::Failed, Some(reasons::HASH_MISMATCH.to_owned()))
         }
         // 对端明确说的话一律原样回传（R-16）：拒收与取消都带着自己的原因码。
-        // 两个臂体相同，合并成一个 or-pattern（Ok/Err 绑定同名同类型，可以合并）。
-        Ok(ReceiveOutcome::Rejected { reason_code })
-        | Err(TransportError::Cancelled { reason_code }) => {
+        // 传输层错误（含 `Cancelled`）由调用方判——它才拿得到那个 `Result`。
+        ReceiveOutcome::Rejected { reason_code } => {
             (TaskState::Cancelled, Some(reason_code.clone()))
         }
-        Err(_) => (
-            TaskState::Failed,
-            Some(reasons::PEER_DISCONNECTED.to_owned()),
-        ),
     }
 }
 
