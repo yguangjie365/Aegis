@@ -16,9 +16,17 @@ import {
   useTransferStatus,
 } from "../hooks/use-transfer";
 import { asTransferError } from "@/lib/tauri/transfer";
-import type { TransferSettings } from "@/types/transfer";
+import type { KnownPeer, TransferPeer, TransferSettings } from "@/types/transfer";
 import { formatCountdown, isExpiringSoon } from "../lib/countdown";
 import type { DropRowRect } from "../lib/drop-target";
+import {
+  NEW_DEVICE_NAME,
+  addKnownPeer,
+  createKnownPeerRow,
+  isValidPort,
+  isSamePeer,
+  removeKnownPeer,
+} from "../lib/known-peers";
 import { validate, sizeLine } from "../lib/text-metrics";
 
 /**
@@ -450,6 +458,66 @@ export function FileTransferPage() {
     sendPathsTo(selectedPeerId, paths);
   }, [pickFiles, selectedPeerId, sendPathsTo, t]);
 
+  // ── 已知设备清单（F-FT-10） ──
+  // 🔴 这一栏是**单机自测**的入口：自己的宣告被按 R-6 过滤掉，故"发现的设备"里永远没有本机；
+  // 想在同一台机器上验一遍收发，就得手动加一条 127.0.0.1:端口。
+  const knownPeers = useMemo(() => persisted?.knownPeers ?? [], [persisted]);
+  const [selectedKnownIndex, setSelectedKnownIndex] = useState<number | null>(null);
+  const selectedKnown = selectedKnownIndex === null ? undefined : knownPeers[selectedKnownIndex];
+  const [knownDraft, setKnownDraft] = useState({ name: "", ip: "", port: "18889" });
+  const [knownPortError, setKnownPortError] = useState<string | null>(null);
+
+  /** 发给一条已知设备（按钮路径；与拖放路径互不混淆）。 */
+  const sendKnownPeer = useCallback(
+    async (peer: KnownPeer): Promise<void> => {
+      const paths = await pickFiles();
+      if (paths.length === 0) return;
+      for (const path of paths) {
+        const name = path.split(/[\\/]/).pop() ?? path;
+        log({
+          level: "info",
+          module: "Transfer",
+          action: "transferSendFile",
+          result: "Success",
+          correlationId: newCorrelationId(),
+        });
+        setNotice(t("send.queued", { name, peer: `${peer.ip}:${peer.port}` }));
+        send.mutate({ ip: peer.ip, port: peer.port, path });
+      }
+    },
+    [pickFiles, send, t],
+  );
+
+  /** 「加入已知」（F-FT-10：按 IP+端口去重；重复加入只提示"已加入"）。 */
+  const addDiscoveredToKnown = useCallback(
+    (peer: TransferPeer): void => {
+      if (persisted === undefined) return;
+      const candidate: KnownPeer = {
+        name: peer.deviceName,
+        ip: peer.ip,
+        port: peer.port,
+      };
+      const { list, added } = addKnownPeer(persisted.knownPeers, candidate);
+      if (!added) {
+        setNotice(t("discovered.added"));
+        return;
+      }
+      // F-FT-10 的原文日志
+      log({
+        level: "info",
+        module: "Transfer",
+        action: "transferAddKnownPeer",
+        result: "Success",
+        correlationId: newCorrelationId(),
+      });
+      setNotice(
+        t("known.addedLog", { name: candidate.name, ip: candidate.ip, port: candidate.port }),
+      );
+      commit({ knownPeers: list });
+    },
+    [commit, persisted, t],
+  );
+
   return (
     <Wrap>
       <PageHeader
@@ -636,34 +704,145 @@ export function FileTransferPage() {
           <CardHead>
             <CardTitle>{t("known.title")}</CardTitle>
             <Acts>
-              <AppButton variant="secondary" size="sm">
+              {/* F-FT-10：默认命名「新设备」并**自动选中该行** */}
+              <AppButton
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  if (persisted === undefined) return;
+                  const { list, index } = createKnownPeerRow(persisted.knownPeers);
+                  setSelectedKnownIndex(index);
+                  setKnownDraft({ name: NEW_DEVICE_NAME, ip: "", port: "18889" });
+                  setKnownPortError(null);
+                  commit({ knownPeers: list });
+                }}
+              >
                 {t("known.add")}
               </AppButton>
-              <AppButton variant="secondary" size="sm">
+              <AppButton
+                variant="secondary"
+                size="sm"
+                disabled={selectedKnown === undefined}
+                onClick={() => {
+                  if (persisted === undefined || selectedKnown === undefined) return;
+                  setSelectedKnownIndex(null);
+                  commit({ knownPeers: removeKnownPeer(persisted.knownPeers, selectedKnown) });
+                }}
+              >
                 {t("known.remove")}
               </AppButton>
-              <AppButton variant="secondary" size="sm">
+              <AppButton
+                variant="secondary"
+                size="sm"
+                disabled={selectedKnown === undefined}
+                onClick={() => {
+                  if (persisted === undefined || selectedKnown === undefined) return;
+                  // 🔴 端口非法 => 行内报错、**不落库**（F-FT-10）
+                  if (!isValidPort(knownDraft.port)) {
+                    setKnownPortError(t("known.portError"));
+                    return;
+                  }
+                  setKnownPortError(null);
+                  const updated = persisted.knownPeers.map((peer) =>
+                    isSamePeer(peer, selectedKnown)
+                      ? {
+                          name: knownDraft.name,
+                          ip: knownDraft.ip.trim(),
+                          port: Number.parseInt(knownDraft.port, 10),
+                        }
+                      : peer,
+                  );
+                  commit({ knownPeers: updated });
+                }}
+              >
                 {t("known.save")}
               </AppButton>
             </Acts>
           </CardHead>
           <List>
-            <Empty>
-              <EmptyTitle>{t("known.emptyTitle")}</EmptyTitle>
-              <EmptyHint>{t("known.emptyHint")}</EmptyHint>
-            </Empty>
+            {knownPeers.length === 0 ? (
+              <Empty>
+                <EmptyTitle>{t("known.emptyTitle")}</EmptyTitle>
+                <EmptyHint>{t("known.emptyHint")}</EmptyHint>
+              </Empty>
+            ) : (
+              knownPeers.map((peer, index) => (
+                <EditRow
+                  key={`${peer.ip}:${peer.port}:${index}`}
+                  onClick={() => {
+                    setSelectedKnownIndex(index);
+                    setKnownDraft({ name: peer.name, ip: peer.ip, port: String(peer.port) });
+                    setKnownPortError(null);
+                  }}
+                  style={{
+                    cursor: "pointer",
+                    outline:
+                      selectedKnownIndex === index
+                        ? "1px solid var(--aegis-border-strong, rgba(127,127,127,0.5))"
+                        : undefined,
+                  }}
+                >
+                  <span style={{ fontSize: 13 }}>{peer.name}</span>
+                  <MonoInput readOnly value={`${peer.ip}:${peer.port}`} style={{ width: 178 }} />
+                  {/* F-FT-10：「发送文件」按行发给该设备 */}
+                  <AppButton
+                    variant="secondary"
+                    size="sm"
+                    style={{ marginLeft: "auto" }}
+                    disabled={send.isPending}
+                    onClick={(e) => {
+                      e.stopPropagation(); // 别把"发送"当成"选中"
+                      void sendKnownPeer(peer);
+                    }}
+                  >
+                    {t("known.sendFile")}
+                  </AppButton>
+                </EditRow>
+              ))
+            )}
           </List>
           <EditRow>
             <Label>{t("known.name")}</Label>
-            <Input style={{ width: 118 }} />
+            <Input
+              style={{ width: 118 }}
+              value={knownDraft.name}
+              disabled={selectedKnown === undefined}
+              onChange={(e) => setKnownDraft({ ...knownDraft, name: e.target.value })}
+            />
             <Label>{t("known.ip")}</Label>
-            <MonoInput style={{ width: 112 }} />
+            <MonoInput
+              style={{ width: 112 }}
+              value={knownDraft.ip}
+              disabled={selectedKnown === undefined}
+              onChange={(e) => setKnownDraft({ ...knownDraft, ip: e.target.value })}
+            />
             <Label>{t("known.port")}</Label>
-            <PortInput style={{ width: 78 }} />
-            <AppButton variant="primary" size="sm" style={{ marginLeft: "auto" }}>
+            <PortInput
+              style={{ width: 78 }}
+              value={knownDraft.port}
+              disabled={selectedKnown === undefined}
+              onChange={(e) => setKnownDraft({ ...knownDraft, port: e.target.value })}
+            />
+            <AppButton
+              variant="primary"
+              size="sm"
+              style={{ marginLeft: "auto" }}
+              disabled={selectedKnown === undefined || send.isPending}
+              onClick={() => {
+                if (selectedKnown === undefined) return;
+                if (!isValidPort(knownDraft.port)) {
+                  setKnownPortError(t("known.portError"));
+                  return;
+                }
+                setKnownPortError(null);
+                void sendKnownPeer(selectedKnown);
+              }}
+            >
               {t("known.sendFile")}
             </AppButton>
           </EditRow>
+          {/* F-FT-10：非法输入只给**行内**错误 */}
+          {knownPortError !== null && <Hint span>{knownPortError}</Hint>}
         </Card>
 
         <Card>
@@ -721,7 +900,15 @@ export function FileTransferPage() {
                   <Label>{t("discovered.online")}</Label>
                   <span style={{ fontSize: 13 }}>{peer.deviceName}</span>
                   <MonoInput readOnly value={`${peer.ip}:${peer.port}`} style={{ width: 178 }} />
-                  <AppButton variant="secondary" size="sm" style={{ marginLeft: "auto" }}>
+                  <AppButton
+                    variant="secondary"
+                    size="sm"
+                    style={{ marginLeft: "auto" }}
+                    onClick={(e) => {
+                      e.stopPropagation(); // 别把"加入已知"当成"选中"
+                      addDiscoveredToKnown(peer);
+                    }}
+                  >
                     {t("discovered.addToKnown")}
                   </AppButton>
                 </EditRow>
