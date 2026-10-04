@@ -272,6 +272,22 @@ fn check_cancel<W: Write>(
     Ok(())
 }
 
+/// 握手给调用方看的事实 —— **准入裁决的全部输入**。
+///
+/// 单独成结构（而不是一串位置参数）是为了让接收侧的闭包一次拿全：
+/// 白名单要地址（在闭包外捕获）、配对要 [`HandshakeFacts::pair_code`]、
+/// 分块约定与大小合法性要另两个字段。
+#[derive(Debug, Clone, Copy)]
+pub struct HandshakeFacts<'a> {
+    pub file_name: &'a str,
+    pub file_size: u64,
+    pub file_hash: &'a str,
+    /// 对端声明的分块大小（R-13 第 4 关）
+    pub chunk_size: u64,
+    /// 对端随握手带来的配对码（R-2；`None` = 没带）
+    pub pair_code: Option<&'a str>,
+}
+
 /// 发送侧一次完整会话：握手 → 发块 → 收尾。
 ///
 /// `file_hash` 必须是 [`super::source::hash_file`] 的结果（握手要用它）。
@@ -395,6 +411,99 @@ pub fn send_file(
     }
 }
 
+/// 接收侧通过握手的会话事实（`admit_handshake` 的产物）。
+#[derive(Debug)]
+struct HandshakeAdmitted {
+    task_id: String,
+    file_name: String,
+    file_size: u64,
+    declared_hash: String,
+}
+
+/// 握手阶段的两条出路。
+#[derive(Debug)]
+enum HandshakePhase {
+    /// 准入通过，可以打开落盘器了
+    Admitted(HandshakeAdmitted),
+    /// 已回执拒收，会话到此为止
+    Rejected(ReceiveOutcome),
+}
+
+/// 读握手 → 跑调用方的准入闭包 → 回执。抽出来是为了让 [`receive_file`] 保持在可读长度内。
+///
+/// 🔴 拒收路径**不碰文件系统**：R-13 要求闸门在"建未完成文件"之前，本函数是那条顺序的落点。
+fn admit_handshake<R: Read, W: Write>(
+    reader: &mut FrameReader<R>,
+    writer: &mut W,
+    admit: impl FnOnce(&HandshakeFacts<'_>) -> Admission,
+) -> Result<HandshakePhase, TransportError> {
+    let (message, _) = reader.read_frame()?;
+    let (task_id, file_name, file_size, declared_hash, declared_chunk, pair_code) = match message {
+        TransferMessage::Handshake {
+            task_id,
+            file_name,
+            file_size,
+            file_hash,
+            chunk_size,
+            pair_code,
+            ..
+        } => (
+            task_id, file_name, file_size, file_hash, chunk_size, pair_code,
+        ),
+        TransferMessage::Cancel { reason_code, .. } => {
+            return Err(TransportError::Cancelled { reason_code })
+        }
+        _ => return Err(TransportError::Unexpected("首帧必须是 Handshake")),
+    };
+
+    let facts = HandshakeFacts {
+        file_name: &file_name,
+        file_size,
+        file_hash: &declared_hash,
+        chunk_size: declared_chunk,
+        pair_code: pair_code.as_deref(),
+    };
+    // 裁决点唯一：`admission::evaluate`，由调用方的闭包执行（白名单/配对/并发/磁盘都在里面）
+    let verdict = admit(&facts);
+    // 防御：`evaluate` 的第 4 关本应拦住非法分块大小；这里再拦一次是因为
+    // "分块大小"直接决定后续每次读取的缓冲，不该只依赖调用方把参数配对。
+    let verdict = match verdict {
+        Admission::Admitted { .. }
+            if super::chunk::chunk_size_mismatch(declared_chunk).is_some() =>
+        {
+            Admission::Rejected {
+                gate: super::admission::Gate::ChunkSize,
+                reason: super::reasons::CHUNK_SIZE_MISMATCH,
+            }
+        }
+        other => other,
+    };
+
+    if let Admission::Rejected { gate, reason } = verdict {
+        write_frame(
+            writer,
+            &TransferMessage::HandshakeAck {
+                task_id: task_id.clone(),
+                accepted: false,
+                reason_code: Some(reason.to_owned()),
+                resume_from: None,
+                chunk_size: None,
+            },
+            &[],
+        )?;
+        return Ok(HandshakePhase::Rejected(ReceiveOutcome::Rejected {
+            reason_code: format!("{}:{reason}", gate.as_str()),
+        }));
+    }
+
+    Ok(HandshakePhase::Admitted(HandshakeAdmitted {
+        task_id,
+        file_name,
+        file_size,
+        declared_hash,
+    }))
+}
+
 /// 接收侧一次完整会话：握手 → 准入 → 收块 → 校验入位。
 ///
 /// `admit` 收到 `(file_size, file_hash)` 后返回 [`Admission`]——
@@ -409,47 +518,24 @@ pub fn receive_file(
     root: &Path,
     peer_token: &str,
     policy: ConflictPolicy,
-    admit: impl FnOnce(u64, &str) -> Admission,
+    admit: impl FnOnce(&HandshakeFacts<'_>) -> Admission,
     cancel: &CancellationToken,
 ) -> Result<ReceiveOutcome, TransportError> {
     let mut writer = stream;
     let mut reader = FrameReader::new(stream);
 
-    // ── 握手 ──
-    let (message, _) = reader.read_frame()?;
-    let (task_id, file_name, file_size, declared_hash, _peer_chunk_size) = match message {
-        TransferMessage::Handshake {
-            task_id,
-            file_name,
-            file_size,
-            file_hash,
-            chunk_size,
-            ..
-        } => (task_id, file_name, file_size, file_hash, chunk_size),
-        TransferMessage::Cancel { reason_code, .. } => {
-            return Err(TransportError::Cancelled { reason_code })
-        }
-        _ => return Err(TransportError::Unexpected("首帧必须是 Handshake")),
-    };
-
-    // ── 准入裁决（裁决点唯一：admission::evaluate） ──
-    if let Admission::Rejected { gate, reason } = admit(file_size, &declared_hash) {
-        write_frame(
-            &mut writer,
-            &TransferMessage::HandshakeAck {
-                task_id: task_id.clone(),
-                accepted: false,
-                reason_code: Some(reason.to_owned()),
-                resume_from: None,
-                chunk_size: None,
-            },
-            &[],
-        )?;
+    // ── 握手 + 准入裁决（已抽出，见 `admit_handshake`） ──
+    let admitted = match admit_handshake(&mut reader, &mut writer, admit)? {
+        HandshakePhase::Admitted(admitted) => admitted,
         // 🔴 拒收即不建任何文件（R-13 的顺序：闸门在"建未完成文件"之前）
-        return Ok(ReceiveOutcome::Rejected {
-            reason_code: format!("{}:{reason}", gate.as_str()),
-        });
-    }
+        HandshakePhase::Rejected(outcome) => return Ok(outcome),
+    };
+    let HandshakeAdmitted {
+        task_id,
+        file_name,
+        file_size,
+        declared_hash,
+    } = admitted;
 
     // ── 打开落盘器（续传起点即未完成文件的真实长度） ──
     let mut sink = ReceiveSink::open(root, &file_name, peer_token, file_size)?;

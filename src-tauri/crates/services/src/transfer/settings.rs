@@ -72,6 +72,14 @@ pub struct TransferSettings {
     pub require_known_peer: bool,
     /// 接收前询问（F-FT-18；🔴 默认取契约层常量 = **开**，见模块头）
     pub require_receive_confirmation: bool,
+    /// 电脑通道"需要配对码"开关（F-FT-13；**默认开**，R-1 的信任根）。
+    ///
+    /// 🔴 **不落盘**（`serde(skip)`）：F-FT-59 的持久化清单**没有列它**，
+    /// 而服务重启后回到安全默认（要求配对）比"记住用户上次关掉了它"更稳妥。
+    /// 用户在一个运行期内关掉配对是 R-1 允许的（"需用户显式改动并承担后果"），
+    /// 但那不该变成**持久**的静默降级。若将来确需持久化默认关闭，须先立一条决策。
+    #[serde(skip)]
+    pub require_pairing: bool,
     /// 同名冲突策略（F-FT-23，**默认自动改名**）
     pub conflict_policy: ConflictPolicy,
     /// 暂停自动取消上限（分钟，0 = 不限；F-FT-27）
@@ -97,6 +105,8 @@ impl Default for TransferSettings {
             require_known_peer: true,
             // 🔴 单一来源：契约层常量（Q-15 用户裁决 2026-10-04 = 默认开启）
             require_receive_confirmation: contracts::TRANSFER_REQUIRE_RECEIVE_CONFIRMATION_DEFAULT,
+            // R-1：配对默认要求（信任只来自配对码）
+            require_pairing: true,
             conflict_policy: ConflictPolicy::default(),
             pause_timeout_minutes: DEFAULT_PAUSE_TIMEOUT_MINUTES,
             transfer_port: DEFAULT_TRANSFER_PORT,
@@ -354,6 +364,10 @@ mod tests {
             receive_directory: Some(r"D:\收件".to_owned()),
             require_known_peer: false,
             require_receive_confirmation: false,
+            // 🔴 刻意取**默认值**：本字段 `serde(skip)` 不落盘，若这里写 false
+            //    读回来会是默认的 true，往返断言必然失败——那正是"不持久化"的表现，
+            //    见下面单独的一条用例。
+            require_pairing: true,
             conflict_policy: ConflictPolicy::Overwrite,
             pause_timeout_minutes: 0,
             transfer_port: 19000,
@@ -372,6 +386,16 @@ mod tests {
         let outcome = load(&path);
         assert!(!outcome.corrupt && !outcome.file_missing);
         assert_eq!(outcome.settings, original, "逐字段往返必须一致");
+
+        // 🔴 配对开关**不参与往返**：它 `serde(skip)`，读回来一律是默认（要求配对）。
+        //    这条断言把"不持久化"这件事变成可执行的事实，而不是文档里的一句话。
+        let mut weakened = original.clone();
+        weakened.require_pairing = false;
+        save(&path, &weakened).unwrap();
+        assert!(
+            load(&path).settings.require_pairing,
+            "关掉配对不该被持久化（重启应回到安全默认）"
+        );
         assert!(outcome.repairs.is_empty(), "合法配置不该产生修复记录");
         let _ = std::fs::remove_dir_all(&dir);
         let _ = &mut original;

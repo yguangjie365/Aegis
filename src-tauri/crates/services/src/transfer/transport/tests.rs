@@ -48,7 +48,7 @@ fn connect(addr: SocketAddr) -> TcpStream {
     stream
 }
 
-fn always_admit(_size: u64, _hash: &str) -> Admission {
+fn always_admit(_facts: &HandshakeFacts<'_>) -> Admission {
     Admission::Admitted {
         disk_unknown: false,
     }
@@ -221,7 +221,7 @@ fn rejected_handshake_creates_no_file_and_tells_the_sender_why() {
             &recv_dir,
             "peer1",
             ConflictPolicy::Rename,
-            |_, _| Admission::Rejected {
+            |_| Admission::Rejected {
                 gate: Gate::Whitelist,
                 reason: crate::transfer::reasons::PEER_NOT_DISCOVERED,
             },

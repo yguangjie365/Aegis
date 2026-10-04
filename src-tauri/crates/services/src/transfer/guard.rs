@@ -93,6 +93,13 @@ fn has_unsafe_join(line: &str) -> bool {
     let mut rest = line;
     while let Some(index) = rest.find(marker) {
         let after = &rest[index + marker.len()..];
+        // 🔴 **零参数的 `.join()` 不是路径拼接**：`Path::join` 必须带一个参数，
+        // 而 `JoinHandle::join()` 恰恰零参数。线程收尾处到处是 `handle.join()`，
+        // 把它们当违规会让守卫从"有用"退化成噪声（本批实测踩到）。
+        if after.trim_start().starts_with(')') {
+            rest = after;
+            continue;
+        }
         if !is_safe_literal_argument(after) {
             return true;
         }
@@ -225,6 +232,20 @@ fn i() -> PathBuf {
 fn j() {}
 ";
     assert_eq!(offending_lines(commented), [], "注释里的示例不得误报");
+
+    // ⑤ 零参数的 `.join()` 是 JoinHandle 收尾，不是路径拼接（本批实测的误报类）
+    let thread_join = "
+fn k() {
+    for handle in threads {
+        let _ = handle.join();
+    }
+}
+";
+    assert_eq!(
+        offending_lines(thread_join),
+        [],
+        "JoinHandle::join() 零参数，不得当成路径拼接"
+    );
 }
 
 /// 🔴 依赖方向守卫：`infra` 不得反向依赖 `services`（02 架构分册 AD-*）。

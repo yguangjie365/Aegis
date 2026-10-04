@@ -36,6 +36,7 @@ pub mod discovery;
 pub mod pairing;
 pub mod protocol;
 pub mod reasons;
+pub mod service;
 pub mod settings;
 pub mod sink;
 pub mod source;
