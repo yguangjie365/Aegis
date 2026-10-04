@@ -36,3 +36,9 @@ pub mod network;
 pub mod overview;
 mod spectrum;
 pub mod sys;
+// M-05 文件互传（2026-10-04，dsh（互传批））：片1 = 电脑↔电脑通道。
+// 本批只落纯逻辑地基（reasons / text / conflict），无网络、无文件 IO。
+// 🔴 路径越界守卫的落点**不在这里**：`02-专题设计/02-安全与特权通道.md:94` 与
+// `infra/src/lib.rs:5` 都把 `infra::safe::join_under_root` 定为「外部路径拼接的唯一入口」
+// （属 W0-09 范围，当前尚未实现）——本域消费该入口，不得另写一份。见 `transfer/mod.rs` 模块头。
+pub mod transfer;
