@@ -106,6 +106,34 @@ fn the_same_id_overwrites_instead_of_duplicating() {
     assert_eq!(only.state, TaskState::Completed);
 }
 
+/// 🔴 **F-FT-58 的方向**：保留最近 200 条，且展示序是**新的在前**。
+///
+/// 内部存储是"最旧在前"（便于丢头淘汰、且是落盘格式），
+/// 所以这条用例同时钉住两件事：**存储序不变**、**展示序是它的反转**。
+#[test]
+fn display_order_is_newest_first_while_storage_stays_oldest_first() {
+    let mut history = History::new();
+    history.push(entry("old", "旧.bin", TaskState::Completed, None));
+    history.push(entry("new", "新.bin", TaskState::Completed, None));
+
+    // 存储序：最旧在前（落盘与淘汰都依赖它）
+    assert_eq!(history.entries().front().expect("有头").id, "old");
+    // 展示序：新的在前（F-FT-58）
+    let shown: Vec<&str> = history
+        .newest_first()
+        .map(|item| item.id.as_str())
+        .collect();
+    assert_eq!(shown, vec!["new", "old"], "界面与 CSV 都必须新的在前");
+
+    // CSV 的行序也必须跟着展示序走（否则导出的表与看到的相反）
+    let csv = history.to_csv();
+    let first_data = csv.lines().nth(1).expect("有数据行");
+    assert!(
+        first_data.contains("新.bin"),
+        "CSV 首行应是新的那条：{first_data}"
+    );
+}
+
 #[test]
 fn capacity_drops_the_oldest() {
     let mut history = History::new();

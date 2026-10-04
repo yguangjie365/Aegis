@@ -564,9 +564,12 @@ impl TransferService {
     }
 
     /// 传输历史快照（F-FT-54；**只读**，命令层不得改写——快照不可变）。
+    ///
+    /// 🔴 顺序 = [`super::history::History::newest_first`]（**新的在前**，F-FT-58）：
+    /// 界面列表直接照这个顺序渲染，不能图省事用内部存储顺序（那是旧的在前的落盘序）。
     #[must_use]
     pub fn history_snapshot(&self) -> Vec<super::history::HistoryEntry> {
-        self.ctx.lock_history().entries().iter().cloned().collect()
+        self.ctx.lock_history().newest_first().cloned().collect()
     }
 
     /// 导出历史为 CSV（F-FT-58）。

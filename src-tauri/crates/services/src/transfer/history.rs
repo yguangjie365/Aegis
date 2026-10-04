@@ -176,9 +176,21 @@ impl History {
         }
     }
 
+    /// 内部存储顺序 = **最旧在前**（追加在尾、超容量丢头，见 [`Self::push`]）。
+    ///
+    /// 🔴 **对外展示必须用 [`Self::newest_first`]**：F-FT-58 明写"保留最近 200 条（**新的在前**）"。
+    /// 落盘用的就是这个内部顺序，**故它也是文件格式的一部分**——不要为了展示去反转存储，
+    /// 那会让已经写下的历史文件被读成倒序。
     #[must_use]
     pub fn entries(&self) -> &VecDeque<HistoryEntry> {
         &self.entries
+    }
+
+    /// 展示顺序：**新的在前**（F-FT-58）。
+    ///
+    /// 界面列表与 CSV 都必须走这里——否则用户看到的与规格要求的方向相反。
+    pub fn newest_first(&self) -> impl Iterator<Item = &HistoryEntry> {
+        self.entries.iter().rev()
     }
 
     #[must_use]
@@ -191,13 +203,13 @@ impl History {
         self.entries.is_empty()
     }
 
-    /// 导出 CSV（含 BOM 与 CRLF，见模块头"CSV 的四个细节"）。
+    /// 导出 CSV（含 BOM 与 CRLF，见模块头"CSV 的四个细节"；**新的在前**，F-FT-58）。
     #[must_use]
     pub fn to_csv(&self) -> String {
         let mut out = String::from("\u{feff}");
         out.push_str(CSV_HEADER);
         out.push_str("\r\n");
-        for entry in &self.entries {
+        for entry in self.newest_first() {
             let cells = [
                 format_time(entry.finished_at_ms),
                 entry.direction_label().to_owned(),
