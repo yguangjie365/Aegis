@@ -37,6 +37,7 @@ pub mod conflict;
 pub mod discovery;
 pub mod history;
 pub mod pairing;
+pub mod pause;
 pub mod protocol;
 pub mod reasons;
 pub mod service;
