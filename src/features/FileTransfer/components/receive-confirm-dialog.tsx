@@ -101,6 +101,14 @@ const Segs = styled.div`
   flex-wrap: wrap;
 `;
 
+/** 🔴 R-9：「当前策略下将会发生的动作」——必须与策略选择一起出现，不能只给选项不说后果。 */
+const Action = styled.div`
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--aegis-mute);
+`;
+
 const Seg = styled.button<{ on: boolean }>`
   border: 1px solid ${(p) => (p.on ? "var(--aegis-accent)" : "var(--aegis-border-strong)")};
   background: ${(p) => (p.on ? "var(--aegis-accent)" : "var(--aegis-surface-soft)")};
@@ -256,6 +264,14 @@ export function ReceiveConfirmDialog({
                   </Seg>
                 ))}
               </Segs>
+              {/* 🔴 R-9 原文：冲突区必须写明"**当前策略下将会发生的动作**"，
+                  且"覆盖类后果必须写明**原文件已不可恢复**"。
+                  本区只在**已存在同名文件**时出现（F-FT-14：仅必要时），故不打扰常规接收。 */}
+              <Action>
+                {policy === "overwrite"
+                  ? t("recvConfirm.actionOverwrite")
+                  : t(policy === "skip" ? "recvConfirm.actionSkip" : "recvConfirm.actionRename")}
+              </Action>
             </Conflict>
           )}
 
