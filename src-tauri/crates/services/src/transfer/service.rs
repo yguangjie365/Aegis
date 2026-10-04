@@ -877,7 +877,7 @@ fn handle_connection(
     stream: &TcpStream,
     ctx: &ServiceContext,
     cancel: &CancellationToken,
-) -> Result<ReceiveOutcome, TransportError> {
+) -> Result<transport::AnyOutcome, TransportError> {
     transport::configure_timeout(stream, transport::IO_TIMEOUT)?;
     let peer = stream.peer_addr()?;
     let peer_token = peer_token_for(peer.ip());
@@ -1005,7 +1005,9 @@ fn handle_connection(
         }
     }
 
-    outcome
+    // 🔴 对外报 `AnyOutcome`：接收侧从此可以既收文件也收文本（F-FT-33），
+    //    而调用方只关心"这条连接有没有出错"，故本步只是把文件结论包一层。
+    outcome.map(transport::AnyOutcome::File)
 }
 
 /// 接收会话计数守卫。
