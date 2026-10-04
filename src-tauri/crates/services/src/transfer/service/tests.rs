@@ -33,6 +33,10 @@ fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("aegis-service-{}-{}", std::process::id(), tag));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("建临时目录");
+    // 🔴 把历史数据目录也指到临时区：`TransferService::start` 会往
+    //    `default_history_path()` 写历史，不隔离就会**写脏用户的真实历史**。
+    //    放在这里是因为本文件的用例都先建临时目录（幂等设置，多线程下安全）。
+    std::env::set_var("AEGIS_TRANSFER_DATA_DIR", &dir);
     dir
 }
 
@@ -470,6 +474,8 @@ fn known_peers_hit_makes_a_peer_known_without_discovery() {
         pairing: Mutex::new(PairingGuard::new(true)),
         confirm: ConfirmGate::default(),
         tasks: Mutex::new(TaskRegistry::default()),
+        history: Mutex::new(crate::transfer::history::History::new()),
+        history_path: std::env::temp_dir().join("aegis-hist-fixture.json"),
         cancels: Mutex::new(HashMap::new()),
         task_seq: AtomicU64::new(1),
         peers: Mutex::new(PeerTable::new("测试机#tok", OFFLINE_AFTER)),

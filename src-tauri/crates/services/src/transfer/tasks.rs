@@ -26,6 +26,7 @@
 //! * **不发事件**：事件发射是命令层的职责（本 crate 不引用 Tauri 宿主类型做业务耦合）。
 //! * **不持久化**：这是**运行期**台账；历史（200 条、可导出）是另一件事（F-FT-54/58）。
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
@@ -36,14 +37,16 @@ use std::collections::VecDeque;
 pub const TASK_CAPACITY: usize = 200;
 
 /// 任务方向。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Direction {
     Send,
     Receive,
 }
 
 /// 任务状态（F-FT-30 的五态）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TaskState {
     /// 进行中（唯一**非终态**）
     Active,

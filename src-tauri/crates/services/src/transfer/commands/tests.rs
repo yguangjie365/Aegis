@@ -28,8 +28,12 @@ fn temp_dir(tag: &str) -> PathBuf {
 /// 停掉可能残留的服务。
 fn reset() {
     let service = lock_state().service.take();
-    if let Some(service) = service {
-        let _ = service.stop();
+    // 服务现在存在 Arc 里（见 CommandState.service 的注释）；传输中可能解包不了，
+    // 那种情况下本函数也无能为力——测试自己会因端口占用而暴露。
+    if let Some(arc) = service {
+        if let Ok(owned) = std::sync::Arc::try_unwrap(arc) {
+            let _ = owned.stop();
+        }
     }
 }
 

@@ -35,6 +35,7 @@ pub mod commands;
 pub mod confirm;
 pub mod conflict;
 pub mod discovery;
+pub mod history;
 pub mod pairing;
 pub mod protocol;
 pub mod reasons;

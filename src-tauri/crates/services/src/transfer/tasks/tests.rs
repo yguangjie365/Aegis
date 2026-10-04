@@ -261,3 +261,36 @@ fn state_strings_are_stable_identifiers_for_the_frontend() {
         assert!(terminal.is_terminal(), "{terminal:?} 必须是终态");
     }
 }
+
+/// 🔴 防漂移：serde 的拼写必须与 [`TaskState::as_str`] 一字不差。
+///
+/// 两处拼写一旦分家，历史条目落盘用一套、界面显示用另一套——
+/// 而且**不会报错**，只会在某天发现"老记录读不出来"。
+#[test]
+fn serde_spelling_matches_as_str_for_every_state() {
+    for state in [
+        TaskState::Active,
+        TaskState::Completed,
+        TaskState::Skipped,
+        TaskState::Failed,
+        TaskState::Cancelled,
+    ] {
+        let json = serde_json::to_string(&state).expect("可序列化");
+        assert_eq!(
+            json,
+            format!("\"{}\"", state.as_str()),
+            "状态 {state:?} 的两种拼写必须一致"
+        );
+        let back: TaskState = serde_json::from_str(&json).expect("可反序列化");
+        assert_eq!(back, state);
+    }
+}
+
+#[test]
+fn serde_spelling_is_lowercase_for_both_directions() {
+    assert_eq!(serde_json::to_string(&Direction::Send).unwrap(), "\"send\"");
+    assert_eq!(
+        serde_json::to_string(&Direction::Receive).unwrap(),
+        "\"receive\""
+    );
+}

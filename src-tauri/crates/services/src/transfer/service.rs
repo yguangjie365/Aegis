@@ -156,6 +156,10 @@ struct ServiceContext {
     peers: Mutex<PeerTable>,
     /// 运行期任务台账（F-FT-25/29/30；🔴 R-16 终态不可回退由 `TaskRegistry` 保证）
     tasks: Mutex<TaskRegistry>,
+    /// 传输历史（F-FT-54~58：上限 200、快照不可变、原因码原样存）。
+    history: Mutex<super::history::History>,
+    /// 历史落盘位置（启动时定下，避免运行期依赖当前目录）。
+    history_path: PathBuf,
     /// 任务 id → 取消令牌（F-FT-26「取消单个任务」）。
     ///
     /// 🔴 没有这张表就没法"按 id 取消"：每次发送各自 `new` 一个令牌，
@@ -196,6 +200,27 @@ impl ServiceContext {
     /// 任务收尾时移除令牌（**必须**调用，否则这张表会随会话无限增长）。
     fn forget_cancel(&self, id: &str) {
         self.lock_cancels().remove(id);
+    }
+
+    /// 历史表的守卫（毒锁恢复，同其它锁）。
+    fn lock_history(&self) -> std::sync::MutexGuard<'_, super::history::History> {
+        self.history
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// 把一条**终态**记进历史（F-FT-54）并落盘。
+    ///
+    /// 🔴 落盘失败**只报不抛**：历史写不进去，不该把一次已经成功的传输变成失败。
+    /// 但也不能静默——这里用 `eprintln!` 而不是 `tracing::warn!`：
+    /// 本仓**尚未安装 tracing subscriber**，tracing 调用目前全是空转
+    /// （这正是 R-12「放行但记录」曾经不成立的原因）。
+    fn record_history(&self, entry: super::history::HistoryEntry) {
+        let mut history = self.lock_history();
+        history.push(entry);
+        if let Err(error) = history.save(&self.history_path) {
+            eprintln!("[transfer] 历史落盘失败（不影响本次传输）：{error}");
+        }
     }
 
     /// 取消某个任务。返回 `false` = 该任务已收尾或不存在。
@@ -308,9 +333,31 @@ impl TransferService {
     /// 并通过 [`Self::newly_generated_device_token`] 回传，调用方**必须**把它写回设置
     /// （R-6：标识重启后必须稳定）。
     ///
+    /// 历史落在 [`super::history::default_history_path`]；需要换地方（如测试隔离）请用
+    /// [`Self::start_with_history`]。
+    ///
     /// # Errors
     /// 见 [`StartFailure`]（三段的失败都能区分）。
     pub fn start(settings: TransferSettings, machine_name: &str) -> Result<Self, StartFailure> {
+        Self::start_with_history(
+            settings,
+            machine_name,
+            super::history::default_history_path(),
+        )
+    }
+
+    /// 同 [`Self::start`]，但显式指定历史落盘位置。
+    ///
+    /// 🔴 存在的理由与 `settings_path` 覆盖一样：**测试不该写用户的真实历史**。
+    /// 命令层把历史放在**设置文件旁边**，于是"换掉设置路径"这一步自动把历史也隔离了。
+    ///
+    /// # Errors
+    /// 同 [`Self::start`]。
+    pub fn start_with_history(
+        settings: TransferSettings,
+        machine_name: &str,
+        history_path: PathBuf,
+    ) -> Result<Self, StartFailure> {
         // ── 第 1 步：端口合法性校验（未起任何监听） ──
         let problems = settings::validate_ports(&settings);
         if !problems.is_empty() {
@@ -380,6 +427,10 @@ impl TransferService {
             confirm: ConfirmGate::default(),
             // 🔴 对端表必须按**自己的设备标识**过滤自身宣告
             tasks: Mutex::new(TaskRegistry::default()),
+            // 🟠 历史读盘失败 ⇒ 从空表开始，**不让启动失败**：历史是"最近发生了什么"，
+            //    读不出来不该连累收发。坏文件仍原样留在盘上，可人工排查。
+            history: Mutex::new(super::history::History::load(&history_path).unwrap_or_default()),
+            history_path,
             cancels: Mutex::new(HashMap::new()),
             task_seq: AtomicU64::new(1),
             peers: Mutex::new(PeerTable::new(self_id, OFFLINE_AFTER)),
@@ -542,7 +593,8 @@ impl TransferService {
             id.clone(),
             Direction::Send,
             peer.to_string(),
-            file_name,
+            // 克隆一份：历史要用的那份留在这里（`begin` 会把它移进台账）
+            file_name.clone(),
             file_size,
             super::sink::now_unix_ms(),
         );
@@ -579,11 +631,23 @@ impl TransferService {
             )) => (TaskState::Cancelled, Some(reason_code.as_str())),
             Err(_) => (TaskState::Failed, Some(reasons::PEER_DISCONNECTED)),
         };
+        let finished_at_ms = super::sink::now_unix_ms();
         self.ctx
             .lock_tasks()
-            .finish(&id, state, reason, super::sink::now_unix_ms());
+            .finish(&id, state, reason, finished_at_ms);
         // 收尾即移除令牌：不移除这张表会随会话无限增长
         self.ctx.forget_cancel(&id);
+        // 记进历史（F-FT-54）：**快照**，之后不再改
+        self.ctx.record_history(super::history::HistoryEntry {
+            id: id.clone(),
+            direction: Direction::Send,
+            peer_label: peer.to_string(),
+            file_name,
+            file_size,
+            state,
+            reason_code: reason.map(str::to_owned),
+            finished_at_ms,
+        });
         outcome
     }
 
@@ -823,10 +887,26 @@ fn handle_connection(
     progress.force_next();
     if let Some(id) = task_id_slot.borrow_mut().take() {
         let (state, reason) = receive_terminal_state(&outcome);
+        let finished_at_ms = super::sink::now_unix_ms();
+        // 🔴 先从**台账**取一份快照：历史要的是当时的事实（文件名/大小/对端），
+        //    而它们在准入闭包里，此处已出作用域。台账正好持有它们。
+        let snapshot = ctx.lock_tasks().get(&id).cloned();
         ctx.lock_tasks()
-            .finish(&id, state, reason.as_deref(), super::sink::now_unix_ms());
+            .finish(&id, state, reason.as_deref(), finished_at_ms);
         // 收尾即移除令牌：不移除这张表会随会话无限增长
         ctx.forget_cancel(&id);
+        if let Some(task) = snapshot {
+            ctx.record_history(super::history::HistoryEntry {
+                id,
+                direction: Direction::Receive,
+                peer_label: task.peer_label,
+                file_name: task.file_name,
+                file_size: task.file_size,
+                state,
+                reason_code: reason,
+                finished_at_ms,
+            });
+        }
     }
 
     outcome

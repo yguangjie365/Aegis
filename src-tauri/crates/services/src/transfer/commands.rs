@@ -58,11 +58,16 @@ pub const CODE_SETTINGS_IO: &str = "SETTINGS_IO_FAILED";
 /// 🔴 独立成一个码（而不是复用 `SERVICE_NOT_RUNNING`）：界面必须能区分
 /// "服务没跑"与"你点慢了，那条请求已经按拒绝处理了"——两者对用户的意思完全不同。
 pub const CODE_CONFIRM_GONE: &str = "CONFIRM_GONE";
+/// 有传输在跑，此刻不能停服务（不是失败，是「现在不能」）。
+pub const CODE_SERVICE_BUSY: &str = "SERVICE_BUSY";
 
 /// 进程级状态：运行中的服务 + 设置文件路径。
 #[derive(Debug, Default)]
 struct CommandState {
-    service: Option<TransferService>,
+    // 用 Arc 而不是裸值：发送是长时间阻塞的，若在持有 lock_state 守卫期间传输，
+    // 其它所有命令（状态/待决确认/台账）都会卡在同一把锁上——弹窗轮询根本执行不到。
+    // 存 Arc 就能做到「取出 → 放锁 → 再传输」。
+    service: Option<std::sync::Arc<TransferService>>,
     /// 设置文件落点（测试可换到临时目录，避免污染真实用户配置）
     settings_path: Option<PathBuf>,
 }
@@ -285,17 +290,36 @@ fn start_impl() -> Result<TransferStatusDto, TransferErrorDto> {
     // 先把"启动前"的设置留一份：`start` 会把它移走，而下面要拿它比对新令牌
     let before = outcome.settings.clone();
 
-    let service = TransferService::start(outcome.settings, &machine_name).map_err(|failure| {
-        let (code, message) = match &failure {
-            StartFailure::InvalidPort { .. } => (CODE_START_INVALID_PORT, failure.to_string()),
-            StartFailure::ReceiveDirectory { .. } => {
-                (CODE_START_RECEIVE_DIR_FAILED, failure.to_string())
-            }
-            StartFailure::Transfer { .. } => (CODE_START_TRANSFER_FAILED, failure.to_string()),
-            StartFailure::Discovery { .. } => (CODE_START_DISCOVERY_FAILED, failure.to_string()),
-        };
-        TransferErrorDto::new(code, message)
-    })?;
+    // 🔴 历史与设置**同目录**：这样"测试换掉设置路径"这一步自动把历史也隔离了，
+    //    不会再出现"跑一次测试就把用户的真实历史写脏"（2026-10-04 实观测到过）。
+    let history_path =
+        state
+            .settings_path
+            .as_ref()
+            .map_or_else(super::history::default_history_path, |path| {
+                path.parent()
+                    .map_or_else(|| path.clone(), |dir| dir.join("history.json"))
+            });
+
+    let service =
+        TransferService::start_with_history(outcome.settings, &machine_name, history_path)
+            .map_err(|failure| {
+                let (code, message) = match &failure {
+                    StartFailure::InvalidPort { .. } => {
+                        (CODE_START_INVALID_PORT, failure.to_string())
+                    }
+                    StartFailure::ReceiveDirectory { .. } => {
+                        (CODE_START_RECEIVE_DIR_FAILED, failure.to_string())
+                    }
+                    StartFailure::Transfer { .. } => {
+                        (CODE_START_TRANSFER_FAILED, failure.to_string())
+                    }
+                    StartFailure::Discovery { .. } => {
+                        (CODE_START_DISCOVERY_FAILED, failure.to_string())
+                    }
+                };
+                TransferErrorDto::new(code, message)
+            })?;
 
     // 🔴 R-6：新生成的设备令牌必须写回设置，否则每次重启都会换标识
     if before.device_token.as_deref() != Some(service.device_token()) {
@@ -314,7 +338,7 @@ fn start_impl() -> Result<TransferStatusDto, TransferErrorDto> {
         }
     }
 
-    state.service = Some(service);
+    state.service = Some(std::sync::Arc::new(service));
     drop(state);
     Ok(status_impl())
 }
@@ -325,8 +349,20 @@ fn stop_impl() -> Result<StopReportDto, TransferErrorDto> {
     let Some(service) = state.service.take() else {
         return Err(TransferErrorDto::new(CODE_NOT_RUNNING, "服务未在运行"));
     };
+    // 🔴 传输进行中时，发送路径克隆过一份 Arc ⇒ 此刻**不能**解包。
+    //    这不是错误，是「现在不能停」：把服务放回去，如实回一个码。
+    let owned = match std::sync::Arc::try_unwrap(service) {
+        Ok(owned) => owned,
+        Err(still_shared) => {
+            state.service = Some(still_shared);
+            return Err(TransferErrorDto::new(
+                CODE_SERVICE_BUSY,
+                "有传输正在进行，请先取消或等它结束再停止服务。",
+            ));
+        }
+    };
     drop(state);
-    let report = service.stop();
+    let report = owned.stop();
     Ok(StopReportDto {
         all_stopped: report.all_stopped,
         threads_joined: report.threads_joined,
@@ -407,26 +443,31 @@ fn send_impl(payload: &SendFilePayload) -> Result<SendResultDto, TransferErrorDt
     //    同进程实测时 12 次待决采样全部落在裁决之后，接收确认弹窗因此永远出不来。
     //    修它需要让 TransferService::stop() 不再按值消费 self（好让状态里能存 Arc），
     //    属独立改动，已登记。
-    let result = {
+    // 🔴 先把 Arc<TransferService> 克隆出来、立刻放锁，再做长时间传输。
+    //    第一版把 lock_state 的守卫 held 在整段传输里，于是传输期间其它命令
+    //    全卡在同一把锁上——接收前询问的弹窗永远轮询不到待决。
+    //    这不是推测：同进程实测时 12 次待决采样全部落在裁决之后。
+    let service = {
         let state = lock_state();
-        match state.service.as_ref() {
-            Some(service) => service.send_file_tracked(
-                peer,
-                &path,
-                super::chunk::DEFAULT_CHUNK_SIZE,
-                payload.pair_code.as_deref(),
-                &cancel,
-            ),
-            None => super::service::send_to(
-                peer,
-                &path,
-                super::chunk::DEFAULT_CHUNK_SIZE,
-                payload.pair_code.as_deref(),
-                &task_id,
-                &cancel,
-                |_| {},
-            ),
-        }
+        state.service.clone()
+    };
+    let result = match service {
+        Some(service) => service.send_file_tracked(
+            peer,
+            &path,
+            super::chunk::DEFAULT_CHUNK_SIZE,
+            payload.pair_code.as_deref(),
+            &cancel,
+        ),
+        None => super::service::send_to(
+            peer,
+            &path,
+            super::chunk::DEFAULT_CHUNK_SIZE,
+            payload.pair_code.as_deref(),
+            &task_id,
+            &cancel,
+            |_| {},
+        ),
     };
 
     match result {
