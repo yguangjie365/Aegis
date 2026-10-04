@@ -102,3 +102,22 @@ export const SERVICE_NOT_RUNNING = "SERVICE_NOT_RUNNING";
 export const SERVICE_ALREADY_RUNNING = "SERVICE_ALREADY_RUNNING";
 export const BAD_PAYLOAD = "BAD_PAYLOAD";
 export const SETTINGS_IO_FAILED = "SETTINGS_IO_FAILED";
+
+/** 待用户裁决的接收确认（F-FT-14）。 */
+export interface PendingConfirm {
+  /** 裁决时回传此 id */
+  id: string;
+  peerLabel: string;
+  fileName: string;
+  fileSize: number;
+  saveDirectory: string;
+  /** 磁盘剩余；null = **无法判定**（界面显示"剩余空间无法判定"，不得显示 0） */
+  availableBytes: number | null;
+  /** 是否已存在同名文件。🔴 为 false 时**不得**显示冲突区（F-FT-14 原文） */
+  nameConflict: boolean;
+  /** 距超时判拒还剩多少毫秒（R-8：超时按拒绝，故界面必须给出倒计时） */
+  expiresInMs: number;
+}
+
+/** 答复待决确认时的专属失败码。 */
+export const CODE_CONFIRM_GONE = "CONFIRM_GONE";

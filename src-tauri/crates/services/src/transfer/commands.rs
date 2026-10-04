@@ -51,6 +51,11 @@ pub const CODE_NOT_RUNNING: &str = "SERVICE_NOT_RUNNING";
 pub const CODE_ALREADY_RUNNING: &str = "SERVICE_ALREADY_RUNNING";
 pub const CODE_BAD_PAYLOAD: &str = "BAD_PAYLOAD";
 pub const CODE_SETTINGS_IO: &str = "SETTINGS_IO_FAILED";
+/// 答复的待决确认已不存在（超时判拒 / 已被答复 / 服务已停）。
+///
+/// 🔴 独立成一个码（而不是复用 `SERVICE_NOT_RUNNING`）：界面必须能区分
+/// "服务没跑"与"你点慢了，那条请求已经按拒绝处理了"——两者对用户的意思完全不同。
+pub const CODE_CONFIRM_GONE: &str = "CONFIRM_GONE";
 
 /// 进程级状态：运行中的服务 + 设置文件路径。
 #[derive(Debug, Default)]
@@ -650,6 +655,111 @@ pub fn transfer_send_file(
         exception,
     );
     result
+}
+
+/// 待用户裁决的接收确认（F-FT-14）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingConfirmDto {
+    /// 裁决时回传此 id
+    pub id: String,
+    /// 对端标识（`ip:port`）
+    pub peer_label: String,
+    pub file_name: String,
+    pub file_size: u64,
+    /// 保存目录（空串表示未定，界面显示"—"）
+    pub save_directory: String,
+    /// 磁盘剩余；`None` = **无法判定**（界面显示"剩余空间无法判定"，不得显示 0）
+    pub available_bytes: Option<u64>,
+    /// 是否已存在同名文件。🔴 为假时界面**不得**显示冲突区（F-FT-14 原文"仅当存在同名文件时"）
+    pub name_conflict: bool,
+    /// 距超时判拒还剩多少毫秒（R-8：超时按拒绝，故界面必须给出这个倒计时）
+    pub expires_in_ms: i64,
+}
+
+/// 列出待决确认。服务未运行时返回空表（不是错误——"没有待决"与"服务没跑"都是空）。
+#[must_use]
+#[tauri::command]
+pub fn transfer_pending_confirms(envelope: contracts::CmdEnvelope) -> Vec<PendingConfirmDto> {
+    let started = Instant::now();
+    let list = pending_confirms_impl();
+    log_command(
+        "transferPendingConfirms",
+        ResultLabel::Success,
+        &envelope.correlation_id,
+        started,
+        None,
+    );
+    list
+}
+
+/// 答复一条待决确认（`accept=false` 即拒绝）。
+///
+/// # Errors
+/// 服务未运行、或该条待决**已不存在**（超时判拒/已被答复）时返回带原因码的 DTO。
+/// 🔴 后者不是"成功"：界面必须如实说"该请求已超时"，而不是显示"已接收"。
+#[tauri::command]
+pub fn transfer_confirm_receive(
+    envelope: contracts::CmdEnvelope,
+    id: String,
+    accept: bool,
+) -> Result<(), TransferErrorDto> {
+    let started = Instant::now();
+    // 🔴 只调一次：`confirm_impl` 是**有副作用**的（它消费掉那条待决），
+    // 调两次会让第二次必然返回 CONFIRM_GONE——首版就是这么写错的
+    let outcome = confirm_impl(&id, accept);
+    let (label, exception) = match &outcome {
+        Ok(()) => (ResultLabel::Success, None),
+        Err(code) => (ResultLabel::Failed, Some(*code)),
+    };
+    log_command(
+        "transferConfirmReceive",
+        label,
+        &envelope.correlation_id,
+        started,
+        exception,
+    );
+    outcome.map_err(|code| TransferErrorDto {
+        code: code.to_owned(),
+        message: if code == CODE_CONFIRM_GONE {
+            "该接收请求已超时或被处理，无法再答复（已按拒绝处理）。".to_owned()
+        } else {
+            "传输服务未在运行。".to_owned()
+        },
+    })
+}
+
+fn pending_confirms_impl() -> Vec<PendingConfirmDto> {
+    let state = lock_state();
+    let Some(service) = state.service.as_ref() else {
+        return Vec::new();
+    };
+    service
+        .pending_confirms_with_ttl()
+        .into_iter()
+        .map(|(pending, expires_in_ms)| PendingConfirmDto {
+            id: pending.id,
+            peer_label: pending.peer_label,
+            file_name: pending.file_name,
+            file_size: pending.file_size,
+            save_directory: pending.save_directory,
+            available_bytes: pending.available_bytes,
+            name_conflict: pending.name_conflict,
+            expires_in_ms,
+        })
+        .collect()
+}
+
+fn confirm_impl(id: &str, accept: bool) -> Result<(), &'static str> {
+    let state = lock_state();
+    let Some(service) = state.service.as_ref() else {
+        return Err(CODE_NOT_RUNNING);
+    };
+    if service.resolve_confirm(id, accept) {
+        Ok(())
+    } else {
+        Err(CODE_CONFIRM_GONE)
+    }
 }
 
 #[cfg(test)]

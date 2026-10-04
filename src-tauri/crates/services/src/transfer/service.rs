@@ -423,6 +423,34 @@ impl TransferService {
         &self.ctx.receive_root
     }
 
+    /// 当前等待用户裁决的接收确认（F-FT-14；命令层轮询给界面渲染弹窗）。
+    #[must_use]
+    pub fn pending_confirms(&self) -> Vec<confirm::PendingConfirmation> {
+        self.ctx.confirm.pending()
+    }
+
+    /// 待决确认 + 距超时判拒的剩余毫秒（界面倒计时用）。
+    #[must_use]
+    pub fn pending_confirms_with_ttl(&self) -> Vec<(confirm::PendingConfirmation, i64)> {
+        self.ctx.confirm.pending_with_ttl()
+    }
+
+    /// 回答一条待决确认。返回 `false` 表示**没有这条待决**（已超时、已被答复、或服务已停）。
+    ///
+    /// 🔴 不能把 `false` 当成功：它意味着用户在界面上点了"接收"但**接收方线程已经走了**
+    /// （超时判拒），此时界面必须如实说"该请求已超时"，而不是显示"已接收"。
+    #[must_use]
+    pub fn resolve_confirm(&self, id: &str, accept: bool) -> bool {
+        self.ctx.confirm.resolve(
+            id,
+            if accept {
+                confirm::Decision::Accept
+            } else {
+                confirm::Decision::Reject
+            },
+        )
+    }
+
     /// 停止服务。
     ///
     /// 🔴 返回值**必须**被调用方用起来：R-28 要求"停止失败不得宣称已停止"，

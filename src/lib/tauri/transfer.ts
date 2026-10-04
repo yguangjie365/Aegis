@@ -13,6 +13,7 @@
 import { invoke } from "./invoke";
 import type { LogModule } from "@/lib/logging";
 import type {
+  PendingConfirm,
   SendFilePayload,
   SendResult,
   SettingsLoaded,
@@ -73,4 +74,32 @@ export function asTransferError(error: unknown): TransferError {
     return error as TransferError;
   }
   return { code: "UNKNOWN", message: error instanceof Error ? error.message : String(error) };
+}
+
+/**
+ * 列出待用户裁决的接收确认（F-FT-14）。
+ *
+ * 🔴 服务未运行时返回**空表**而不是抛错：「没有待决」与「服务没跑」对界面都是"没有弹窗"，
+ * 不必让调用方处理两种空。
+ */
+export async function listPendingConfirms(): Promise<PendingConfirm[]> {
+  return invoke<PendingConfirm[]>(
+    "transfer_pending_confirms",
+    TRANSFER,
+    "transferPendingConfirms",
+    null,
+  );
+}
+
+/**
+ * 答复一条待决确认（`accept=false` 即拒绝）。
+ *
+ * 🔴 失败**不是**可以忽略的：`CONFIRM_GONE` 表示"你点慢了，那条请求已按拒绝处理"，
+ * 界面必须如实说，而不是显示"已接收"。
+ */
+export async function confirmReceive(id: string, accept: boolean): Promise<void> {
+  await invoke<void>("transfer_confirm_receive", TRANSFER, "transferConfirmReceive", {
+    id,
+    accept,
+  });
 }

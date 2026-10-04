@@ -65,6 +65,10 @@ pub struct PendingConfirmation {
 struct Slot {
     snapshot: PendingConfirmation,
     decision: Option<Decision>,
+    /// 登记时刻（**单调时钟**）：用来算"还剩多少毫秒"。
+    ///
+    /// 🔴 用 `Instant` 而不是墙上时钟：用户改系统时间不该让倒计时跳一下或直接到期。
+    asked_at: std::time::Instant,
 }
 
 /// 接收确认闸门（一个服务实例一个）。
@@ -103,6 +107,7 @@ impl ConfirmGate {
             Slot {
                 snapshot,
                 decision: None,
+                asked_at: std::time::Instant::now(),
             },
         );
         id
@@ -159,14 +164,33 @@ impl ConfirmGate {
     /// 当前待决快照（命令层轮询给界面渲染弹窗）。
     #[must_use]
     pub fn pending(&self) -> Vec<PendingConfirmation> {
-        let mut list: Vec<PendingConfirmation> = self
+        self.pending_with_ttl()
+            .into_iter()
+            .map(|(pending, _)| pending)
+            .collect()
+    }
+
+    /// 待决快照 + **距超时判拒还剩多少毫秒**（R-8：超时按拒绝，故界面必须有这个倒计时）。
+    ///
+    /// 🔴 剩余时间是**算出来的**，不是拿 `CONFIRM_TIMEOUT` 当常量回给界面——
+    /// 后者会让倒计时永远从 30 秒开始，用户看到的是一个**不会动的假倒计时**。
+    #[must_use]
+    pub fn pending_with_ttl(&self) -> Vec<(PendingConfirmation, i64)> {
+        let now = std::time::Instant::now();
+        let mut list: Vec<(PendingConfirmation, i64)> = self
             .lock()
             .values()
             .filter(|slot| slot.decision.is_none())
-            .map(|slot| slot.snapshot.clone())
+            .map(|slot| {
+                let remaining = self
+                    .timeout
+                    .saturating_sub(now.saturating_duration_since(slot.asked_at));
+                let millis = i64::try_from(remaining.as_millis()).unwrap_or(i64::MAX);
+                (slot.snapshot.clone(), millis)
+            })
             .collect();
         // 稳定顺序：界面不该因为 HashMap 顺序抖动而重排序
-        list.sort_by(|a, b| a.id.cmp(&b.id));
+        list.sort_by(|a, b| a.0.id.cmp(&b.0.id));
         list
     }
 
