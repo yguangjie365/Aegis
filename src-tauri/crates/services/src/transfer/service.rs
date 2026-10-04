@@ -45,6 +45,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::admission::{self, Admission, AdmissionRequest, DiskSpace, MAX_RECEIVE_CONCURRENCY};
+use super::confirm::{self, ConfirmGate};
 use super::conflict::ConflictPolicy;
 use super::discovery::{
     self, Announcement, Peer, PeerTable, SelfIdentity, ANNOUNCE_INTERVAL, OFFLINE_AFTER,
@@ -148,6 +149,8 @@ struct ServiceContext {
     identity: SelfIdentity,
     receive_root: PathBuf,
     pairing: Mutex<PairingGuard>,
+    /// 接收确认闸门（F-FT-18 / R-8）
+    confirm: ConfirmGate,
     peers: Mutex<PeerTable>,
     last_refresh_ms: AtomicI64,
     active_receives: AtomicUsize,
@@ -316,6 +319,7 @@ impl TransferService {
             identity,
             receive_root,
             pairing: Mutex::new(PairingGuard::new(require_pairing)),
+            confirm: ConfirmGate::default(),
             // 🔴 对端表必须按**自己的设备标识**过滤自身宣告
             peers: Mutex::new(PeerTable::new(self_id, OFFLINE_AFTER)),
             last_refresh_ms: AtomicI64::new(now_unix_ms()),
@@ -426,6 +430,9 @@ impl TransferService {
     #[must_use]
     pub fn stop(self) -> StopReport {
         self.cancel.cancel();
+        // 🔴 先唤醒所有等待用户确认的接收线程：不唤醒的话它们会卡到 30 秒超时，
+        //    stop() 的 join 于是看起来"停不下来"。
+        self.ctx.confirm.cancel_all();
         // 用一个"自连"唤醒阻塞在 `accept` 上的线程（无需 sleep，也不违反 sleep 禁令）。
         // 🔴 必须连**回环地址**：`local_addr` 是 `0.0.0.0:port`，连它是无效目标。
         let wake = SocketAddr::from(([127, 0, 0, 1], self.local_addr.port()));
@@ -543,6 +550,31 @@ fn handle_connection(
                     file_size = facts.file_size,
                     "磁盘剩余空间无法判定，按 R-12 放行（disk_unknown）"
                 );
+            }
+            // 🔴 F-FT-18「接收前询问」默认**开**（Q-15 用户裁决）。
+            // 位置在**闸门全过之后、建任何文件之前**——正是 R-13 顺序里"建未完成文件"的前一步。
+            // R-8：拒绝 / 关闭 / Esc / **超时**四条路径全部按拒绝（超时由 `ConfirmGate` 判）。
+            if matches!(verdict, Admission::Admitted { .. })
+                && ctx.settings.require_receive_confirmation
+            {
+                let id = format!("{}|{}", peer.ip(), facts.file_name);
+                ctx.confirm.ask(confirm::PendingConfirmation {
+                    id: id.clone(),
+                    peer_label: peer.to_string(),
+                    file_name: facts.file_name.to_owned(),
+                    file_size: facts.file_size,
+                    save_directory: ctx.receive_root.display().to_string(),
+                    available_bytes: available,
+                    // F-FT-14：**仅当存在同名文件时**才出现冲突区
+                    name_conflict: infra::safe::join_under_root(&ctx.receive_root, facts.file_name)
+                        .is_ok_and(|path| path.exists()),
+                });
+                if ctx.confirm.await_decision(&id) == confirm::Decision::Reject {
+                    return Admission::Rejected {
+                        gate: admission::Gate::Confirm,
+                        reason: reasons::USER_REJECT,
+                    };
+                }
             }
             verdict
         },

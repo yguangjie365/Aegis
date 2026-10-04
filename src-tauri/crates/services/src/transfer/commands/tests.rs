@@ -54,6 +54,8 @@ fn write_settings(path: &Path, recv_dir: &Path, transfer_port: u16, discovery_po
     let settings = TransferSettings {
         receive_directory: Some(recv_dir.display().to_string()),
         require_known_peer: false,
+        // 🔴 关掉接收前询问：本文件专测命令面，确认门另有专测
+        require_receive_confirmation: false,
         transfer_port,
         discovery_port,
         ..TransferSettings::default()
@@ -228,6 +230,8 @@ fn settings_save_then_load_round_trips_and_rejects_bad_payloads() {
     let _ = begin("settings-io");
     let settings = TransferSettings {
         require_known_peer: false,
+        // 🔴 关掉接收前询问：本文件专测命令面，确认门另有专测
+        require_receive_confirmation: false,
         transfer_port: 19_100,
         discovery_port: 19_101,
         ..TransferSettings::default()

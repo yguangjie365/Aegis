@@ -78,6 +78,13 @@ pub enum Gate {
     ChunkSize,
     FileSize,
     DiskSpace,
+    /// 接收前询问（F-FT-18）。
+    ///
+    /// 🔴 它**不参与 [`evaluate`] 的判定**——问用户不是纯函数（要等界面回答），
+    /// 故由服务层在闸门全过之后单独构造这个拒绝。它排在**最后**是因为：
+    /// 只有前面全部通过、且**尚未创建任何文件**时才轮到问用户
+    /// （R-13 的顺序："…→ 冲突裁决 → 建未完成文件"之前）。
+    Confirm,
 }
 
 impl Gate {
@@ -91,6 +98,7 @@ impl Gate {
             Self::ChunkSize => "chunk-size",
             Self::FileSize => "file-size",
             Self::DiskSpace => "disk-space",
+            Self::Confirm => "confirm",
         }
     }
 }

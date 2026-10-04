@@ -40,6 +40,9 @@ fn settings_for(recv_dir: &Path, transfer_port: u16, discovery_port: u16) -> Tra
         receive_directory: Some(recv_dir.display().to_string()),
         // 回环测试里不会有真设备宣告进来，故关掉白名单这一关
         require_known_peer: false,
+        // 🔴 关掉「接收前询问」：本文件专测传输机制，确认门另有专测
+        //    （与母本测试同一处置——不关的话每次接收都会等满 30 秒超时再被拒）
+        require_receive_confirmation: false,
         transfer_port,
         discovery_port,
         ..TransferSettings::default()
@@ -457,6 +460,7 @@ fn known_peers_hit_makes_a_peer_known_without_discovery() {
         identity,
         receive_root: dir.clone(),
         pairing: Mutex::new(PairingGuard::new(true)),
+        confirm: ConfirmGate::default(),
         peers: Mutex::new(PeerTable::new("测试机#tok", OFFLINE_AFTER)),
         last_refresh_ms: AtomicI64::new(0),
         active_receives: AtomicUsize::new(0),
