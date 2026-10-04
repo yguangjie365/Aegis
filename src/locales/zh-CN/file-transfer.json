@@ -1,0 +1,121 @@
+{
+  "page": {
+    "title": "文件互传",
+    "sub": "LAN · 设备 {{devices}} 台 · 任务 {{tasks}} 个",
+    "tabs": {
+      "desktop": "电脑互传",
+      "mobile": "手机浏览器"
+    },
+    "status": {
+      "stopped": "服务未启动",
+      "desktopRunning": "电脑互传运行中",
+      "mobileRunning": "手机通道运行中",
+      "bothRunning": "服务运行中（双通道）"
+    }
+  },
+  "local": {
+    "title": "本机与服务",
+    "deviceId": "设备 ID",
+    "receiveDir": "接收目录",
+    "receiveDirMissing": "接收目录不存在（启动服务后才会创建）。",
+    "tcpPort": "TCP 端口",
+    "udpPort": "UDP 端口",
+    "tcpPortTooltip": "文件传输 TCP 端口",
+    "udpPortTooltip": "设备发现 UDP 端口",
+    "portHintRunning": "服务运行中：改端口后需先「停止服务」再「启动服务」才生效",
+    "portHintStopped": "启动服务时生效",
+    "conflict": "同名文件",
+    "conflictShared": "两条通道共用",
+    "conflictMobileNote": "手机端无逐次询问，按自动改名处理",
+    "requireKnownPeer": "仅接受已发现设备（来源白名单）",
+    "requireConfirm": "接收前需本机确认",
+    "start": "启动服务",
+    "stop": "停止服务",
+    "browse": "选择…",
+    "open": "打开"
+  },
+  "conflict": {
+    "rename": "自动改名（推荐）",
+    "ask": "每次询问",
+    "skip": "跳过不接收",
+    "overwrite": "覆盖原文件（危险）"
+  },
+  "space": {
+    "remaining": "剩余 {{size}}",
+    "unknown": "剩余空间无法判定（网络路径或卷未就绪）"
+  },
+  "known": {
+    "title": "已知设备（常用对端）",
+    "add": "添加",
+    "remove": "移除",
+    "save": "保存",
+    "name": "名称",
+    "ip": "IP",
+    "port": "端口",
+    "sendFile": "发送文件",
+    "newDevice": "新设备",
+    "emptyTitle": "暂无已知设备",
+    "emptyHint": "点上方「添加」新增，或在右侧设备行点「加入已知」",
+    "portError": "端口需为 1024–65535 的整数；未填合法值前，「发送文件」仍用上一次的有效端口。"
+  },
+  "discovered": {
+    "title": "局域网设备（自动发现）",
+    "refresh": "刷新",
+    "neverRefreshed": "尚未刷新",
+    "lastRefresh": "最近刷新 {{time}}",
+    "online": "在线",
+    "offline": "离线",
+    "addToKnown": "加入已知",
+    "added": "已加入",
+    "sendToSelected": "发送文件到所选设备",
+    "dragHint": "提示：也可把文件拖到目标设备行上",
+    "emptyTitle": "未发现设备",
+    "emptyHint": "服务启动后会自动监听；也可点「刷新」立即重列"
+  },
+  "text": {
+    "title": "文本 / 文件 / 剪贴板",
+    "paste": "粘贴",
+    "placeholder": "输入或粘贴要发送的文本；上限 256 KB（UTF-8 字节）",
+    "size": "{{chars}} 字（UTF-8 {{bytes}} B）",
+    "send": "发送文本",
+    "sendToMobile": "发文本到手机",
+    "sendFileToMobile": "发文件到手机"
+  },
+  "tasks": {
+    "title": "传输任务",
+    "cancelSelected": "取消所选任务",
+    "pause": "暂停",
+    "resume": "继续",
+    "cancel": "取消",
+    "emptyTitle": "暂无传输任务",
+    "emptyHint": "选择设备后发送文件即可创建任务"
+  },
+  "history": {
+    "title": "传输历史",
+    "export": "导出 CSV",
+    "clear": "清空",
+    "allDirections": "全部方向",
+    "sendOnly": "仅发送",
+    "receiveOnly": "仅接收",
+    "allStatuses": "全部状态",
+    "search": "按文件名或对端 IP/端口搜索",
+    "emptyTitle": "暂无传输历史",
+    "emptyHint": "完成传输后会自动记录到此处",
+    "noMatch": "无匹配记录",
+    "col": {
+      "time": "时间",
+      "direction": "方向",
+      "kind": "类型",
+      "name": "文件名",
+      "peer": "对端",
+      "size": "大小",
+      "status": "状态"
+    }
+  },
+  "log": {
+    "title": "操作日志",
+    "collapsed": "操作日志",
+    "lines": "{{count}} 行",
+    "clear": "清空"
+  }
+}

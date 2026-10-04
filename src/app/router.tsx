@@ -11,6 +11,8 @@ import { OverviewPage } from "@/features/Overview/pages/overview-page";
 import SteamPage from "@/features/GameManager/pages/SteamPage";
 // 设置页（2026-10-03 用户裁决）：Steam 在线库存的 API Key 录入放这里，**不放游戏管理页**
 import SettingsPage from "@/features/Settings/pages/settings-page";
+// M-05 文件互传片1（2026-10-04）：电脑↔电脑通道页面骨架
+import { FileTransferPage } from "@/features/FileTransfer/pages/file-transfer-page";
 
 // 路由由模块注册表派生（W1-06）：未注册 = 404，与导航缺失同源。
 // 各 M-xx 开工时逐模块在 PAGE_OVERRIDES 登记真实页，未登记者继续落 ModulePlaceholder。
@@ -21,6 +23,8 @@ const PAGE_OVERRIDES: Record<string, ReactElement> = {
   // B-G1 Steam 主线：NexBox SteamPage 原件（数据流/命令复用 NexBox，卡片视觉 = SystemToolkit）
   "game-manager": <SteamPage />,
   settings: <SettingsPage />,
+  // M-05 文件互传片1（2026-10-04）：页面骨架 + 空态；命令面随后端协议批落地
+  "file-transfer": <FileTransferPage />,
 };
 
 export const router = createBrowserRouter([
