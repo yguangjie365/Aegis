@@ -1225,7 +1225,10 @@ export function FileTransferPage() {
                 <span style={{ width: 70, fontSize: 12 }}>
                   {t(`history.dir.${entry.direction}`)}
                 </span>
-                <span style={{ width: 50, fontSize: 12 }}>{t("history.kindFile")}</span>
+                <span style={{ width: 50, fontSize: 12 }}>
+                  {/* 🔴 按 kind 如实渲染：文本条目不许显示成"文件" */}
+                  {t(entry.kind === "text" ? "history.kindText" : "history.kindFile")}
+                </span>
                 <span style={{ flex: 1, fontSize: 13, minWidth: 0 }}>{entry.fileName}</span>
                 <MonoInput readOnly value={entry.peerLabel} style={{ width: 130 }} />
                 <span style={{ width: 80, fontSize: 12, textAlign: "right" }}>

@@ -657,6 +657,7 @@ impl TransferService {
         self.ctx.record_history(super::history::HistoryEntry {
             id: id.clone(),
             direction: Direction::Send,
+            kind: super::history::HistoryKind::File,
             peer_label: peer.to_string(),
             file_name,
             file_size,
@@ -735,6 +736,7 @@ impl TransferService {
         self.ctx.record_history(super::history::HistoryEntry {
             id,
             direction: Direction::Send,
+            kind: super::history::HistoryKind::Text,
             peer_label: peer.to_string(),
             // 🔴 历史里**只留预览**，绝不留正文（F-FT-35 隐私要求）
             file_name: super::text::preview(text),
@@ -1040,6 +1042,7 @@ fn handle_connection(
             ctx.record_history(super::history::HistoryEntry {
                 id,
                 direction: Direction::Receive,
+                kind: super::history::HistoryKind::Text,
                 peer_label: peer.to_string(),
                 file_name: preview,
                 file_size: super::text::byte_count(text) as u64,
@@ -1090,6 +1093,7 @@ fn handle_connection(
             ctx.record_history(super::history::HistoryEntry {
                 id,
                 direction: Direction::Receive,
+                kind: super::history::HistoryKind::File,
                 peer_label: task.peer_label,
                 file_name: task.file_name,
                 file_size: task.file_size,

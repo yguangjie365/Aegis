@@ -185,6 +185,7 @@
     "exported": "已导出 CSV（含 UTF-8 BOM，Excel 可直接打开）。",
     "exportFailed": "导出失败：{{reason}}",
     "kindFile": "文件",
+    "kindText": "文本",
     "dir": {
       "send": "发送",
       "receive": "接收"

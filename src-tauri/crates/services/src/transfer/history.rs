@@ -38,12 +38,34 @@ pub const HISTORY_FILE_NAME: &str = "history.json";
 /// CSV 表头（F-FT-58 规定的列与顺序）。
 pub const CSV_HEADER: &str = "时间,方向,文件名,对端,大小(字节),状态,原因码,原因说明";
 
+/// 一条历史是**文件**还是**文本**（F-FT-35 的类型列）。
+///
+/// 🔴 规格里的 CSV 表头（F-FT-58）**没有「类型」这一列**，所以它**不进 CSV** ✓；
+/// 它只用于界面上的「类型」列。不要顺手往 CSV 里加列——那会破坏已冻结的表头。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum HistoryKind {
+    /// 文件传输（**也是缺省值**，见下方 `kind` 字段的 `serde(default)`）
+    #[default]
+    File,
+    /// 文本消息（历史里只留 120 字预览，正文不落盘）
+    Text,
+}
+
 /// 一条历史记录（**不可变快照**）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
     pub id: String,
     pub direction: Direction,
+    /// 🔴 文件还是文本。
+    ///
+    /// `#[serde(default)]` 不是可选的：文本通道落地**之前**写下的历史文件里
+    /// **没有这个字段**，而缺字段会让整份 JSON 解析失败 ⇒ 服务会退化成"空历史" ⇒
+    /// **用户的旧历史被静默丢掉**。默认成 [`HistoryKind::File`] 正好符合事实
+    /// （那些记录确实都是文件）。
+    #[serde(default)]
+    pub kind: HistoryKind,
     pub peer_label: String,
     pub file_name: String,
     pub file_size: u64,

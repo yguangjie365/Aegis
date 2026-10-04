@@ -151,6 +151,13 @@ export type PerTransferPolicy = "rename" | "ask" | "skip" | "overwrite";
 export interface TransferHistoryEntry {
   id: string;
   direction: "send" | "receive";
+  /**
+   * 文件还是文本（F-FT-35 的「类型」列）。
+   *
+   * 🔴 界面必须按它渲染，**不许一律写"文件"**——那会让文本条目在历史里
+   * 显示成文件，是界面在说假话。
+   */
+  kind: HistoryKind;
   peerLabel: string;
   fileName: string;
   fileSize: number;
@@ -169,8 +176,7 @@ export interface TransferHistoryEntry {
  * 🟠 片1 只有文件通道，故恒为「文件」；文本通道（F-FT-32~36）落地后
  * 这里要按条目区分——**现在不假装有类型字段**（规格里 CSV 也没有这一列）。
  */
-export type HistoryKind = "file";
-
+export type HistoryKind = "file" | "text";
 /** 任务状态（与后端 `TaskState::as_str` 一字不差）。 */
 export type TransferTaskState = "active" | "completed" | "skipped" | "failed" | "cancelled";
 

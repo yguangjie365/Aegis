@@ -992,6 +992,8 @@ pub struct TransferHistoryEntryDto {
     pub id: String,
     /// `send` | `receive`
     pub direction: String,
+    /// `file` | `text`（🔴 界面「类型」列据此渲染；**不进 CSV**——F-FT-58 的表头没有这一列）
+    pub kind: String,
     pub peer_label: String,
     pub file_name: String,
     pub file_size: u64,
@@ -1079,6 +1081,10 @@ fn history_impl() -> Vec<TransferHistoryEntryDto> {
                 direction: match entry.direction {
                     Direction::Send => "send".to_owned(),
                     Direction::Receive => "receive".to_owned(),
+                },
+                kind: match entry.kind {
+                    super::history::HistoryKind::File => "file".to_owned(),
+                    super::history::HistoryKind::Text => "text".to_owned(),
                 },
                 peer_label: entry.peer_label,
                 file_name: entry.file_name,

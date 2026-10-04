@@ -9,6 +9,7 @@ fn entry(id: &str, file_name: &str, state: TaskState, reason: Option<&str>) -> H
     HistoryEntry {
         id: id.to_owned(),
         direction: Direction::Receive,
+        kind: HistoryKind::File,
         peer_label: "192.168.1.24:18889".to_owned(),
         file_name: file_name.to_owned(),
         file_size: 3112,
@@ -16,6 +17,64 @@ fn entry(id: &str, file_name: &str, state: TaskState, reason: Option<&str>) -> H
         reason_code: reason.map(str::to_owned),
         finished_at_ms: 1_700_000_000_000,
     }
+}
+
+/// 🔴 **迁移测试**：文本通道落地**之前**写下的历史文件里**没有 `kind` 字段**。
+///
+/// 缺字段若让解析失败，服务就会退化成"空历史" ⇒ **用户的旧历史被静默丢掉** ✗。
+/// 这条用例把那个后果钉住：老文件必须能读出来，且按事实默认成文件类。
+#[test]
+fn an_old_history_file_without_kind_still_loads_as_file() {
+    let dir = std::env::temp_dir().join(format!("aegis-hist-mig-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(HISTORY_FILE_NAME);
+    // 手工写一份"老格式"：完全没有 kind 字段
+    // （🔴 用普通原始串而不是字节串：JSON 里有中文，字节串只允许 ASCII）
+    let old_json = r#"[{"id":"old1","direction":"receive","peerLabel":"10.0.0.9:18889",
+             "fileName":"老记录.bin","fileSize":12,"state":"completed",
+             "reasonCode":null,"finishedAtMs":1700000000000}]"#;
+    std::fs::write(&path, old_json.as_bytes()).unwrap();
+    let loaded = History::load(&path).expect("老格式必须能读出来（绝不能因此丢掉整份历史）");
+    assert_eq!(loaded.len(), 1, "老记录要还在");
+    let only = loaded.entries().front().expect("有一条");
+    assert_eq!(only.file_name, "老记录.bin");
+    assert_eq!(
+        only.kind,
+        HistoryKind::File,
+        "老记录确实都是文件，默认成文件是符合事实的"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 类型进 JSON 往返，且**不进 CSV**（F-FT-58 的表头没有这一列）。
+#[test]
+fn kind_round_trips_in_json_but_not_in_csv() {
+    let mut history = History::new();
+    let mut text_entry = entry("t1", "预览文字", TaskState::Completed, None);
+    text_entry.kind = HistoryKind::Text;
+    history.push(text_entry);
+
+    let dir = std::env::temp_dir().join(format!("aegis-hist-kind-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(HISTORY_FILE_NAME);
+    history.save(&path).expect("写盘");
+    let loaded = History::load(&path).expect("读盘");
+    assert_eq!(
+        loaded.entries().front().expect("有一条").kind,
+        HistoryKind::Text,
+        "类型必须往返保住，否则界面又会把文本说成文件"
+    );
+    // CSV 列数与表头不得因类型而改变
+    let csv = loaded.to_csv();
+    assert!(csv.starts_with(&format!("\u{feff}{CSV_HEADER}")));
+    let data = csv.lines().nth(1).expect("有数据行");
+    assert_eq!(
+        data.trim_end_matches('\r').split(',').count(),
+        8,
+        "仍是八列：{data}"
+    );
+    assert!(!csv.contains("text"), "类型不该出现在 CSV 里");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
