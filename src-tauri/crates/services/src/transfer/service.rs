@@ -444,6 +444,24 @@ impl TransferService {
                 cause,
             });
         }
+        // 🔴 F-FT-19："服务启动……时清理属于其它对端的遗留未完成文件（过期阈值 7 天）"。
+        //    这个清理函数早就写好也有单测，**却一直没人调用**（真机复核时才查出来）——
+        //    于是中断的传输留下的 `.part` 会永远堆在接收目录里。
+        //    启动这一刻没有"本次会话的对端"，故传空 token（`peer_token_for` 产出的
+        //    形如 `v4xxxxxxxx`，空串永远匹配不上 ⇒ 过期的遗留一律清掉）。
+        //    清理失败**不让服务启动失败**：它只是打扫，不是功能前提。
+        match super::sink::cleanup_orphans(
+            &receive_root,
+            "",
+            super::sink::now_unix_ms(),
+            super::sink::ORPHAN_RETENTION,
+        ) {
+            Ok(removed) if removed > 0 => {
+                eprintln!("[transfer] 启动清扫：删除了 {removed} 个过期的遗留未完成文件");
+            }
+            Ok(_) => {}
+            Err(error) => eprintln!("[transfer] 启动清扫遗留文件失败（不影响服务）：{error}"),
+        }
 
         // ── 第 3 步：传输服务（TCP） ──
         let listener = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], settings.transfer_port)))
@@ -1321,6 +1339,23 @@ fn handle_connection(
                 avg_speed_bps,
                 finished_at_ms,
             });
+        }
+        // 🔴 F-FT-19："单次传输完成时"也要清扫**属于其它对端**的过期遗留文件。
+        //    传 `peer_token`（本对端）⇒ 本对端的未完成文件留着（它可能还要续传 ✓），
+        //    别的对端超过 7 天的则清掉 ✓。失败同样只报不抛。
+        match super::sink::cleanup_orphans(
+            &ctx.receive_root,
+            &peer_token,
+            super::sink::now_unix_ms(),
+            super::sink::ORPHAN_RETENTION,
+        ) {
+            Ok(removed) if removed > 0 => {
+                eprintln!("[transfer] 传输结束后清扫：删除了 {removed} 个过期遗留未完成文件");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                eprintln!("[transfer] 传输结束后清扫遗留文件失败（不影响本次结果）：{error}");
+            }
         }
     }
 

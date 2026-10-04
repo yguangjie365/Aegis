@@ -78,6 +78,43 @@ fn start_creates_the_receive_directory() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// 🔴 **回归闸（2026-10-04 复核查出）**：孤儿清理**必须真被调用**。
+///
+/// `sink::cleanup_orphans` 早就写好、也有单测，但**服务从没调用它** ✗ ⇒
+/// 中断的传输留下的 `.part` 会永远堆在接收目录里（违背 F-FT-19"服务启动……时清理"）。
+/// 这条测试验的是**接线**，不是那个函数本身——否则它随时可能再变回死代码。
+#[test]
+fn start_sweeps_expired_orphan_part_files() {
+    let dir = temp_dir("orphan");
+    let root = dir.join("Received");
+    fs::create_dir_all(&root).unwrap();
+    // 造一个"别的对端、且已过期"的遗留件（名字必须带 PART_MARKER，否则清理会跳过它）
+    let stale = root.join(format!(
+        "old.bin.{}othertok.part",
+        crate::transfer::sink::PART_MARKER
+    ));
+    fs::write(&stale, b"stale").unwrap();
+    let long_ago = crate::transfer::sink::now_unix_ms() - 30 * 24 * 60 * 60 * 1000; // 30 天前
+    infra::fs::set_modified_time(&stale, long_ago).unwrap();
+    // 同时造一个**新鲜**的：不该被清
+    let fresh = root.join(format!(
+        "new.bin.{}othertok.part",
+        crate::transfer::sink::PART_MARKER
+    ));
+    fs::write(&fresh, b"fresh").unwrap();
+
+    let service =
+        TransferService::start(settings_for(&root, free_port(), free_udp_port()), "测试机")
+            .expect("应启动成功");
+    assert!(
+        !stale.exists(),
+        "启动时必须清掉属于其它对端且超过 7 天的遗留未完成文件（F-FT-19）"
+    );
+    assert!(fresh.exists(), "没过期的遗留件不能清（人家可能还要续传）");
+    let _ = service.stop();
+    let _ = fs::remove_dir_all(&dir);
+}
+
 /// 接收目录建不出来时，归因必须指向**目录**而不是端口（否则用户去查错的地方）。
 #[test]
 fn unbuildable_receive_directory_is_attributed_to_the_directory_not_the_port() {
