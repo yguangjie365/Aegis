@@ -667,6 +667,86 @@ impl TransferService {
         outcome
     }
 
+    /// 发送一条文本（F-FT-33）。
+    ///
+    /// 🔴 返回的是**对端的真实交付结论**：电脑通道上 [`transport::TextOutcome::Delivered`] 的含义是
+    /// "对方的剪贴板写入成功"——写不进去会回 `CLIPBOARD_WRITE_FAILED`，
+    /// **而不是"已送达"**（F-FT-34）。
+    ///
+    /// 🟠 **已知缺口（须登记，不得当作已完成）**：协议里的 `Text` 帧**不带配对码字段**
+    /// （见 `protocol.rs` 的 `Text` 变体），故本路径**只受来源白名单约束，配对闸门覆盖不到**。
+    /// 手机通道（片2）落地时若沿用同一帧格式，必须一并补上——否则"配对才能收"这句话
+    /// 在文本通道上就不成立。
+    ///
+    /// # Errors
+    /// 连不上对端、会话失败；**业务性拒绝走 `Ok(transport::TextOutcome::Rejected { .. })`**（不是错误）。
+    pub fn send_text_tracked(
+        &self,
+        peer: SocketAddr,
+        text: &str,
+        cancel: &CancellationToken,
+    ) -> Result<transport::TextOutcome, SendFailure> {
+        let id = self.ctx.next_task_id();
+        // 台账的"文件名"列用**120 字预览**：长文本没有可读的短名，
+        // 而把正文塞进台账等于把它塞进每一帧进度刷新里。
+        let label = super::text::preview(text);
+        self.ctx.lock_tasks().begin(
+            id.clone(),
+            Direction::Send,
+            peer.to_string(),
+            label,
+            super::text::byte_count(text) as u64,
+            super::sink::now_unix_ms(),
+        );
+        self.ctx.register_cancel(&id, cancel.clone());
+
+        let stream = std::net::TcpStream::connect_timeout(&peer, CONNECT_TIMEOUT)
+            .map_err(|cause| SendFailure::Connect { peer, cause })?;
+        transport::configure_timeout(&stream, transport::IO_TIMEOUT)
+            .map_err(|cause| SendFailure::Connect { peer, cause })?;
+
+        let outcome = transport::send_text(
+            &stream,
+            text,
+            &id,
+            Some(self.ctx.identity.machine_name()),
+            cancel,
+        );
+        drop(stream);
+
+        let (state, reason) = match &outcome {
+            Ok(transport::TextOutcome::Delivered) => (TaskState::Completed, None),
+            Ok(transport::TextOutcome::Rejected { reason_code }) => {
+                (TaskState::Failed, Some(reason_code.as_str()))
+            }
+            Err(TransportError::Cancelled { reason_code }) => {
+                (TaskState::Cancelled, Some(reason_code.as_str()))
+            }
+            Err(TransportError::Rejected { reason_code }) => {
+                (TaskState::Failed, Some(reason_code.as_str()))
+            }
+            Err(_) => (TaskState::Failed, Some(reasons::PEER_DISCONNECTED)),
+        };
+        let finished_at_ms = super::sink::now_unix_ms();
+        self.ctx
+            .lock_tasks()
+            .finish(&id, state, reason, finished_at_ms);
+        self.ctx.forget_cancel(&id);
+        self.ctx.record_history(super::history::HistoryEntry {
+            id,
+            direction: Direction::Send,
+            peer_label: peer.to_string(),
+            // 🔴 历史里**只留预览**，绝不留正文（F-FT-35 隐私要求）
+            file_name: super::text::preview(text),
+            file_size: super::text::byte_count(text) as u64,
+            state,
+            reason_code: reason.map(str::to_owned),
+            finished_at_ms,
+        });
+
+        outcome.map_err(SendFailure::Transport)
+    }
+
     /// 同 `Self::resolve_confirm`，但可带上**本次传输**的冲突策略覆盖。
     ///
     /// 🔴 只作用于本次接收，**不写设置**。
