@@ -195,18 +195,29 @@ const Ring = styled.span`
 `;
 
 /**
- * 指示器 = **两层嵌套**，而不是一个元素同时动`transform` 与 `height`。
+ * 指示器 = **两层嵌套**：外层管位移（transform，合成），内层管尺寸（height，布局）。
  *
- * 🔴 为什么分两层（2026-10-04）：
- *   ① **都要进合成层**。原实现位置走 `transform`（合成）、尺寸走 `height`（布局，每帧重排），
- *      两者不同步，布局抖动还会拖累同层文本。改为两层后，位移与缩放都是 transform。
- *   ② **两条曲线必须能独立**。参照工程刻意让「盒子先到位、边缘还在收」—— 即位移用
- *      SETTLE_MOVE_TUNED(1.38)、尺寸用 SETTLE_SIZE_TUNED(1.5)两个不同的过冲量。
- *      若把两者并进同一条 `transform` 过渡（单元素方案），就只能用一条曲线，
- *      这个刻意的「让步感」会丢失。外层管位移、内层管缩放，两条 transition 各自独立。
+ * 🔴 为什么分两层：**两条曲线必须能独立**。参照工程刻意让「盒子先到位、边缘还在收」——
+ *   位移用 SETTLE_MOVE_TUNED(1.38)、尺寸用 SETTLE_SIZE_TUNED(1.5) 两个不同的过冲量。
+ *   两层各持一条 transition，互不干扰；单元素方案只能把两者并进一条曲线。
  *
- * 几何等价性（已复算）：w44×h13 r50% → rx22/ry6.5；w44×h44 r50% + scaleY(13/44)
- * → 同样 rx22/ry6.5。内层无内容且 aria-hidden，非均匀缩放不扭曲任何东西。
+ * 🔴 尺寸**为什么必须用 height，不能用 scaleY**（2026-10-04 实测纠正）：
+ *   `border-radius` 是在**变换之前**按元素自身的盒子算出来的。内层盒是 44×44，
+ *   `--aegis-radius-full`(9999px) 在它上面得到一个**正圆**；`scaleY` 再把这个圆整体
+ *   纵向压/拉 ⇒ 渲染结果是**椭圆**。而参照件动的是 `height`，半径每帧按**新盒子**重算，
+ *   9999px 在 44×114 上退化为 6.5px 级圆角 ⇒ 得到「两端半圆、两侧平直」的**胶囊形**。
+ *
+ *   逐行宽度剖面实测（无头 Edge + 逐像素扫描；三者包围盒同为 44×114，可直接对比）：
+ *     参照件 height + 9999px ： 6 36 44 44 44 44 44 44 44 44 43 36 5  ← 宽度恒定
+ *     曾用   scaleY + 9999px ： 4 25 33 38 42 43 44 43 42 38 33 25 4  ← 连续收窄
+ *     对照   height + 50%   ： 4 25 33 38 42 43 44 43 42 38 33 25 4  ← 与上一行**逐样本相同**
+ *   即 scaleY 渲染出来的东西与「手写 border-radius:50%」没有任何区别，是椭圆。
+ *   用户看到的「圆形 → 椭圆 → 圆形」就是这一条。
+ *
+ *   ⚠️ 代价：height 是布局属性，该元素每帧参与布局。可接受的理由 —— 它是绝对定位盒子
+ *   内部的单个 44px 宽元素，不牵动任何兄弟或祖先的高度（外层盒高恒为 --slot-w）。
+ *   ⚠️ 曾经的错误论证：「w44×h44 r50% + scaleY(13/44) ≡ w44×h13 r50%」在**半径为 50%**
+ *   时数学上成立，但本实现用的是 9999px，前提不成立 ⇒ 该结论对本实现无效。
  */
 const IndicatorBox = styled.span`
   position: absolute;
@@ -215,7 +226,8 @@ const IndicatorBox = styled.span`
   left: var(--slot-x);
   top: 0;
   width: var(--slot-w);
-  /* 高度固定 44px = --slot-w，实际高度由内层 scaleY 给出（本层不参与尺寸动画） */
+  /* 高度固定 44px = --slot-w：本层**只管位移**，尺寸动画由内层用 height 给出（见上 JSDoc）。
+     内层高度超出本盒时向下溢出（本层无 overflow 裁剪），与「从槽顶向下展开」同向。 */
   height: var(--slot-w);
   box-sizing: border-box;
   pointer-events: none;
@@ -245,29 +257,31 @@ const IndicatorBox = styled.span`
 const IndicatorFill = styled.span`
   display: block;
   width: 100%;
-  height: 100%;
-  transform-origin: 50% 0; /* 从槽顶向下展开，与原 height 增长同向 */
+  /* 🔴 高度由内联 style 给出（ind.s px）；这里的值只是无 JS 时的兜底。
+     用 height 而不是 scaleY 的理由见上方 IndicatorBox 的 JSDoc —— 一句话：
+     border-radius 按**变换前**的盒子算，44×44 得到正圆，scaleY 会把它压成椭圆；
+     height 让半径每帧按新盒子重算，才是参照件那种「两端半圆、两侧平直」的胶囊形。 */
+  height: var(--slot-w);
   /* 绿色实色（黑底上唯一能读出「它在动」的信号）。前景随之为**深色**：
      #76b900 亮度 0.386，对白仅 2.41:1（不足 AA），
      对 --aegis-ink(#1a1a1a) 实测 **7.22:1** ✅（2026-10-04 复算；
      🔴 原注释写 10.2:1 是未实测值，已改）。 */
   background: var(--aegis-accent);
-  /* 正圆；scaleY 压缩后自然成为椭圆（border-radius 50% 随尺寸自适应） */
+  /* 胶囊半径：在 44×44 上正好是正圆，在 44×114 上退化为「两端半圆 + 两侧平直」 */
   border-radius: var(--aegis-radius-full);
-  will-change: transform;
   &[data-phase="idle"] {
     transition: none;
   }
   &[data-phase="stretch"] {
-    transition: transform var(--ind-stretch) var(--ind-draw);
+    transition: height var(--ind-stretch) var(--ind-draw);
   }
   /* 🔴 尺寸用**独立的**过冲曲线（overshoot 1.6 > 位移的 1.46）—— 这正是「盒子先到位、
-     边缘还在收」的来源，两层分工才能各自用不同曲线（单元素方案做不到）。 */
+     边缘还在收」的来源。外层持 --ind-move、内层持 --ind-size，两条 transition 各自独立。 */
   &[data-phase="settle"] {
-    transition: transform var(--ind-settle) var(--ind-size);
+    transition: height var(--ind-settle) var(--ind-size);
   }
   &[data-phase="settle"][data-far="true"] {
-    transition: transform var(--ind-settle) var(--ind-draw);
+    transition: height var(--ind-settle) var(--ind-draw);
   }
   @media (prefers-reduced-motion: reduce) {
     transition-duration: 0.01ms !important;
@@ -495,15 +509,13 @@ export function NavRail() {
 
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
-  /* 宽度用 calc 而非测量值：Item 的左右 margin 来自 --nav-item-mx（随折叠态变化），
-     calc 让指示器宽度自动等于槽位宽；写成 100% 会比激活项宽出一圈。
-     高度仍用测量值 —— 它才是两阶段动效真正要拉伸的量。 */
-  /* 宽度由 CSS 的 --slot-w 决定（两态可不同档），这里只给位置（外层）与缩放（内层）。
-     🔴 2026-10-04：尺寸从 height 改为内层 scaleY —— height 是布局属性
-     （每帧触发布局、与位置动画不同步），scaleY 走合成层。
-     除以 SLOT 是因为内层 height:100% 对应外层固定的 --slot-w。 */
+  /* 宽度由 CSS 的 --slot-w 决定；这里外层给位置（transform，合成），内层给高度（height）。
+     🔴 2026-10-04 纠正：内层曾用 `transform: scaleY(ind.s / SLOT)` 以求「进合成层」，
+     但那会把 44×44 的正圆压成**椭圆**（border-radius 按变换前的盒子算），
+     与参照件的「胶囊形」不一致 —— 用户实测反馈「圆形变椭圆再变回」即此。
+     现已回到 height，逐行宽度剖面与参照件一致。详见 IndicatorBox 的 JSDoc。 */
   const boxStyle = ind ? { transform: "translate3d(0, " + ind.p + "px, 0)" } : { opacity: 0 };
-  const fillStyle = ind ? { transform: "scaleY(" + ind.s / SLOT + ")" } : { opacity: 0 };
+  const fillStyle = ind ? { height: ind.s + "px" } : { opacity: 0 };
 
   return (
     <Rail ref={railRef} aria-label={t("nav.toggleAria")} data-live={live ? "true" : "false"}>
