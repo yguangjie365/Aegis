@@ -25,6 +25,14 @@ const ALLOWED: &[(&str, &str)] = &[];
 /// 否则无法自证"抓得到违规"。这与 [`ALLOWED`] 不是一回事——后者是**真的允许 join**。
 const SCANNER_FILE: &str = "guard.rs";
 
+/// 测试模块文件名（本仓惯例：`#[cfg(test)] mod tests;` 指向同目录的 `tests.rs`）**不参与扫描**。
+///
+/// 理由：被测对象的**期望路径**得由测试自己拼（`temp_root().join("a.txt.aegisft-tok.part")`），
+/// 那是构造字面量、不是消费外部输入；强行要求走 `join_under_root` 只会让测试变绕而安全性不变。
+/// 🔴 这**不是**放松口径：本仓的 `tests.rs` 只以 `#[cfg(test)]` 编入，生产构建里不存在，
+/// 故它不构成"域代码绕过守卫"的通路。
+const TEST_MODULE_FILE: &str = "tests.rs";
+
 /// 禁止在本域出现的同义函数名（防"再写一份路径守卫"）。
 const FORBIDDEN_FN_PATTERNS: [&str; 3] = [
     "fn join_under_root",
@@ -88,7 +96,10 @@ fn domain_sources() -> Vec<(String, String)> {
         .into_iter()
         .filter_map(|file| {
             let name = file_name_of(&file);
-            if name == SCANNER_FILE || ALLOWED.iter().any(|(allowed, _)| *allowed == name) {
+            if name == SCANNER_FILE
+                || name == TEST_MODULE_FILE
+                || ALLOWED.iter().any(|(allowed, _)| *allowed == name)
+            {
                 return None;
             }
             Some((
