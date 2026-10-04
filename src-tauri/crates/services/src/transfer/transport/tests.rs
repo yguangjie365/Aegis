@@ -863,3 +863,113 @@ fn empty_text_is_a_valid_transaction() {
     assert_eq!(outcome, TextOutcome::Delivered);
     let _ = server.join();
 }
+
+// ── 首帧分流（receive_any）直测 ────────────────────────────────────────────
+//
+// 🔴 这两条补的是**分流本身**：上一批用例全都经由 `receive_file` / `receive_text`
+//    各自入口，谁也没走 `receive_any`。「文件仍走文件路径」是分流最大的风险面，
+//    而它此前只靠"别的用例间接经过包装器"护着。
+
+/// 首帧是 `Text` ⇒ 走文本路径，且**交付失败照旧回 `CLIPBOARD_WRITE_FAILED`**（F-FT-34）。
+#[test]
+fn receive_any_routes_text_and_keeps_the_delivery_contract() {
+    let dir = temp_dir("any-text");
+    let root = dir.clone();
+    let (addr, server) = spawn_server(1, move |stream| {
+        let mut policy = ConflictPolicy::Overwrite;
+        let cancel = CancellationToken::new();
+        receive_any(
+            &stream,
+            &root,
+            "tok",
+            &mut policy,
+            |_facts, _policy| Admission::Admitted {
+                disk_unknown: false,
+            },
+            admit_text,
+            // 交付失败：剪贴板写不进去
+            |_text| Err("写不进去".to_owned()),
+            &cancel,
+            |_| {},
+        )
+    });
+
+    let stream = connect(addr);
+    let cancel = CancellationToken::new();
+    let outcome = send_text(&stream, "走文本路径", "t-any-text", None, &cancel).expect("发文本");
+    assert_eq!(
+        outcome,
+        TextOutcome::Rejected {
+            reason_code: crate::transfer::reasons::CLIPBOARD_WRITE_FAILED.to_owned()
+        },
+        "分流之后交付契约不能变"
+    );
+    match server.join().unwrap().remove(0) {
+        Ok(AnyOutcome::Text(TextOutcome::Rejected { reason_code })) => {
+            assert_eq!(
+                reason_code,
+                crate::transfer::reasons::CLIPBOARD_WRITE_FAILED
+            );
+        }
+        other => panic!("首帧是 Text 时应走文本路径并如实拒收，实得 {other:?}"),
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// 🔴 **回归**：首帧是 `Handshake` ⇒ 仍走**文件**路径（绝不能因为多了一个 `if` 就走岔）。
+///
+/// 这里用手写的握手帧 + 白名单拒收来驱动：拒收路径不需要任何文件内容，
+/// 却能确凿地证明"进了文件事务"（回的是 `HandshakeAck` 且终态是 `File(..)`）。
+#[test]
+fn receive_any_still_routes_a_handshake_to_the_file_path() {
+    let dir = temp_dir("any-file");
+    let root = dir.clone();
+    let (addr, server) = spawn_server(1, move |stream| {
+        let mut policy = ConflictPolicy::Overwrite;
+        let cancel = CancellationToken::new();
+        receive_any(
+            &stream,
+            &root,
+            "tok",
+            &mut policy,
+            // 文件侧一律拒收：不需要真的传内容
+            |_facts, _policy| Admission::Rejected {
+                gate: Gate::Whitelist,
+                reason: crate::transfer::reasons::PEER_NOT_DISCOVERED,
+            },
+            admit_text,
+            |_text| Ok(()),
+            &cancel,
+            |_| {},
+        )
+    });
+
+    let stream = connect(addr);
+    let mut writer = &stream;
+    write_frame(
+        &mut writer,
+        &TransferMessage::Handshake {
+            task_id: "t-any-file".to_owned(),
+            file_name: "a.bin".to_owned(),
+            file_size: 1,
+            file_hash: "h".to_owned(),
+            chunk_size: 2 * 1024 * 1024,
+            file_modified_at_ms: None,
+            pair_code: None,
+        },
+        &[],
+    )
+    .expect("写握手帧");
+
+    // 回执必须是**文件侧**的 HandshakeAck（文本侧只会回 TextAck）
+    let (message, _) = FrameReader::new(&stream).read_frame().expect("读回执");
+    match message {
+        TransferMessage::HandshakeAck { accepted, .. } => assert!(!accepted, "本例按拒收驱动"),
+        other => panic!("首帧是 Handshake 时应回 HandshakeAck，实得 {other:?}"),
+    }
+    match server.join().unwrap().remove(0) {
+        Ok(AnyOutcome::File(ReceiveOutcome::Rejected { .. })) => {}
+        other => panic!("首帧是 Handshake 时应走文件路径，实得 {other:?}"),
+    }
+    let _ = fs::remove_dir_all(&dir);
+}

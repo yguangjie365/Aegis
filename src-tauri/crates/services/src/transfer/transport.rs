@@ -574,6 +574,9 @@ pub fn receive_file(
 ///
 /// # Errors
 /// 同 [`receive_file`]。
+// 参数多是把"接收侧的既有上下文"逐个透传的结果（流/根/令牌/策略/准入/取消/进度/首帧）。
+// 用结构体打包反而会让调用点离 `receive_file` 的签名更远，故保留并明确记录。
+#[allow(clippy::too_many_arguments)]
 pub fn receive_file_with_first(
     stream: &TcpStream,
     root: &Path,
@@ -838,7 +841,8 @@ pub fn receive_text_with_first(
     };
 
     // 声明的字节数与实际 body 不符 ⇒ 拒收（🔴 不按声明值裁剪，宁可拒绝也不交付半个文本）
-    if bytes as usize != body.len() {
+    // 用 `try_from`：`bytes` 是线上来的 u64，32 位平台上直接 `as usize` 会截断。
+    if !usize::try_from(bytes).is_ok_and(|declared| declared == body.len()) {
         let reason = super::reasons::TEXT_TOO_LONG.to_owned();
         let _ = reply(&mut writer, false, Some(reason.clone()));
         return Ok(TextOutcome::Rejected {

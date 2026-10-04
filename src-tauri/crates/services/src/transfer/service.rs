@@ -717,14 +717,14 @@ impl TransferService {
 
         let (state, reason) = match &outcome {
             Ok(transport::TextOutcome::Delivered) => (TaskState::Completed, None),
-            Ok(transport::TextOutcome::Rejected { reason_code }) => {
+            // 两个臂体相同⇒合并成 or-pattern：对台账而言，"文本被拒收"与
+            // "对端明确回绝"都是"未交付 + 原因码"，没必要分成两种终态。
+            Ok(transport::TextOutcome::Rejected { reason_code })
+            | Err(TransportError::Rejected { reason_code }) => {
                 (TaskState::Failed, Some(reason_code.as_str()))
             }
             Err(TransportError::Cancelled { reason_code }) => {
                 (TaskState::Cancelled, Some(reason_code.as_str()))
-            }
-            Err(TransportError::Rejected { reason_code }) => {
-                (TaskState::Failed, Some(reason_code.as_str()))
             }
             Err(_) => (TaskState::Failed, Some(reasons::PEER_DISCONNECTED)),
         };
@@ -875,6 +875,11 @@ fn accept_loop(
 }
 
 /// 一个接收会话（含准入裁决与落盘）。
+// 🔴 允许超长，但**这是一笔欠账而不是理想状态**：本函数是一条连接的线性生命周期
+// （配超时 → 取对端 → 准入 → 接收确认 → 登记台账 → 收发 → 收尾），文本通道接进来后
+// 又长了两段。实测把文本的准入与交付都抽出去仍有 121 行（>100），故本轮不做半吊子拆分；
+// 正确的做法是按"文件事务 / 文本事务"拆两个函数，那需要一并搬走 task_id 槽与进度节流器。
+#[allow(clippy::too_many_lines)]
 fn handle_connection(
     stream: &TcpStream,
     ctx: &ServiceContext,
