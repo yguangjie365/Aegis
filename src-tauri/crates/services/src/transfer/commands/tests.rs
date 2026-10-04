@@ -348,13 +348,17 @@ fn send_through_the_command_layer_lands_the_file() {
     let payload: Vec<u8> = (0..3_000_u32).map(|i| (i % 199) as u8).collect();
     std::fs::write(&file, &payload).unwrap();
 
-    let result = transfer_send_file(envelope(Some(serde_json::json!({
-        "ip": "127.0.0.1",
-        "port": port,
-        "path": file.display().to_string(),
-        "pairCode": code,
-    }))))
-    .expect("带对码应发送成功");
+    // 🔴 `transfer_send_file` 是 async 命令（发送会阻塞很久，必须放到阻塞线程池，
+    //    否则会占住 Tauri 命令线程、把弹窗与状态轮询一起堵死）。测试里用
+    //    `tauri::async_runtime::block_on` 驱动它（tauri 是本 crate 的直接依赖）。
+    let result =
+        tauri::async_runtime::block_on(transfer_send_file(envelope(Some(serde_json::json!({
+            "ip": "127.0.0.1",
+            "port": port,
+            "path": file.display().to_string(),
+            "pairCode": code,
+        })))))
+        .expect("带对码应发送成功");
     assert_eq!(result.outcome, "Delivered");
     assert_eq!(result.reason_code, None);
 
@@ -365,12 +369,13 @@ fn send_through_the_command_layer_lands_the_file() {
     // 不带码再来一次：本次运行期免码
     let second = src_dir.join("第二份.bin");
     std::fs::write(&second, b"second").unwrap();
-    let again = transfer_send_file(envelope(Some(serde_json::json!({
-        "ip": "127.0.0.1",
-        "port": port,
-        "path": second.display().to_string(),
-    }))))
-    .expect("同地址免码");
+    let again =
+        tauri::async_runtime::block_on(transfer_send_file(envelope(Some(serde_json::json!({
+            "ip": "127.0.0.1",
+            "port": port,
+            "path": second.display().to_string(),
+        })))))
+        .expect("同地址免码");
     assert_eq!(again.outcome, "Delivered");
 
     // 错码：换一个"尚未配对"的地址才看得出效果——这里直接用错误的码试第三个文件，
@@ -397,12 +402,13 @@ fn send_with_a_wrong_code_is_rejected_with_pairing_invalid() {
     let file = src_dir.join("x.bin");
     std::fs::write(&file, b"x").unwrap();
 
-    let result = transfer_send_file(envelope(Some(serde_json::json!({
-        "ip": "127.0.0.1",
-        "port": port,
-        "path": file.display().to_string(),
-        "pairCode": "ZZZZZZ",
-    }))));
+    let result =
+        tauri::async_runtime::block_on(transfer_send_file(envelope(Some(serde_json::json!({
+            "ip": "127.0.0.1",
+            "port": port,
+            "path": file.display().to_string(),
+            "pairCode": "ZZZZZZ",
+        })))));
     match result {
         Err(error) => assert_eq!(error.code, reasons::PAIRING_INVALID),
         Ok(value) => panic!("错码应被拒，实得 {value:?}"),

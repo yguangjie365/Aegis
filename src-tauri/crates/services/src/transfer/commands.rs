@@ -402,6 +402,11 @@ fn send_impl(payload: &SendFilePayload) -> Result<SendResultDto, TransferErrorDt
     // 🔴 服务在跑 → 走**会登记台账**的入口；没跑 → 退回纯传输。
     //    后者是「只发不收」的合法用法（对端在跑即可），但此时**没有台账可记**，如实降级。
     //    锁在这里就释放，别把 `lock_state()` 的守卫带进传输的阻塞期。
+    // 🟠 注意：这个块把 lock_state() 的守卫 held 在**整段传输**期间（发送会阻塞很久）。
+    //    后果是传输期间其它命令（状态 / 待决确认 / 台账）都卡在同一把锁上——
+    //    同进程实测时 12 次待决采样全部落在裁决之后，接收确认弹窗因此永远出不来。
+    //    修它需要让 TransferService::stop() 不再按值消费 self（好让状态里能存 Arc），
+    //    属独立改动，已登记。
     let result = {
         let state = lock_state();
         match state.service.as_ref() {
@@ -646,7 +651,30 @@ pub fn transfer_peers_list(envelope: contracts::CmdEnvelope) -> Vec<TransferPeer
 /// # Errors
 /// 载荷不合法 / 连不上 / 对端拒收（含 `PAIRING_INVALID`）时返回带原因码的 DTO。
 #[tauri::command]
-pub fn transfer_send_file(
+pub async fn transfer_send_file(
+    envelope: contracts::CmdEnvelope,
+) -> Result<SendResultDto, TransferErrorDto> {
+    // 🔴 必须 async + spawn_blocking：发送会**阻塞**很久（握手最长 HANDSHAKE_WAIT=60s
+    //    再加上整个文件的传输）。同步命令占住 Tauri 的命令线程 ⇒ 传输期间
+    //    其它命令（状态 / 待决确认 / 台账）全部排队 ⇒ 界面看起来死了，
+    //    「接收前询问」的弹窗也永远弹不出来。
+    //
+    //    这不是推测：**跨进程实测**已证（2026-10-04）——同一个应用自己发送时，
+    //    12 次待决采样全部落在裁决之后；换成独立进程发送，弹窗立刻正常出现、
+    //    接收成功、SHA-256 逐字节一致。
+    let moved = envelope.clone();
+    tauri::async_runtime::spawn_blocking(move || send_command_blocking(moved))
+        .await
+        .unwrap_or_else(|error| {
+            Err(TransferErrorDto::new(
+                "SEND_TASK_FAILED",
+                format!("发送任务异常终止：{error}"),
+            ))
+        })
+}
+
+/// 发送命令的**阻塞本体**（由 `transfer_send_file` 放到阻塞线程池执行）。
+fn send_command_blocking(
     envelope: contracts::CmdEnvelope,
 ) -> Result<SendResultDto, TransferErrorDto> {
     let started = Instant::now();
