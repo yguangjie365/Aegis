@@ -326,7 +326,11 @@ fn default_path_ends_with_the_constant() {
 #[test]
 fn clear_reports_how_many_were_removed_and_is_idempotent() {
     let mut history = History::new();
-    assert_eq!(history.clear(), 0, "本来就没有 ⇒ 返回 0（界面据此说"暂无可清空记录"）");
+    assert_eq!(
+        history.clear(),
+        0,
+        "本来就没有 ⇒ 返回 0（界面据此说「暂无可清空记录」）"
+    );
     history.push(entry("a", "一.bin", TaskState::Completed, None));
     history.push(entry("b", "二.bin", TaskState::Completed, None));
     assert_eq!(history.clear(), 2);
