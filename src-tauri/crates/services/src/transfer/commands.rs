@@ -399,14 +399,31 @@ fn send_impl(payload: &SendFilePayload) -> Result<SendResultDto, TransferErrorDt
     let cancel = tokio_util::sync::CancellationToken::new();
     let task_id = format!("t-{}", super::sink::now_unix_ms());
 
-    match super::service::send_to(
-        peer,
-        &path,
-        super::chunk::DEFAULT_CHUNK_SIZE,
-        payload.pair_code.as_deref(),
-        &task_id,
-        &cancel,
-    ) {
+    // 🔴 服务在跑 → 走**会登记台账**的入口；没跑 → 退回纯传输。
+    //    后者是「只发不收」的合法用法（对端在跑即可），但此时**没有台账可记**，如实降级。
+    //    锁在这里就释放，别把 `lock_state()` 的守卫带进传输的阻塞期。
+    let result = {
+        let state = lock_state();
+        match state.service.as_ref() {
+            Some(service) => service.send_file_tracked(
+                peer,
+                &path,
+                super::chunk::DEFAULT_CHUNK_SIZE,
+                payload.pair_code.as_deref(),
+                &cancel,
+            ),
+            None => super::service::send_to(
+                peer,
+                &path,
+                super::chunk::DEFAULT_CHUNK_SIZE,
+                payload.pair_code.as_deref(),
+                &task_id,
+                &cancel,
+            ),
+        }
+    };
+
+    match result {
         Ok(outcome) => Ok(SendResultDto {
             outcome: format!("{outcome:?}"),
             reason_code: None,

@@ -17,6 +17,7 @@ import {
   useTransferServiceControl,
   useTransferSettings,
   useTransferStatus,
+  useTransferTasks,
 } from "../hooks/use-transfer";
 import { asTransferError } from "@/lib/tauri/transfer";
 import type { KnownPeer, TransferPeer, TransferSettings } from "@/types/transfer";
@@ -395,6 +396,10 @@ export function FileTransferPage() {
   // 使下面依赖 `peers` 的 useCallback 每轮都变（react-hooks/exhaustive-deps 是 error 级）
   const peers = useMemo(() => peersQuery.data ?? [], [peersQuery.data]);
   const peerError = peersQuery.error !== null ? asTransferError(peersQuery.error).message : null;
+
+  // 任务台账（F-FT-25/30）：只读快照。后端服务未跑时返回空表 ⇒ 界面显示空态而非失败态。
+  const tasksQuery = useTransferTasks();
+  const tasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
 
   // ── 目标选择与发送（F-FT-11/12；R-7：目标不许猜测） ──
   // 按钮路径用"所选行"、拖放路径用"落点命中哪一行"——两条路径都不猜。
@@ -1053,10 +1058,38 @@ export function FileTransferPage() {
           </Acts>
         </CardHead>
         <Board>
-          <Empty>
-            <EmptyTitle>{t("tasks.emptyTitle")}</EmptyTitle>
-            <EmptyHint>{t("tasks.emptyHint")}</EmptyHint>
-          </Empty>
+          {tasks.length === 0 ? (
+            <Empty>
+              <EmptyTitle>{t("tasks.emptyTitle")}</EmptyTitle>
+              <EmptyHint>{t("tasks.emptyHint")}</EmptyHint>
+            </Empty>
+          ) : (
+            tasks.map((task) => (
+              <EditRow key={task.id}>
+                {/* 方向：发送 ↑ / 接收 ↓（F-FT-30 两种方向共用一张表） */}
+                <span style={{ width: 14, textAlign: "center" }}>
+                  {task.direction === "send" ? "↑" : "↓"}
+                </span>
+                <span style={{ fontSize: 13, flex: 1, minWidth: 0 }}>{task.fileName}</span>
+                <MonoInput readOnly value={task.peerLabel} style={{ width: 150 }} />
+                {/* 进度由后端算好的 percent 直接显示，界面不再算一遍（避免口径漂移） */}
+                <span style={{ width: 44, textAlign: "right", fontSize: 12 }}>{task.percent}%</span>
+                <span style={{ width: 58, fontSize: 12 }}>{t(`tasks.state.${task.state}`)}</span>
+                {/* 🔴 失败/跳过/取消必须带原因码——R-29：失败态不摆无解释的红字 */}
+                {task.reasonCode !== null && (
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11.5,
+                      color: "var(--aegis-mute)",
+                    }}
+                  >
+                    {task.reasonCode}
+                  </span>
+                )}
+              </EditRow>
+            ))
+          )}
         </Board>
       </Card>
 

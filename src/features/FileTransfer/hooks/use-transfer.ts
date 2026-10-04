@@ -18,6 +18,7 @@ import {
   asTransferError,
   fetchTransferStatus,
   listTransferPeers,
+  listTransferTasks,
   loadTransferSettings,
   saveTransferSettings,
   sendTransferFile,
@@ -29,6 +30,7 @@ import type { TransferSettings } from "@/types/transfer";
 export const TRANSFER_STATUS_KEY = ["transfer", "status"] as const;
 export const TRANSFER_SETTINGS_KEY = ["transfer", "settings"] as const;
 export const TRANSFER_PEERS_KEY = ["transfer", "peers"] as const;
+export const TRANSFER_TASKS_KEY = ["transfer", "tasks"] as const;
 
 /**
  * 本域统一的 retry 策略（与 overview 同口径）。
@@ -130,6 +132,23 @@ export function useSaveTransferSettings() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: TRANSFER_SETTINGS_KEY });
     },
+  });
+}
+
+/**
+ * 传输任务台账（F-FT-25/30）。
+ *
+ * 🔴 与设备列表同一节拍轮询：进度是**粗粒度**的（后端当前只在终态落一次），
+ * 故不必更密；等服务端分了块级进度再考虑提速。
+ */
+export function useTransferTasks() {
+  const live = usePageLiveness();
+  return useQuery({
+    queryKey: TRANSFER_TASKS_KEY,
+    queryFn: listTransferTasks,
+    enabled: live,
+    refetchInterval: live ? REFRESH_INTERVAL_MS : false,
+    retry: (count, error) => !(error instanceof BackendUnavailableError) && count < 1,
   });
 }
 

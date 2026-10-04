@@ -132,3 +132,24 @@ export const CODE_CONFIRM_GONE = "CONFIRM_GONE";
  * 不该把他下次的默认行为一并改掉。
  */
 export type PerTransferPolicy = "rename" | "ask" | "skip" | "overwrite";
+
+/** 任务状态（与后端 `TaskState::as_str` 一字不差）。 */
+export type TransferTaskState = "active" | "completed" | "skipped" | "failed" | "cancelled";
+
+/** 一条传输任务的对外快照（F-FT-30 的五态）。 */
+export interface TransferTask {
+  id: string;
+  /** `send` | `receive` */
+  direction: "send" | "receive";
+  peerLabel: string;
+  fileName: string;
+  fileSize: number;
+  transferred: number;
+  /** 0..=100（后端算好，界面不再算一遍——避免两处口径漂移） */
+  percent: number;
+  state: TransferTaskState;
+  /** 终态原因码（取 reasons 的冻结表；进行中为 null） */
+  reasonCode: string | null;
+  startedAtMs: number;
+  finishedAtMs: number | null;
+}

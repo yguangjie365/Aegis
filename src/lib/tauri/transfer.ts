@@ -23,6 +23,7 @@ import type {
   TransferPeer,
   TransferSettings,
   TransferStatus,
+  TransferTask,
 } from "@/types/transfer";
 
 const TRANSFER: LogModule = "Transfer";
@@ -112,4 +113,14 @@ export async function confirmReceive(
     accept,
     conflictPolicy: conflictPolicy ?? null,
   });
+}
+
+/**
+ * 传输任务台账快照（F-FT-25/30）。
+ *
+ * 🔴 只读：任务由后端收发线程登记，界面不得改写（R-16 终态不可回退由后端独占保证）。
+ * 服务未运行时返回**空表**而不是报错（与设备列表同口径）。
+ */
+export async function listTransferTasks(): Promise<TransferTask[]> {
+  return invoke<TransferTask[]>("transfer_tasks_list", TRANSFER, "transferTasksList", null);
 }

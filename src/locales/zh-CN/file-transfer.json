@@ -158,7 +158,14 @@
     "resume": "继续",
     "cancel": "取消",
     "emptyTitle": "暂无传输任务",
-    "emptyHint": "选择设备后发送文件即可创建任务"
+    "emptyHint": "选择设备后发送文件即可创建任务",
+    "state": {
+      "active": "进行中",
+      "completed": "完成",
+      "skipped": "已跳过",
+      "failed": "失败",
+      "cancelled": "已取消"
+    }
   },
   "history": {
     "title": "传输历史",

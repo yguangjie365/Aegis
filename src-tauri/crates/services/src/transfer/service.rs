@@ -470,6 +470,55 @@ impl TransferService {
         self.resolve_confirm_with_policy(id, accept, None)
     }
 
+    /// 发送一个文件，并把它**登记进任务台账**（F-FT-25）。
+    ///
+    /// 🔴 与自由函数 [`send_to`] 的唯一区别就是"登记"：`send_to` 是纯传输（测试直接用），
+    /// 本方法是**界面会看到的那个入口**。分开是为了不让"记台账"污染纯传输路径的测试。
+    ///
+    /// # Errors
+    /// 与 [`send_to`] 同：不是文件、连不上、传输期出错、或对端明确拒收。
+    pub fn send_file_tracked(
+        &self,
+        peer: SocketAddr,
+        path: &Path,
+        chunk_size: u64,
+        pair_code: Option<&str>,
+        cancel: &CancellationToken,
+    ) -> Result<SendOutcome, SendFailure> {
+        let file_name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        let file_size = std::fs::metadata(path).map_or(0, |meta| meta.len());
+        let id = self.ctx.next_task_id();
+        self.ctx.lock_tasks().begin(
+            id.clone(),
+            Direction::Send,
+            peer.to_string(),
+            file_name,
+            file_size,
+            super::sink::now_unix_ms(),
+        );
+
+        let outcome = send_to(peer, path, chunk_size, pair_code, &id, cancel);
+
+        let (state, reason) = match &outcome {
+            Ok(SendOutcome::Delivered) => (TaskState::Completed, None),
+            Ok(SendOutcome::Skipped) => (TaskState::Skipped, Some(reasons::CONFLICT_SKIP)),
+            Ok(SendOutcome::HashMismatch) => (TaskState::Failed, Some(reasons::HASH_MISMATCH)),
+            // 🔴 R-16：对端明确说的话优先原样回传（含"对端拒收"与"自己取消"）
+            Err(SendFailure::Transport(
+                TransportError::Rejected { reason_code }
+                | TransportError::Cancelled { reason_code },
+            )) => (TaskState::Cancelled, Some(reason_code.as_str())),
+            Err(_) => (TaskState::Failed, Some(reasons::PEER_DISCONNECTED)),
+        };
+        self.ctx
+            .lock_tasks()
+            .finish(&id, state, reason, super::sink::now_unix_ms());
+        outcome
+    }
+
     /// 同 `Self::resolve_confirm`，但可带上**本次传输**的冲突策略覆盖。
     ///
     /// 🔴 只作用于本次接收，**不写设置**。
