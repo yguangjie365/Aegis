@@ -166,6 +166,12 @@ struct ServiceContext {
     /// 命令层手上只有任务 id，无从取回那个令牌。任务收尾时**必须**移除，
     /// 否则表会随会话无限增长。
     cancels: Mutex<HashMap<String, CancellationToken>>,
+    /// 任务 id → 暂停闸门（F-FT-26/27）。
+    ///
+    /// 🔴 与 `cancels` 同一条纪律：任务收尾时**必须**移除，否则表会随会话无限增长。
+    /// 存 `Arc` 而不是裸值：闸门要同时被**命令层**（按下暂停）与**传输闭包**（在块边界等待）
+    /// 持有，两处必须拿到**同一个**闸门——这正是"暂停"能生效的前提。
+    pauses: Mutex<HashMap<String, std::sync::Arc<super::pause::PauseGate>>>,
     /// 任务 id 计数（只保证同一会话内不重名，不追求跨进程唯一）
     task_seq: AtomicU64,
     last_refresh_ms: AtomicI64,
@@ -200,6 +206,40 @@ impl ServiceContext {
     /// 任务收尾时移除令牌（**必须**调用，否则这张表会随会话无限增长）。
     fn forget_cancel(&self, id: &str) {
         self.lock_cancels().remove(id);
+    }
+
+    fn lock_pauses(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<String, std::sync::Arc<super::pause::PauseGate>>> {
+        self.pauses
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// 登记暂停闸门并**把同一个 `Arc` 返回**给调用方（传输闭包要用它等待）。
+    fn register_pause(&self, id: &str) -> std::sync::Arc<super::pause::PauseGate> {
+        let gate = std::sync::Arc::new(super::pause::PauseGate::new());
+        self.lock_pauses()
+            .insert(id.to_owned(), std::sync::Arc::clone(&gate));
+        gate
+    }
+
+    /// 取某个任务的闸门（没有 ⇒ `None`，说明任务已收尾或不存在）。
+    fn pause_gate(&self, id: &str) -> Option<std::sync::Arc<super::pause::PauseGate>> {
+        self.lock_pauses().get(id).map(std::sync::Arc::clone)
+    }
+
+    /// 任务收尾时移除闸门（与 `forget_cancel` 同理，**必须**调用）。
+    fn forget_pause(&self, id: &str) {
+        self.lock_pauses().remove(id);
+    }
+
+    /// 本地暂停的上限（F-FT-27）：`0` = 不限 ⇒ `None`。
+    fn pause_limit(&self) -> Option<std::time::Duration> {
+        match self.settings.pause_timeout_minutes {
+            0 => None,
+            minutes => Some(std::time::Duration::from_secs(u64::from(minutes) * 60)),
+        }
     }
 
     /// 历史表的守卫（毒锁恢复，同其它锁）。
@@ -436,6 +476,7 @@ impl TransferService {
             history: Mutex::new(super::history::History::load(&history_path).unwrap_or_default()),
             history_path,
             cancels: Mutex::new(HashMap::new()),
+            pauses: Mutex::new(HashMap::new()),
             task_seq: AtomicU64::new(1),
             peers: Mutex::new(PeerTable::new(self_id, OFFLINE_AFTER)),
             last_refresh_ms: AtomicI64::new(now_unix_ms()),
@@ -551,6 +592,34 @@ impl TransferService {
         self.ctx.cancel_task(id)
     }
 
+    /// 🔴 暂停一个任务（F-FT-26）。返回 `false` = **未被受理**（任务已收尾 / 本就暂停）。
+    ///
+    /// `false` **不是错误**，而是"此刻不接受这个动作"——界面必须据此回一句
+    /// "未被受理：任务当前状态为 …"（R-14 原文：不允许按钮"点了没反应"）。
+    #[must_use]
+    pub fn pause_task(&self, id: &str) -> bool {
+        self.ctx
+            .pause_gate(id)
+            .is_some_and(|gate| gate.pause_local())
+    }
+
+    /// 🔴 恢复一个任务（F-FT-26）。返回 `false` = 未被受理（任务已收尾 / 本就未暂停）。
+    ///
+    /// 🔴 只解除**本端**按下的暂停：对端按的暂停由对端恢复（见 `pause` 模块头）。
+    #[must_use]
+    pub fn resume_task(&self, id: &str) -> bool {
+        self.ctx
+            .pause_gate(id)
+            .is_some_and(|gate| gate.resume_local())
+    }
+
+    /// 某个任务当前的暂停状态（界面据此显示"已暂停"／"已暂停（对端）"，F-FT-25）。
+    /// `None` = 该任务不存在或已收尾。
+    #[must_use]
+    pub fn pause_state_of(&self, id: &str) -> Option<super::pause::PauseState> {
+        self.ctx.pause_gate(id).map(|gate| gate.state())
+    }
+
     /// 任务台账快照（F-FT-25；只读，命令层不得改写）。
     #[must_use]
     pub fn tasks_snapshot(&self) -> Vec<super::tasks::TransferTask> {
@@ -635,6 +704,10 @@ impl TransferService {
         );
         // 登记令牌：命令层要能按 id 取消这个任务（F-FT-26）
         self.ctx.register_cancel(&id, cancel.clone());
+        // 🔴 登记暂停闸门：与取消令牌同一条纪律（收尾必删）。
+        //    `gate` 交给下面的进度闭包等待，命令层按 id 取到的是**同一个** Arc。
+        let gate = self.ctx.register_pause(&id);
+        let pause_limit = self.ctx.pause_limit();
 
         let mut progress = super::tasks::ProgressThrottle::default();
         // 🔴 绝不能把台账锁 held 在**阻塞的网络发送**期间：同进程的接收线程也要锁台账，
@@ -649,29 +722,43 @@ impl TransferService {
             cancel,
             // 每块如实报一次，按 100ms 合并后写台账（与接收侧同口径）
             |transferred| {
+                // 🔴 F-FT-26：暂停就在**这里**兑现——`on_progress` 是"每块之后"被调一次，
+                //    故在此阻塞正好等于"停在块边界"，块内绝不被打断（R-14 原文）。
+                if gate.wait_if_paused(pause_limit, cancel) == super::pause::PauseExit::TimedOut {
+                    // F-FT-27：本地暂停超上限 ⇒ 自动取消这个任务（原因由收尾处判成 PAUSE_TIMEOUT）
+                    cancel.cancel();
+                }
                 if progress.should_report(super::sink::now_unix_ms()) {
                     self.ctx.lock_tasks().advance(&id, transferred);
                 }
             },
         );
 
-        let (state, reason) = match &outcome {
-            Ok(SendOutcome::Delivered) => (TaskState::Completed, None),
-            Ok(SendOutcome::Skipped) => (TaskState::Skipped, Some(reasons::CONFLICT_SKIP)),
-            Ok(SendOutcome::HashMismatch) => (TaskState::Failed, Some(reasons::HASH_MISMATCH)),
-            // 🔴 R-16：对端明确说的话优先原样回传（含"对端拒收"与"自己取消"）
-            Err(SendFailure::Transport(
-                TransportError::Rejected { reason_code }
-                | TransportError::Cancelled { reason_code },
-            )) => (TaskState::Cancelled, Some(reason_code.as_str())),
-            Err(_) => (TaskState::Failed, Some(reasons::PEER_DISCONNECTED)),
+        let (state, reason) = if gate.timed_out() {
+            // 🔴 F-FT-27：**必须是 PAUSE_TIMEOUT，不是 USER_CANCEL**——
+            //    两者走的是同一条取消回收路径，不在这里改写的话，
+            //    用户会以为"是我按了取消"，而事实是"放太久自动放弃了"。
+            (TaskState::Cancelled, Some(reasons::PAUSE_TIMEOUT))
+        } else {
+            match &outcome {
+                Ok(SendOutcome::Delivered) => (TaskState::Completed, None),
+                Ok(SendOutcome::Skipped) => (TaskState::Skipped, Some(reasons::CONFLICT_SKIP)),
+                Ok(SendOutcome::HashMismatch) => (TaskState::Failed, Some(reasons::HASH_MISMATCH)),
+                // 🔴 R-16：对端明确说的话优先原样回传（含"对端拒收"与"自己取消"）
+                Err(SendFailure::Transport(
+                    TransportError::Rejected { reason_code }
+                    | TransportError::Cancelled { reason_code },
+                )) => (TaskState::Cancelled, Some(reason_code.as_str())),
+                Err(_) => (TaskState::Failed, Some(reasons::PEER_DISCONNECTED)),
+            }
         };
         let finished_at_ms = super::sink::now_unix_ms();
         self.ctx
             .lock_tasks()
             .finish(&id, state, reason, finished_at_ms);
-        // 收尾即移除令牌：不移除这张表会随会话无限增长
+        // 收尾即移除令牌与闸门：不移除这两张表会随会话无限增长
         self.ctx.forget_cancel(&id);
+        self.ctx.forget_pause(&id);
         // 记进历史（F-FT-54）：**快照**，之后不再改
         self.ctx.record_history(super::history::HistoryEntry {
             id: id.clone(),

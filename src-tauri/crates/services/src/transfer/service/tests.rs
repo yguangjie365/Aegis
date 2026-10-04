@@ -477,6 +477,7 @@ fn known_peers_hit_makes_a_peer_known_without_discovery() {
         history: Mutex::new(crate::transfer::history::History::new()),
         history_path: std::env::temp_dir().join("aegis-hist-fixture.json"),
         cancels: Mutex::new(HashMap::new()),
+        pauses: Mutex::new(HashMap::new()),
         task_seq: AtomicU64::new(1),
         peers: Mutex::new(PeerTable::new("测试机#tok", OFFLINE_AFTER)),
         last_refresh_ms: AtomicI64::new(0),
