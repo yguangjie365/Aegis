@@ -23,6 +23,13 @@ export interface TransferStatus {
   liveConnections: number;
   /** 本机设备标识（R-6）；未启动时为 `null` */
   deviceId: string | null;
+  /**
+   * 🔴 历史文件**读盘失败**的原因（F-FT-58：「降级为空列表**并如实显示**」）。
+   *
+   * `null` = 读取正常。非 `null` = 已降级为空历史 ⇒ **界面必须如实告知**，
+   * 否则用户会以为自己从来没有过历史。
+   */
+  historyDegraded: string | null;
 }
 
 /** 在线设备一行（F-FT-08 的被动监听快照）。 */

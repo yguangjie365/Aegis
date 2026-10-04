@@ -109,6 +109,12 @@ pub struct TransferStatusDto {
     pub live_connections: usize,
     /// 本机设备标识（R-6；未启动时为 `None`）
     pub device_id: Option<String>,
+    /// 🔴 历史文件**读盘失败**的原因（F-FT-58："降级为空列表**并如实显示**"）。
+    ///
+    /// `None` = 历史读取正常。`Some(原因)` = 已降级为空历史，**界面必须如实告知用户**，
+    /// 否则用户会以为自己从来没有过历史 —— 那是界面在说假话。
+    /// 服务未启动时为 `None`（没有服务就没有历史可谈）。
+    pub history_degraded: Option<String>,
 }
 
 /// 在线设备一行（F-FT-08）。
@@ -253,6 +259,8 @@ fn status_impl() -> TransferStatusDto {
             online_peer_count: service.online_peers().len(),
             live_connections: service.live_connections(),
             device_id: Some(service.device_id()),
+            // 🔴 F-FT-58：把"历史读不出来、已经降级"这件事如实带出去（服务在跑时才谈得上）
+            history_degraded: service.history_load_error().map(str::to_owned),
         },
         None => TransferStatusDto {
             running: false,
@@ -267,6 +275,8 @@ fn status_impl() -> TransferStatusDto {
             online_peer_count: 0,
             live_connections: 0,
             device_id: None,
+            // 服务没起就没有历史可谈（不是"降级"，别误导）
+            history_degraded: None,
         },
     }
 }

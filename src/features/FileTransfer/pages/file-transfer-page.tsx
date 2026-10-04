@@ -1287,6 +1287,12 @@ export function FileTransferPage() {
       <Card>
         <CardHead>
           <CardTitle>{t("history.title")}</CardTitle>
+          {/* 🔴 F-FT-58：「降级为空列表**并如实显示**」——只降级不显示，用户会以为自己从来没有过历史。
+              用 `!= null` 而不是 `!== null`：`status` 可能 undefined，而 `undefined !== null`
+              会**误判成「有降级」**，于是提示凭空冒出来。 */}
+          {status?.historyDegraded != null && (
+            <Hint span>{t("history.degraded", { reason: status.historyDegraded })}</Hint>
+          )}
           <Acts>
             <AppButton
               variant="secondary"
