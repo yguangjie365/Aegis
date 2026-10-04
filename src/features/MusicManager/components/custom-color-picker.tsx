@@ -37,7 +37,7 @@ export function CustomColorPicker({
   hueValueRef.current = hsv.h;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-  const cardBorder = useColorModeValue("gray.200", "#333333");
+  const cardBorder = useColorModeValue("gray.200", "aegis.hairline");
   const panelBg = useColorModeValue("white", "#1a1a1a");
   const panelShadow = "var(--aegis-elevation-sticky)";
   const [hexInput, setHexInput] = useState(colorToHex(color));
@@ -272,7 +272,7 @@ export function CustomColorPicker({
                   fontSize="xs"
                   fontWeight="semibold"
                   letterSpacing="0.03em"
-                  color={useColorModeValue("gray.700", "#e0e0e0")}
+                  color={useColorModeValue("gray.700", "aegis.ink")}
                 >
                   {colorToHex(color)}
                 </Text>

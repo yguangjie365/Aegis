@@ -15,9 +15,9 @@ export function AboutSection() {
   const { t } = useTranslation("shell");
   return (
     <Box
-      bg="white"
+      bg="aegis.surface-soft"
       border="1px solid"
-      borderColor="gray.200"
+      borderColor="aegis.hairline"
       borderRadius="var(--aegis-radius-sm)"
       p={4}
     >
@@ -28,8 +28,13 @@ export function AboutSection() {
         </Text>
       </HStack>
       <VStack spacing={0} align="stretch">
-        <HStack justify="space-between" py={2} borderBottom="1px solid" borderColor="gray.100">
-          <Text fontSize="xs" color="gray.600">
+        <HStack
+          justify="space-between"
+          py={2}
+          borderBottom="1px solid"
+          borderColor="aegis.hairline"
+        >
+          <Text fontSize="xs" color="aegis.mute">
             {t("about.versionLabel")}
           </Text>
           <Text fontSize="xs" fontFamily="var(--font-mono)">
@@ -37,15 +42,15 @@ export function AboutSection() {
           </Text>
         </HStack>
         <HStack justify="space-between" py={2}>
-          <Text fontSize="xs" color="gray.600">
+          <Text fontSize="xs" color="aegis.mute">
             {t("about.telemetryLabel")}
           </Text>
-          <Text fontSize="xs" fontFamily="var(--font-mono)" color="green.700">
+          <Text fontSize="xs" fontFamily="var(--font-mono)" color="aegis.success">
             {t("status.noTelemetry")}
           </Text>
         </HStack>
       </VStack>
-      <Text fontSize="xs" color="gray.500" mt={3}>
+      <Text fontSize="xs" color="aegis.mute" mt={3}>
         {t("about.note")}
       </Text>
     </Box>

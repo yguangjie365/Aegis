@@ -38,8 +38,20 @@ import { useState, useEffect, useMemo, useCallback, useRef, memo, useDeferredVal
 // 命令名与参数名逐字未改。module 取 LOG_MODULES 的 "Steam"。
 import { invoke } from "@/lib/tauri/invoke";
 import { useAdaptiveTextColor } from "@/shared";
+import {
+  PageBody,
+  StaggeredCards,
+  GroupHeader,
+  FilterSwap,
+  FilterSegments,
+  CardSkeleton,
+  type GameFilter,
+} from "../components/steam-ui";
 // 图标库适配（UI 规范 §七锁定 lucide-react）：Aegis 不引入 react-icons 的 Lu* 前缀命名，
-// 改为 lucide-react 原生导出名。19 个图标逐一对应，仅命名去前缀，图形语义未变。
+// 改为 lucide-react 原生导出名。仅命名去前缀，图形语义未变。
+// 🟢 2026-10-04 重构后移除 3 个：`Circle` / `CircleDot`（原「已安装/未安装」两枚统计卡的图标，
+//    那5 张统计卡已下移并改用统一筛选器的数字徽章表达）· `Library`（原「库存游戏」区块标题
+//    图标，该区块已与已安装合并）—— 属布局重排的连带结果，非功能删除。
 import {
   Search,
   RefreshCw,
@@ -51,12 +63,9 @@ import {
   Gamepad2,
   HardDrive,
   Users,
-  Circle,
-  CircleDot,
   ChevronDown,
   ChevronUp,
   CircleUser,
-  Library,
   Clock3,
 } from "lucide-react";
 import { LiquidGlassCard } from "@/shared";
@@ -69,7 +78,6 @@ import {
   CardMetaRow,
   CardMetaText,
   CardName,
-  CardWrapGrid,
   CoverStateBadge,
   GameCardShell,
   GameCover,
@@ -149,6 +157,16 @@ const STEAM_STRINGS = {
   // 🔴 `install` / `installSent` 已随 `install_steam_game` 命令删除（用户裁决 2026-10-03）：
   //    本模块不再提供安装动作，未安装游戏主按钮改用 `notInstalledBadge` 置灰。
   loading: "正在加载 Steam 数据...",
+  // 🔴 2026-10-04 布局重构**新增**（原 56 键一个未删、语义未改）。
+  // 新增项全部服务于「统一卡片列表 + 筛选」：原「库存游戏」与「已安装游戏」两个区块
+  // 合并为一个列表后，需要筛选档位与账户入口的紧凑呈现。
+  filterAll: "全部",
+  filterInstalled: "已安装",
+  filterNotInstalled: "未安装",
+  accountMenu: "账户",
+  switchTo: "切换到此账户",
+  statsTitle: "库信息",
+  noGamesFiltered: "该筛选下暂无游戏",
 } as const;
 
 type SteamTKey = keyof typeof STEAM_STRINGS;
@@ -333,156 +351,12 @@ function StatusBadge({ running }: { running: boolean }) {
       fontSize="xs"
     >
       <HStack spacing={1.5}>
-        <Box w={2} h={2} borderRadius="full" bg={running ? "green.400" : "gray.400"} />
+        <Box w={2} h={2} borderRadius="full" bg={running ? "aegis.success" : "aegis.stone"} />
         <Text>{running ? t("steam.running") : t("steam.notRunning")}</Text>
       </HStack>
     </Badge>
   );
 }
-
-function UserCard({
-  user,
-  onSwitch,
-  onDelete,
-  isSwitching,
-  isLoadingAvatar,
-}: {
-  user: SteamUser;
-  onSwitch: (accountName: string) => void;
-  onDelete: (user: SteamUser) => void;
-  isSwitching: boolean;
-  isLoadingAvatar: boolean;
-}) {
-  const { liquidGlassEnabled } = useBackground();
-  const { colorMode } = useColorMode();
-  const { getActiveColor } = useThemeColor();
-  const headerColor = colorMode === "light" ? "#000000" : "#ffffff";
-  const subTextColor = useColorModeValue("gray.500", "#ffffff");
-  const cardBg = useColorModeValue("white", "#1a1a1a");
-  const borderColor = useColorModeValue("gray.200", "#333333");
-  const activeColor = getActiveColor();
-
-  const displayName = user.persona_name || user.account_name || "Unknown";
-  const avatarSrc = user.avatar_medium_url || user.avatar_url;
-  const isAvatarLoading = isLoadingAvatar && !avatarSrc;
-
-  const inner = (
-    <HStack spacing={3} align="center">
-      {avatarSrc ? (
-        <Image
-          src={avatarSrc}
-          alt={displayName}
-          boxSize="36px"
-          borderRadius="full"
-          objectFit="cover"
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = "none";
-          }}
-        />
-      ) : isAvatarLoading ? (
-        <Box
-          boxSize="36px"
-          borderRadius="full"
-          bg={`${activeColor}15`}
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
-        >
-          <Spinner size="sm" color={activeColor} thickness="2px" speed="0.8s" />
-        </Box>
-      ) : (
-        <Box color={user.most_recent ? activeColor : subTextColor}>
-          <CircleUser size={36} />
-        </Box>
-      )}
-      <Box flex={1} minW={0}>
-        <Text fontSize="sm" fontWeight="bold" color={headerColor} noOfLines={1}>
-          {displayName}
-        </Text>
-        <Text fontSize="xs" color={subTextColor} noOfLines={1}>
-          {user.account_name || "-"}
-        </Text>
-        <Text fontSize="2xs" color={subTextColor} mt={0.5}>
-          ID: {steamId64To32(user.steam_id64)}
-        </Text>
-      </Box>
-      <HStack spacing={1}>
-        {!user.most_recent && (
-          <Tooltip label={t("steam.switchAccount")} placement="top">
-            <IconButton
-              aria-label={t("steam.switchAccount")}
-              icon={<CircleDot size={16} />}
-              size="sm"
-              variant="ghost"
-              color={activeColor}
-              isLoading={isSwitching}
-              onClick={() => onSwitch(user.account_name)}
-            />
-          </Tooltip>
-        )}
-        <Tooltip label={t("steam.deleteAccount")} placement="top">
-          <IconButton
-            aria-label={t("steam.deleteAccount")}
-            icon={<Trash2 size={16} />}
-            size="sm"
-            variant="ghost"
-            color="red.400"
-            _hover={{ bg: "red.50", color: "red.500" }}
-            onClick={() => onDelete(user)}
-          />
-        </Tooltip>
-        {user.most_recent && <Box w="16px" h="16px" borderRadius="full" bg={activeColor} />}
-      </HStack>
-    </HStack>
-  );
-
-  const badge = user.most_recent ? (
-    <Badge
-      position="absolute"
-      top={"-1px"}
-      right={"-1px"}
-      bg={activeColor}
-      color="white"
-      variant="solid"
-      borderTopRightRadius="xl"
-      borderBottomLeftRadius="md"
-      borderTopLeftRadius={0}
-      borderBottomRightRadius={0}
-      fontSize="2xs"
-      px={2}
-      py={0.5}
-      zIndex={1}
-    >
-      {t("steam.currentUser")}
-    </Badge>
-  ) : null;
-
-  if (liquidGlassEnabled) {
-    return (
-      <LiquidGlassCard p={4} position="relative" overflow="visible">
-        {badge}
-        {inner}
-      </LiquidGlassCard>
-    );
-  }
-
-  return (
-    <Box
-      bg={cardBg}
-      border="1px solid"
-      borderColor={borderColor}
-      borderRadius="xl"
-      p={4}
-      transition="all 0.2s"
-      position="relative"
-      overflow="visible"
-    >
-      {badge}
-      {inner}
-    </Box>
-  );
-}
-
 // 分离的游戏封面组件
 // 🔴 `onUninstall` 与「卸载」菜单项已按用户裁决（2026-10-03）删除：本项目只做展示 +
 // 启动，安装与卸载均交由 Steam 客户端管理（规格 08 §一）。菜单保留「打开目录 / 商店页面」。
@@ -521,129 +395,123 @@ const GameActionMenu = memo(function GameActionMenu({
     </Menu>
   );
 });
+// ============================================================================
+// 统一游戏卡片（2026-10-04 布局重构）
+//
+// 🔴 合并背景：原先有**两个**卡片组件 —— `GameCard`（已安装，data.games）与
+// `InventoryGameCard`（库存，inventory.games）。二者用同一套 SystemToolkit 规格组件
+// （`GameCardShell` / `GameCover` / `CardName` / `CardMetaRow` / `CardActionRow`）、
+// 同一批元数据（名称 · 占用 · 时长 · 最近游玩），内容高度重叠 —— 而「已安装」在数据上
+// 本就是「库存」的子集（库存每项自带 `installed` 布尔）。两个区块 = 用户要跨两处
+// 才能建立「我有这些游戏」的心智模型。
+//
+// 本组件是二者的**并集**，按 `installed` 决定差异部分，逐条对应关系：
+//   · 徽章：已安装 → `installedBadge`；下载中 → 百分比（**互斥**，见下）
+//   · 主按钮：已安装 → 「启动」；未安装 → **不渲染**（无动作不渲染按钮，R-13）
+//   · ⋯ 菜单：**仅已安装**（打开目录需要 `install_dir` / `library_path`，
+//     库存的未安装条目这两个字段是空串，菜单会变成一个点了报错的死按钮）
+//
+// 🔴 徽章互斥性的坑（原 InventoryGameCard 的注释已记）：判据必须是**精确的下载中状态**，
+// 不用「未安装取反」—— 否则「下载中」与「已安装」两层半透明遮罩叠加压不住。
+// ============================================================================
 
-// ============================================================================
-// 卡片视觉层 = SystemToolkit（用户裁决 2026-10-03：卡片参考 SystemToolkit，
-// 其余复用 NexBox）。本函数保留 NexBox 的**数据流与命令回调**（onLaunch /
-// onOpenFolder / onStorePage 签名逐字未改），只把 JSX 换成
-// `components/game-card.tsx` 的 SystemToolkit 规格实现。
-// ============================================================================
-const GameCard = memo(function GameCard({
+/** 库存条目 + 已安装专有字段（`install_dir` / `library_path` / 下载进度从 data.games 补齐） */
+interface UnifiedGame extends SteamInventoryGame {
+  /** 从 `data.games` 按 app_id 匹配到的已安装条目（未安装则为 undefined） */
+  installedEntry?: SteamGame;
+  /** 已安装条目的盘符标签（如 `D:`），用于卡片上的库归属提示 */
+  driveLabel?: string;
+}
+
+const UnifiedGameCard = memo(function UnifiedGameCard({
   game,
   isLaunching,
   onLaunch,
   onOpenFolder,
   onStorePage,
 }: {
-  game: SteamGame;
+  game: UnifiedGame;
   isLaunching: boolean;
   onLaunch: (appId: number) => void;
   onOpenFolder: (libPath: string, installDir: string) => void;
   onStorePage: (appId: number) => void;
 }) {
-  const isDownloading = game.bytes_downloaded > 0 && game.bytes_downloaded < game.bytes_to_download;
+  const entry = game.installedEntry;
+  // 下载中判据 = 精确状态（有下载量且未完成）；只有已安装条目才有这三个字段
+  const isDownloading =
+    entry != null && entry.bytes_downloaded > 0 && entry.bytes_downloaded < entry.bytes_to_download;
   const downloadProgress =
-    game.bytes_to_download > 0
-      ? Math.round((game.bytes_downloaded / game.bytes_to_download) * 100)
+    isDownloading && entry.bytes_to_download > 0
+      ? Math.round((entry.bytes_downloaded / entry.bytes_to_download) * 100)
       : 0;
+
+  // 占用以已安装条目为准（本地 .acf 才有真实值）；未安装条目 size_on_disk 为 0 → 显示「-」
+  const size = entry != null ? entry.size_on_disk : game.size_on_disk;
+  const playtime = game.playtime_minutes;
+  const lastPlayed = game.last_played;
 
   return (
     <GameCardShell title={game.name}>
       <Box position="relative">
         <GameCover appId={game.app_id} name={game.name} />
-        {/* 状态徽章判据 = 精确的下载中状态（SystemToolkit :512-528 的 ShowProgressBadge 口径），
-            不用「未安装取反」—— 那会与库存卡片的「未安装」徽章同时可见 */}
-        {isDownloading && <CoverStateBadge>{downloadProgress}%</CoverStateBadge>}
+        {/* 🔴 徽章互斥：下载中优先（它更具体、时效更短），否则已安装才亮。
+            两个都 true 的情况 = 正在更新一个已安装的游戏，此时「更新中 42%」比
+            「已安装」更有信息量。 */}
+        {isDownloading ? (
+          <CoverStateBadge>{downloadProgress}%</CoverStateBadge>
+        ) : game.installed ? (
+          <CoverStateBadge>{t("steam.installedBadge")}</CoverStateBadge>
+        ) : null}
       </Box>
 
       <Box p={CARD_INNER_PADDING}>
         <CardName>{game.name}</CardName>
 
-        {/* 元数据行：占用 · 时长 · 最近游玩合并为一行（SystemToolkit :565-570，
-            2026-09-13 UI 评审：原「最近游玩」另起一行且同为 mono 微字弱色，视觉权重无差、白占约 17px）*/}
+        {/* 元数据行：占用 · 时长 · 最近游玩（SystemToolkit :565-570 规格，三段 + 两圆点）*/}
         <CardMetaRow>
-          <CardMetaText>{formatSize(game.size_on_disk)}</CardMetaText>
+          <CardMetaText>{size > 0 ? formatSize(size) : "-"}</CardMetaText>
           <MetaDot />
-          <CardMetaText>
-            {game.playtime_minutes > 0 ? formatPlaytime(game.playtime_minutes) : "-"}
-          </CardMetaText>
+          <CardMetaText>{playtime > 0 ? formatPlaytime(playtime) : "-"}</CardMetaText>
           <MetaDot />
-          <CardMetaText>
-            {game.last_played > 0 ? formatLastPlayed(game.last_played) : "-"}
-          </CardMetaText>
+          <CardMetaText>{lastPlayed > 0 ? formatLastPlayed(lastPlayed) : "-"}</CardMetaText>
         </CardMetaRow>
 
         <CardActionRow>
-          {/* 副键恒为「商店页面」；打开目录 / 卸载在 NexBox 的 ⋯ 菜单内保留 */}
           <CardActionButton onClick={() => onStorePage(game.app_id)}>
             {t("steam.storePage")}
           </CardActionButton>
           <Box position="relative">
-            <CardActionButton primary isLoading={isLaunching} onClick={() => onLaunch(game.app_id)}>
-              {t("steam.launch")}
-            </CardActionButton>
-            {/* NexBox 的 ⋯ 操作菜单（打开目录 / 商店页）保留，浮于副键之上。
-                🔴 卸载项已按用户裁决删除 —— 卸载由 Steam 客户端管理 */}
-            <Box position="absolute" right="2px" top="50%" transform="translateY(-50%)" zIndex={2}>
-              <GameActionMenu game={game} onOpenFolder={onOpenFolder} onStorePage={onStorePage} />
-            </Box>
+            {/* 🔴 未安装**不渲染**主按钮 —— 它没有任何可执行动作（安装由 Steam 客户端管，
+                用户裁决 2026-10-03），只保留「商店页」引导。此处刻意不改
+                `CardActionButton` 的 props —— 那是 SystemToolkit `ActionPrimaryButton`
+                的复刻组件，契约受铁律保护。 */}
+            {game.installed && (
+              <CardActionButton
+                primary
+                isLoading={isLaunching}
+                onClick={() => onLaunch(game.app_id)}
+              >
+                {t("steam.launch")}
+              </CardActionButton>
+            )}
+            {/* ⋯ 菜单**仅已安装**：打开目录需要 install_dir + library_path，
+                未安装条目这两项是空串，渲染出来就是个点了报错的死按钮。 */}
+            {game.installed && entry && (
+              <Box
+                position="absolute"
+                right="2px"
+                top="50%"
+                transform="translateY(-50%)"
+                zIndex={2}
+              >
+                <GameActionMenu
+                  game={entry}
+                  onOpenFolder={onOpenFolder}
+                  onStorePage={onStorePage}
+                />
+              </Box>
+            )}
           </Box>
-        </CardActionRow>
-      </Box>
-    </GameCardShell>
-  );
-});
-
-// 库存卡片：视觉同样按 SystemToolkit 规格（与已安装卡片共用外壳与规格组件），
-// 数据流保持 NexBox 原样。
-// 🔴 `onInstall` prop 已按用户裁决（2026-10-03）删除：安装改由「打开商店页」引导，
-//    本模块不再提供安装动作。
-const InventoryGameCard = memo(function InventoryGameCard({
-  game,
-  isLaunching,
-  onLaunch,
-  onStorePage,
-}: {
-  game: SteamInventoryGame;
-  isLaunching: boolean;
-  onLaunch: (appId: number) => void;
-  onStorePage: (appId: number) => void;
-}) {
-  return (
-    <GameCardShell title={game.name}>
-      <Box position="relative">
-        <GameCover appId={game.app_id} name={game.name} />
-        {game.installed && <CoverStateBadge>{t("steam.installedBadge")}</CoverStateBadge>}
-      </Box>
-
-      <Box p={CARD_INNER_PADDING}>
-        <CardName>{game.name}</CardName>
-
-        <CardMetaRow>
-          <CardMetaText>{game.size_on_disk > 0 ? formatSize(game.size_on_disk) : "-"}</CardMetaText>
-          <MetaDot />
-          <CardMetaText>
-            {game.playtime_minutes > 0 ? formatPlaytime(game.playtime_minutes) : "-"}
-          </CardMetaText>
-          <MetaDot />
-          <CardMetaText>
-            {game.last_played > 0 ? formatLastPlayed(game.last_played) : "-"}
-          </CardMetaText>
-        </CardMetaRow>
-
-        <CardActionRow>
-          <CardActionButton onClick={() => onStorePage(game.app_id)}>
-            {t("steam.storePage")}
-          </CardActionButton>
-          {/* 🔴 未安装游戏不再提供「安装」动作（用户裁决 2026-10-03，后端命令同批删除）。
-              未安装时**不渲染**主按钮（它没有任何可执行动作），仅保留「商店页」引导用户
-              到 Steam 客户端安装。此处刻意不改 `CardActionButton` 的 props —— 那是
-              SystemToolkit `ActionPrimaryButton` 的复刻组件，契约受铁律保护。 */}
-          {game.installed && (
-            <CardActionButton primary isLoading={isLaunching} onClick={() => onLaunch(game.app_id)}>
-              {t("steam.launch")}
-            </CardActionButton>
-          )}
         </CardActionRow>
       </Box>
     </GameCardShell>
@@ -663,10 +531,10 @@ function LibraryCard({
   const { getActiveColor } = useThemeColor();
   const { colorMode } = useColorMode();
   const headerColor = colorMode === "light" ? "#000000" : "#ffffff";
-  const subTextColor = useColorModeValue("gray.500", "#ffffff");
+  const subTextColor = useColorModeValue("gray.500", "aegis.mute");
   const cardBg = useColorModeValue("white", "#1a1a1a");
-  const borderColor = useColorModeValue("gray.200", "#333333");
-  const progressBg = useColorModeValue("gray.100", "#333");
+  const borderColor = useColorModeValue("gray.200", "aegis.hairline");
+  const progressBg = useColorModeValue("gray.100", "aegis.surface-inset");
   const activeColor = getActiveColor();
 
   // 使用实际磁盘容量计算占用百分比
@@ -747,12 +615,18 @@ export default function SteamPage() {
   const [launchingAppId, setLaunchingAppId] = useState<number | null>(null);
   const [launchingSteam, setLaunchingSteam] = useState(false);
   const [showLibraries, setShowLibraries] = useState(true);
-  const [showUsers, setShowUsers] = useState(true);
+  // 🟢 2026-10-04 重构：`showUsers` / `showInventory` 已**删除**（非静默移除，见下）。
+  // 原先「账户管理」与「库存游戏」是两个可折叠的独立区块，各带一个展开/收起开关。
+  // 重构后：账户收进顶栏 Menu（低频操作，不再需要折叠）；库存与已安装**合并为一个
+  // 列表**（区块消失，折叠开关随之失去对象）。两处的**内容**均完整迁移到新位置，
+  // 只是不再有「折叠」这个交互 —— 这是布局重排的必然结果，非功能丢失。
   const [inventory, setInventory] = useState<SteamInventoryData | null>(null);
   const [loadingInventory, setLoadingInventory] = useState(false);
+  // 🔴 2026-10-04 布局重构新增：统一卡片列表的筛选档（合并了原先的「库存游戏」与
+  // 「已安装游戏」两个区块）。默认 `all` —— 首屏即用户的完整游戏库。
+  const [gameFilter, setGameFilter] = useState<GameFilter>("all");
   // Aegis 新增：在线补全失败原因（null = 未尝试或成功）
   const [onlineError, setOnlineError] = useState<string | null>(null);
-  const [showInventory, setShowInventory] = useState(true);
   // 库存分页加载数量：默认只渲染前 120 张卡片，按「加载更多」递增，避免大库存一次渲染过重导致卡顿
   const [visibleCount, setVisibleCount] = useState(120);
   // 延迟值：搜索输入即时响应，列表过滤/渲染延后执行，输入上千条库存时避免每次按键都重算
@@ -765,11 +639,22 @@ export default function SteamPage() {
   const activeColor = getActiveColor();
   const headerColor = colorMode === "light" ? "#000000" : "#ffffff";
   const adaptiveTitle = useAdaptiveTextColor();
-  const textColor = useColorModeValue("gray.800", "#ffffff");
-  const subTextColor = useColorModeValue("gray.500", "#ffffff");
+  const textColor = useColorModeValue("gray.800", "aegis.ink");
+  const subTextColor = useColorModeValue("gray.500", "aegis.mute");
   const cardBg = useColorModeValue("white", "#1a1a1a");
-  const borderColor = useColorModeValue("gray.200", "#333333");
+  const borderColor = useColorModeValue("gray.200", "aegis.hairline");
   const inputBg = useColorModeValue("white", "#1a1a1a");
+  /**
+   * 🟢 2026-10-04 重构：sticky 顶栏的底色。
+   * 🔴 必须**不透明**：顶栏与筛选器是 sticky 的，滚动时卡片会从其下方穿过；
+   * 半透明底色会让卡片文字与顶栏文字叠影（这是典型的 sticky 布局事故）。
+   * 取`canvas` 而非 `surface-soft` —— 与页面底色一致，视觉上「浮起」只靠一条发丝线。
+   */
+  const pageBg = useColorModeValue("white", "#0a0a0a");
+  /**
+   * 头像异步补全的 loading 集合（`fetchData` 内的 `get_steam_user_avatars` 二次调用写入）。
+   * 账户进Menu 后不再逐卡渲染头像，但该集合仍用于「头像还没到」时显示占位图标。
+   */
   const [loadingAvatars, setLoadingAvatars] = useState<Set<string>>(new Set());
 
   const fetchData = useCallback(async () => {
@@ -952,32 +837,114 @@ export default function SteamPage() {
     fetchInventory(false);
   }, [fetchData, fetchInventory]);
 
-  const filteredGames = useMemo(() => {
-    if (!data?.games) return [];
-    if (!searchText.trim()) return data.games;
-    const lower = searchText.toLowerCase();
-    return data.games.filter(
-      (g) => g.name.toLowerCase().includes(lower) || g.app_id.toString().includes(lower),
-    );
-  }, [data?.games, searchText]);
+  // ══ 统一游戏列表（2026-10-04 布局重构）══════════════════════════════════
+  //
+  // 原先是两条独立管道（`filteredGames` 走 data.games、`filteredInventory` 走
+  // inventory.games），渲染成两个区块。现合并为**一条**：
+  //
+  //   1. 以 `inventory.games` 为**主源**（它更全：含「已安装」也含「未拥有」）；
+  //   2. 按 app_id 到 `data.games` 查已安装条目，补齐库存没有的三个字段
+  //      （`install_dir` / `library_path` / 下载进度）—— 只有本地 .acf 知道这些；
+  //   3. 搜索 + 筛选 + 分页在此一次完成。
+  //
+  // 🔴 为什么要以库存为主源而不是已安装列表：用户诉求是「第一眼看到自己的游戏库」，
+  // 而「游戏库」在 Steam 语义里是**账号拥有的全部游戏**（含未安装），不只是本机装了的。
+  // 只显示已安装 = 少了 90% 的可见内容（实测典型比例 12 已装 / 116 未装）。
+  //
+  // 🔴 等价性核对（对照重构前的基线）：
+  //   · 旧 `filteredGames`（已安装+搜索） = 新 `installed` 档 ∘ 搜索 →✅ 覆盖
+  //   · 旧 `filteredInventory`（库存+搜索） = 新 `all` 档 ∘ 搜索 → ✅ 覆盖
+  //   · `app_id` 数字匹配（旧两处都有）→ 保留
+  //   · `deferredSearch`（延迟值）→ 保留，仍是搜索专用
 
-  // 按库（硬盘）分组后的游戏列表
-  const groupedGames = useMemo(() => {
-    if (!data || filteredGames.length === 0) return [];
+  /** app_id → 已安装条目（用于补齐 + 判定）。查一次建Map，避免 O(n·m) 遍历。 */
+  const installedById = useMemo(() => {
+    const m = new Map<number, SteamGame>();
+    for (const g of data?.games ?? []) m.set(g.app_id, g);
+    return m;
+  }, [data?.games]);
+
+  /** 库路径前缀 → 盘符标签（用于给已安装卡片标归属库） */
+  const driveByPath = useMemo(() => {
+    const arr = (data?.libraries ?? []).map((lib) => ({
+      norm: normalizePath(lib.path),
+      drive: getDriveLabel(lib.path),
+    }));
+    return (p: string): string | undefined => {
+      if (!p) return undefined;
+      const n = normalizePath(p);
+      const hit = arr.find((l) => n === l.norm || n.startsWith(l.norm + "\\"));
+      return hit?.drive;
+    };
+  }, [data?.libraries]);
+
+  /** 合并后的全集（未搜索、未筛选、未分页） */
+  const unifiedAll = useMemo<UnifiedGame[]>(() => {
+    const list = inventory?.games ?? [];
+    return list.map((g) => {
+      const entry = installedById.get(g.app_id);
+      // 🔴 `installed` 以**库存的布尔**为准（它已由 `steam_installed_appids` 判定过）；
+      // `entry` 存在与否是独立事实（.acf 里有但不在库存列表 —— 极少见，仍按已安装处理）。
+      const installed = g.installed || entry != null;
+      return {
+        ...g,
+        installed,
+        installedEntry: entry,
+        driveLabel: entry ? driveByPath(entry.library_path) : undefined,
+      };
+    });
+  }, [inventory?.games, installedById, driveByPath]);
+
+  /** 搜索 + 筛选（一次算完，避免两处各过滤一遍） */
+  const unifiedFiltered = useMemo(() => {
+    let list = unifiedAll;
+    if (deferredSearch.trim()) {
+      const lower = deferredSearch.toLowerCase();
+      list = list.filter(
+        (g) => g.name.toLowerCase().includes(lower) || g.app_id.toString().includes(lower),
+      );
+    }
+    if (gameFilter === "installed") return list.filter((g) => g.installed);
+    if (gameFilter === "notInstalled") return list.filter((g) => !g.installed);
+    return list;
+  }, [unifiedAll, deferredSearch, gameFilter]);
+
+  /** 三档计数（筛选器上直接可见，是用户判断「该装什么」的关键信息） */
+  const filterCounts = useMemo(() => {
+    let installed = 0;
+    for (const g of unifiedAll) if (g.installed) installed++;
+    return { all: unifiedAll.length, installed, notInstalled: unifiedAll.length - installed };
+  }, [unifiedAll]);
+
+  /** 分页：默认 120，「加载更多」递增（保持原值，避免大库存一次渲染过重） */
+  const unifiedShown = useMemo(
+    () => unifiedFiltered.slice(0, visibleCount),
+    [unifiedFiltered, visibleCount],
+  );
+
+  /**
+   * 「已安装」档下按盘符分组（原`groupedGames` 的能力，保留）。
+   *
+   * 🔴 为什么只在已安装档分组：未安装游戏在本机**不存在**归属盘符（`library_path` 为空串），
+   * 给它们编一个分组是凭空造信息。故 all/未安装 两档用平铺，已安装档保留盘符分组。
+   */
+  const unifiedGrouped = useMemo(() => {
+    if (gameFilter !== "installed" || !data) return null;
     const groups: {
       key: string;
       driveLabel: string;
       path: string;
       label: string;
-      games: SteamGame[];
+      games: UnifiedGame[];
       totalSize: number;
     }[] = [];
     const matched = new Set<number>();
     for (const lib of data.libraries) {
       const libNorm = normalizePath(lib.path);
-      const games = filteredGames.filter((g) => {
-        const gameNorm = normalizePath(g.library_path);
-        if (gameNorm === libNorm || gameNorm.startsWith(libNorm + "\\")) {
+      const games = unifiedFiltered.filter((g) => {
+        if (!g.installedEntry) return false;
+        const gn = normalizePath(g.installedEntry.library_path);
+        if (gn === libNorm || gn.startsWith(libNorm + "\\")) {
           matched.add(g.app_id);
           return true;
         }
@@ -990,11 +957,10 @@ export default function SteamPage() {
         path: lib.path,
         label: lib.label,
         games,
-        totalSize: games.reduce((s, g) => s + g.size_on_disk, 0),
+        totalSize: games.reduce((s, g) => s + (g.installedEntry?.size_on_disk ?? 0), 0),
       });
     }
-    // 未匹配到任何库的游戏（理论上少见，兜底处理）
-    const rest = filteredGames.filter((g) => !matched.has(g.app_id));
+    const rest = unifiedFiltered.filter((g) => !matched.has(g.app_id));
     if (rest.length > 0) {
       groups.push({
         key: "other",
@@ -1002,31 +968,21 @@ export default function SteamPage() {
         path: "",
         label: "",
         games: rest,
-        totalSize: rest.reduce((s, g) => s + g.size_on_disk, 0),
+        totalSize: rest.reduce((s, g) => s + (g.installedEntry?.size_on_disk ?? 0), 0),
       });
     }
     return groups;
-  }, [data, filteredGames]);
+  }, [data, unifiedFiltered, gameFilter]);
 
-  // 库存游戏过滤（共用顶部搜索框，用延迟值避免大列表频繁重算）
-  const filteredInventory = useMemo(() => {
-    if (!inventory?.games) return [];
-    if (!deferredSearch.trim()) return inventory.games;
-    const lower = deferredSearch.toLowerCase();
-    return inventory.games.filter(
-      (g) => g.name.toLowerCase().includes(lower) || g.app_id.toString().includes(lower),
-    );
-  }, [inventory?.games, deferredSearch]);
-
-  // 库存按可见数量渲染（默认 120，点「加载更多」递增）
-  const inventoryGamesShown = useMemo(() => {
-    return filteredInventory.slice(0, visibleCount);
-  }, [filteredInventory, visibleCount]);
-
-  // 搜索词变化时重置分页
+  // 搜索词变化时重置分页（沿用原逻辑）
   useEffect(() => {
     setVisibleCount(120);
   }, [deferredSearch]);
+
+  // 筛选变化时也重置分页 —— 否则「加载更多」加到 600 的位置切到只剩 3 张的档位会空着
+  useEffect(() => {
+    setVisibleCount(120);
+  }, [gameFilter]);
 
   // 直接按路径匹配计算每个库的游戏统计
   const getLibraryStats = useCallback(
@@ -1238,273 +1194,217 @@ export default function SteamPage() {
   };
 
   return (
-    <Box pb={8}>
-      {/* 标题栏 */}
-      <HStack justify="space-between" mb={6} flexShrink={0}>
-        <HStack spacing={3}>
-          <Image src={steamIcon} alt="Steam" w="64px" h="64px" objectFit="contain" />
-          <Text
-            fontSize="3xl"
-            fontWeight="bold"
-            color={adaptiveTitle.text}
-            textShadow={adaptiveTitle.shadow}
-          >
-            Steam
-          </Text>
-          {data && <StatusBadge running={data.install_info.is_running} />}
-          {data && !data.install_info.is_running && (
-            <Button
-              size="sm"
-              leftIcon={<Play size={14} />}
-              variant="solid"
-              borderRadius="lg"
-              bg={activeColor}
-              color="white"
-              _hover={{ opacity: 0.85, bg: activeColor }}
-              isLoading={launchingSteam}
-              loadingText={t("steam.launchingSteam")}
-              spinnerPlacement="start"
-              onClick={handleLaunchSteam}
-            >
-              {t("steam.launchSteam")}
-            </Button>
-          )}
-        </HStack>
-        <HStack spacing={3}>
-          <InputGroup w="220px">
-            <InputLeftElement
-              pointerEvents="none"
-              display="flex"
-              alignItems="center"
-              justifyContent="center"
-              h="full"
-            >
-              <Search size={16} color={subTextColor} />
-            </InputLeftElement>
-            <Input
-              placeholder={t("steam.searchGame")}
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              size="sm"
-              borderRadius="lg"
-              bg={inputBg}
-              borderColor={borderColor}
-            />
-          </InputGroup>
-          <IconButton
-            aria-label={t("steam.refresh")}
-            icon={<RefreshCw size={16} />}
-            size="sm"
-            variant="outline"
-            borderRadius="lg"
-            onClick={() => {
-              fetchData();
-              fetchInventory(false);
-            }}
-            isLoading={loading}
-          />
-        </HStack>
-      </HStack>
+    <PageBody>
+      {/* ══ 2026-10-04 布局重构：sticky 顶栏 ═══════════════════════════════
+          原标题栏是「64px Steam 大图标 + 标题 + 搜索 + 刷新」一行，占 64px 高。
+          现改为 40px 图标 + **sticky** 顶栏：搜索/ 刷新 / 账户入口收进同一行，
+          且滚动时保持可见 —— 用户任何时候都能改筛选或换账户，不必滚回顶部。*/}
 
-      {/* 统计信息 */}
-      {data && (
-        <HStack spacing={4} mb={6} flexWrap="wrap">
-          <StatCard
-            icon={<Gamepad2 size={16} />}
-            label={t("steam.totalGames")}
-            value={data.games.length}
-          />
-          <StatCard
-            icon={<HardDrive size={16} />}
-            label={t("steam.totalSize")}
-            value={formatSize(totalSize)}
-          />
-          <StatCard
-            icon={<Users size={16} />}
-            label={t("steam.accountCount")}
-            value={data.users.length}
-          />
-          <StatCard
-            icon={<HardDrive size={16} />}
-            label={t("steam.libraries")}
-            value={data.libraries.length}
-          />
-          {data.install_info.install_path && (
-            <StatCard
-              icon={<HardDrive size={16} />}
-              label={t("steam.installPath")}
-              value={data.install_info.install_path}
-            />
-          )}
-        </HStack>
-      )}
+      {/* ══ 2026-10-04 布局重构：游戏库前置══════════════════════════════════
+          原顺序：统计卡 → 账户管理 → 游戏库 → 库存游戏 →分隔线 → 已安装游戏
+          ⇒ 首屏（1240×640）只能看到统计卡与账户第一行，游戏卡片在首屏之外约 400~500px。
 
-      {/* 账户管理 - 始终显示 */}
-      {data && (
-        <Box mb={6}>
-          <HStack
-            justify="space-between"
-            cursor="pointer"
-            onClick={() => setShowUsers(!showUsers)}
-            mb={showUsers ? 3 : 0}
-          >
-            <HStack spacing={2}>
-              <Box color={activeColor}>
-                <Users size={18} />
-              </Box>
-              <Text
-                fontSize="lg"
-                fontWeight="bold"
-                color={adaptiveTitle.text}
-                textShadow={adaptiveTitle.shadow}
+          新顺序：顶栏 → 筛选器 → **卡片区（首屏主体）** → 库信息（统计 + 库卡下移）
+          账户管理收进顶栏最右的「账户」菜单（Popover），不再占据独立区块。
+          另：整页用 `PageBody` 限宽 1400 居中，消除卡片区右侧的大片空白。 */}
+
+      {/* ── 顶栏（sticky）：搜索 / 刷新 / 账户入口 ──────────────────────────── */}
+      <Box
+        position="sticky"
+        top={0}
+        zIndex={10}
+        bg={pageBg}
+        borderBottom="1px solid"
+        borderColor={borderColor}
+        pb={3}
+        pt={2}
+        mb={4}
+      >
+        <HStack justify="space-between" flexWrap="wrap" gap={3}>
+          <HStack spacing={3} minW={0}>
+            <Image src={steamIcon} alt="Steam" w="40px" h="40px" objectFit="contain" />
+            <Text
+              fontSize="2xl"
+              fontWeight="bold"
+              color={adaptiveTitle.text}
+              textShadow={adaptiveTitle.shadow}
+            >
+              Steam
+            </Text>
+            {data && <StatusBadge running={data.install_info.is_running} />}
+            {data && !data.install_info.is_running && (
+              <Button
+                size="sm"
+                leftIcon={<Play size={14} />}
+                variant="solid"
+                borderRadius="lg"
+                bg={activeColor}
+                color="white"
+                _hover={{ opacity: 0.85, bg: activeColor }}
+                isLoading={launchingSteam}
+                loadingText={t("steam.launchingSteam")}
+                spinnerPlacement="start"
+                onClick={handleLaunchSteam}
               >
-                {t("steam.accounts")}
-              </Text>
-              <Badge colorScheme="teal" variant="subtle" borderRadius="full">
-                {data.users.length}
-              </Badge>
-            </HStack>
-            <IconButton
-              aria-label="toggle"
-              icon={showUsers ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              size="sm"
-              variant="ghost"
-            />
-          </HStack>
-          <Collapse in={showUsers}>
-            {data.users.length > 0 ? (
-              <SimpleGrid columns={{ base: 1, sm: 2, md: 3, lg: 4 }} spacing={3}>
-                {data.users.map((user) => (
-                  <UserCard
-                    key={user.steam_id64}
-                    user={user}
-                    onSwitch={handleSwitchAccount}
-                    onDelete={onDeleteClick}
-                    isSwitching={switchingAccount === user.account_name}
-                    isLoadingAvatar={loadingAvatars.has(user.steam_id64)}
-                  />
-                ))}
-              </SimpleGrid>
-            ) : (
-              <Box
-                bg={cardBg}
-                border="1px solid"
-                borderColor={borderColor}
-                borderRadius="xl"
-                p={6}
-                textAlign="center"
-              >
-                <VStack spacing={2}>
-                  <Users size={32} color={subTextColor} />
-                  <Text color={subTextColor} fontSize="sm">
-                    {t("steam.noAccounts")}
-                  </Text>
-                </VStack>
-              </Box>
+                {t("steam.launchSteam")}
+              </Button>
             )}
-          </Collapse>
-        </Box>
-      )}
-
-      {/* 游戏库 - 始终显示 */}
-      {data && (
-        <Box mb={6}>
-          <HStack
-            justify="space-between"
-            cursor="pointer"
-            onClick={() => setShowLibraries(!showLibraries)}
-            mb={showLibraries ? 3 : 0}
-          >
-            <HStack spacing={2}>
-              <Box color={activeColor}>
-                <HardDrive size={18} />
-              </Box>
-              <Text
-                fontSize="lg"
-                fontWeight="bold"
-                color={adaptiveTitle.text}
-                textShadow={adaptiveTitle.shadow}
-              >
-                {t("steam.libraries")}
-              </Text>
-              <Badge colorScheme="teal" variant="subtle" borderRadius="full">
-                {data.libraries.length}
-              </Badge>
-            </HStack>
-            <IconButton
-              aria-label="toggle"
-              icon={showLibraries ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              size="sm"
-              variant="ghost"
-            />
           </HStack>
-          <Collapse in={showLibraries}>
-            {data.libraries.length > 0 ? (
-              <SimpleGrid columns={{ base: 1, sm: 2, lg: 3 }} spacing={3}>
-                {data.libraries.map((lib) => {
-                  const stats = getLibraryStats(lib.path);
-                  return (
-                    <LibraryCard
-                      key={`${lib.index}-${lib.path}`}
-                      lib={lib}
-                      gameCount={stats.count}
-                      gameSize={stats.size}
-                    />
-                  );
-                })}
-              </SimpleGrid>
-            ) : (
-              <Box
-                bg={cardBg}
-                border="1px solid"
-                borderColor={borderColor}
-                borderRadius="xl"
-                p={6}
-                textAlign="center"
+          <HStack spacing={2}>
+            <InputGroup w={{ base: "160px", md: "240px" }}>
+              <InputLeftElement
+                pointerEvents="none"
+                display="flex"
+                alignItems="center"
+                justifyContent="center"
+                h="full"
               >
-                <VStack spacing={2}>
-                  <HardDrive size={32} color={subTextColor} />
-                  <Text color={subTextColor} fontSize="sm">
-                    {t("steam.noLibraries")}
-                  </Text>
-                  {data.install_info.install_path && (
-                    <Text color={subTextColor} fontSize="xs">
-                      {t("steam.installPath")}: {data.install_info.install_path}
-                    </Text>
+                <Search size={16} color={subTextColor} />
+              </InputLeftElement>
+              <Input
+                placeholder={t("steam.searchGame")}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                size="sm"
+                borderRadius="lg"
+                bg={inputBg}
+                borderColor={borderColor}
+              />
+            </InputGroup>
+            <IconButton
+              aria-label={t("steam.refresh")}
+              icon={<RefreshCw size={16} />}
+              size="sm"
+              variant="outline"
+              borderRadius="lg"
+              onClick={() => {
+                fetchData();
+                fetchInventory(false);
+              }}
+              isLoading={loading}
+            />
+            {/* 🟢 账户入口收进顶栏最右（2026-10-04 用户裁决「移至右上角紧凑展示」）。
+                用Menu 而非折叠区块：账户是**低频操作**（切换/删除），不值得占首屏一整块；
+                且用户要「第一眼看到游戏库」，账户越不显眼越好。
+                徽章数字让用户知道有几个账户而不必展开。 */}
+            <Menu>
+              <MenuButton
+                as={Button}
+                size="sm"
+                variant="outline"
+                borderRadius="lg"
+                leftIcon={<Users size={14} />}
+                rightIcon={<ChevronDown size={14} />}
+              >
+                {t("steam.accountMenu")}
+                {data ? ` ${data.users.length}` : ""}
+              </MenuButton>
+              <Portal>
+                <MenuList fontSize="sm" zIndex={9999} maxH="60vh" overflowY="auto">
+                  {data && data.users.length > 0 ? (
+                    data.users.map((user) => {
+                      const displayName = user.persona_name || user.account_name || "Unknown";
+                      const avatarSrc = user.avatar_medium_url || user.avatar_url;
+                      const switching = switchingAccount === user.account_name;
+                      return (
+                        <MenuItem
+                          key={user.steam_id64}
+                          // 🔴 当前账户不可点切换（原UserCard 用「不渲染切换按钮」表达，
+                          // 菜单里改为保留行但禁用 + 标注「当前」—— 位置更直观）
+                          isDisabled={user.most_recent || switching}
+                          icon={
+                            switching ? (
+                              <Spinner size="xs" color={activeColor} />
+                            ) : avatarSrc ? (
+                              <Image
+                                src={avatarSrc}
+                                alt=""
+                                boxSize="20px"
+                                borderRadius="full"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = "none";
+                                }}
+                              />
+                            ) : loadingAvatars.has(user.steam_id64) ? (
+                              <Spinner size="xs" color={activeColor} />
+                            ) : (
+                              <CircleUser
+                                size={16}
+                                color={user.most_recent ? activeColor : subTextColor}
+                              />
+                            )
+                          }
+                          onClick={() => void handleSwitchAccount(user.account_name)}
+                        >
+                          <HStack justify="space-between" w="100%" spacing={3}>
+                            <Box minW={0}>
+                              <Text noOfLines={1}>{displayName}</Text>
+                              {/* 🔴 账户 ID 与登录名**保留**（原 UserCard 里有这两行）：
+                                  切换/删除账户时用户需要凭ID 核对是哪个账号，
+                                  收进菜单不等于可以省掉这个信息。 */}
+                              {user.account_name && (
+                                <Text fontSize="2xs" color={subTextColor} noOfLines={1}>
+                                  {user.account_name}
+                                </Text>
+                              )}
+                              <Text
+                                fontFamily="var(--font-mono)"
+                                fontSize="2xs"
+                                color={subTextColor}
+                              >
+                                ID: {steamId64To32(user.steam_id64)}
+                              </Text>
+                            </Box>
+                            {user.most_recent && (
+                              <Badge colorScheme="green" variant="subtle" fontSize="2xs">
+                                {t("steam.currentUser")}
+                              </Badge>
+                            )}
+                          </HStack>
+                        </MenuItem>
+                      );
+                    })
+                  ) : (
+                    <MenuItem isDisabled>{t("steam.noAccounts")}</MenuItem>
                   )}
-                </VStack>
-              </Box>
-            )}
-          </Collapse>
-        </Box>
-      )}
+                  {data && data.users.length > 0 && <Divider my={1} />}
+                  {data &&
+                    data.users.map((user) => (
+                      <MenuItem
+                        key={`del-${user.steam_id64}`}
+                        color="aegis.error"
+                        icon={<Trash2 size={14} />}
+                        onClick={() => onDeleteClick(user)}
+                      >
+                        {t("steam.deleteAccount")} · {user.persona_name || user.account_name}
+                      </MenuItem>
+                    ))}
+                </MenuList>
+              </Portal>
+            </Menu>
+          </HStack>
+        </HStack>
 
-      {/* 库存游戏 - 可折叠区块（Steam 运行中在线获取账号库存，否则读本地缓存） */}
-      {inventory && (
-        <Box mb={6}>
-          <HStack
-            justify="space-between"
-            cursor="pointer"
-            onClick={() => setShowInventory(!showInventory)}
-            mb={showInventory ? 3 : 0}
-          >
+        {/* ── 筛选器（与顶栏同sticky）─────────────────────────────────────
+            合并原「库存游戏」与「已安装游戏」两个区块为这一个列表。
+            🟢 用分段控件而非下拉：各档**数量**必须同屏可见 —— `未安装 116`
+            是用户判断「该装什么」的关键信息，下拉会把它藏起来。 */}
+        <HStack mt={3} justify="space-between" flexWrap="wrap" gap={3}>
+          <FilterSegments
+            value={gameFilter}
+            onChange={setGameFilter}
+            counts={filterCounts}
+            activeColor={activeColor}
+            items={[
+              { key: "all", label: t("steam.filterAll") },
+              { key: "installed", label: t("steam.filterInstalled") },
+              { key: "notInstalled", label: t("steam.filterNotInstalled") },
+            ]}
+          />
+          {/* 🔴 数据来源必须如实标明（规格 08 §一「如实标注当前数据来源」）：
+              online = 已合并在线清单；cache = 本地缓存；徽章 Tooltip 带失败原因。 */}
+          {inventory && (
             <HStack spacing={2}>
-              <Box color={activeColor}>
-                <Library size={18} />
-              </Box>
-              <Text
-                fontSize="lg"
-                fontWeight="bold"
-                color={adaptiveTitle.text}
-                textShadow={adaptiveTitle.shadow}
-              >
-                {t("steam.inventoryGames")}
-              </Text>
-              <Badge colorScheme="teal" variant="subtle" borderRadius="full">
-                {inventory.stats.total}
-              </Badge>
-              {/* 🔴 数据来源必须如实标明（规格 08 §一「如实标注当前数据来源」）：
-                  online = 已合并在线清单；cache = 本地缓存；onlineError 非空 = 在线失败已退回 */}
               {inventory.source === "online" ? (
                 <Badge colorScheme="green" variant="subtle" borderRadius="full">
                   {t("steam.inventorySourceOnline")}
@@ -1529,152 +1429,88 @@ export default function SteamPage() {
                 <Spinner size="sm" color={activeColor} thickness="2px" speed="0.8s" />
               )}
             </HStack>
-            <IconButton
-              aria-label="toggle"
-              icon={showInventory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              size="sm"
-              variant="ghost"
-            />
-          </HStack>
-          <Collapse in={showInventory}>
-            {inventory.current_user && (
-              <HStack spacing={4} mb={4} flexWrap="wrap">
-                <StatCard
-                  icon={<CircleUser size={16} />}
-                  label={t("steam.currentAccount")}
-                  value={inventory.current_user.persona_name || inventory.current_user.account_name}
-                />
-                <StatCard
-                  icon={<Library size={16} />}
-                  label={t("steam.inventoryTotal")}
-                  value={inventory.stats.total}
-                />
-                <StatCard
-                  icon={<CircleDot size={16} />}
-                  label={t("steam.inventoryInstalledCount")}
-                  value={inventory.stats.installed}
-                />
-                <StatCard
-                  icon={<Circle size={16} />}
-                  label={t("steam.inventoryNotInstalledCount")}
-                  value={inventory.stats.not_installed}
-                />
-                <StatCard
-                  icon={<Clock3 size={16} />}
-                  label={t("steam.totalPlaytime")}
-                  value={formatPlaytime(inventory.stats.total_playtime_minutes) || "0"}
-                />
-              </HStack>
-            )}
-            {inventoryGamesShown.length === 0 ? (
-              <VStack py={16} spacing={3}>
-                <Library size={40} color={subTextColor} />
-                <Text color={subTextColor} fontSize="md">
-                  {searchText ? t("steam.noSearchResults") : t("steam.inventoryEmpty")}
-                </Text>
-              </VStack>
-            ) : (
-              <>
-                {/* 🔴 卡片区用 CardWrapGrid（flex-wrap 定宽瀑布流）而非 NexBox 原件的
-                    SimpleGrid —— grid 会拉伸子项覆盖 320px 定宽，导致卡片被压扁、
-                    封面高度失真、间距变成均匀 16px。SystemToolkit 用的是
-                    VirtualizingWrapPanel（换行瀑布流），故按其口径对齐。
-                    用户卡 / 库卡沿用 SimpleGrid（那两个是 NexBox 自有组件，不属卡片视觉范围）。*/}
-                <CardWrapGrid>
-                  {inventoryGamesShown.map((game) => (
-                    <InventoryGameCard
-                      key={game.app_id}
-                      game={game}
-                      isLaunching={launchingAppId === game.app_id}
-                      onLaunch={handleLaunch}
-                      onStorePage={handleStorePage}
-                    />
-                  ))}
-                </CardWrapGrid>
-                {filteredInventory.length > visibleCount && (
-                  <VStack mt={4} align="center">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      borderRadius="lg"
-                      onClick={() => setVisibleCount((c) => c + 120)}
-                    >
-                      {t("steam.loadMore")} ({filteredInventory.length - visibleCount})
-                    </Button>
-                  </VStack>
-                )}
-              </>
-            )}
-          </Collapse>
-        </Box>
-      )}
+          )}
+        </HStack>
+      </Box>
 
-      <Divider mb={6} borderColor={borderColor} />
-
-      {/* 已安装游戏列表 */}
-      <HStack spacing={2} mb={4}>
-        <Box color={activeColor}>
-          <Gamepad2 size={18} />
-        </Box>
-        <Text
-          fontSize="lg"
-          fontWeight="bold"
-          color={adaptiveTitle.text}
-          textShadow={adaptiveTitle.shadow}
-        >
-          {t("steam.installedGames")}
-        </Text>
-        <Badge colorScheme="teal" variant="subtle" borderRadius="full">
-          {filteredGames.length}
-          {searchText && ` / ${data?.games.length ?? 0}`}
-        </Badge>
-      </HStack>
-
-      {filteredGames.length === 0 ? (
+      {/* ── 卡片区：统一游戏列表（本页主体，首屏即可见）──────────────────── */}
+      {loadingInventory && !inventory ? (
+        <CardSkeleton count={6} />
+      ) : unifiedFiltered.length === 0 ? (
         <VStack py={20} spacing={3}>
           <Gamepad2 size={40} color={subTextColor} />
           <Text color={subTextColor} fontSize="md">
-            {searchText ? t("steam.noSearchResults") : t("steam.noGames")}
+            {searchText
+              ? t("steam.noSearchResults")
+              : gameFilter === "installed"
+                ? t("steam.noGames")
+                : t("steam.inventoryEmpty")}
           </Text>
         </VStack>
       ) : (
-        <VStack spacing={6} align="stretch">
-          {groupedGames.map((group) => (
-            <Box key={group.key}>
-              {/* 分组标题：盘符 + 路径 + 游戏数 + 总大小 */}
-              <HStack spacing={2} mb={3} flexWrap="wrap">
-                <Box color={activeColor}>
-                  <HardDrive size={16} />
-                </Box>
-                <Text
-                  fontSize="md"
-                  fontWeight="bold"
-                  color={adaptiveTitle.text}
-                  textShadow={adaptiveTitle.shadow}
-                  noOfLines={1}
-                >
-                  {group.driveLabel}
-                </Text>
-                {group.path && (
-                  <Text fontSize="xs" color={subTextColor} noOfLines={1}>
-                    {group.path}
-                  </Text>
-                )}
-                {group.label && (
-                  <Badge colorScheme="teal" variant="subtle" borderRadius="full">
-                    {group.label}
-                  </Badge>
-                )}
-                <Badge colorScheme="gray" variant="subtle" borderRadius="full">
-                  {group.games.length} {t("steam.games")}
-                </Badge>
-                <Text fontSize="xs" color={subTextColor}>
-                  {formatSize(group.totalSize)}
-                </Text>
-              </HStack>
-              <CardWrapGrid>
-                {group.games.map((game) => (
-                  <GameCard
+        <>
+          {/* 🔴 `FilterSwap` 在筛选变化时给整块一次极短的压暗回落（160ms 内完成），
+              告诉用户「列表换了」。**不逐张重播进场** —— 库存可达上千张，
+              逐张播 = 持续抖动且成本随卡片数线性增长；整块一次回落成本恒定。*/}
+          <FilterSwap swapKey={gameFilter}>
+            {/* 已安装档保留原「按盘符分组」（能力不丢）；all / 未安装两档平铺 ——
+                未安装游戏本机无归属盘符（library_path 为空串），编分组是凭空造信息。*/}
+            {unifiedGrouped ? (
+              <VStack spacing={6} align="stretch">
+                {unifiedGrouped.map((group) => (
+                  <Box key={group.key}>
+                    {/* 🔴 用 GroupHeader（与卡片区同一条 grid 模板）而非普通 HStack：
+                        卡片轨道块整体居中，标题若贴左缘会与首卡错开约 65px。*/}
+                    <GroupHeader>
+                      <HStack spacing={2} flexWrap="wrap">
+                        <Box color={activeColor}>
+                          <HardDrive size={16} />
+                        </Box>
+                        <Text
+                          fontSize="md"
+                          fontWeight="bold"
+                          color={adaptiveTitle.text}
+                          noOfLines={1}
+                        >
+                          {group.driveLabel}
+                        </Text>
+                        {group.path && (
+                          <Text fontSize="xs" color={subTextColor} noOfLines={1}>
+                            {group.path}
+                          </Text>
+                        )}
+                        {group.label && (
+                          <Badge colorScheme="teal" variant="subtle" borderRadius="full">
+                            {group.label}
+                          </Badge>
+                        )}
+                        <Badge colorScheme="gray" variant="subtle" borderRadius="full">
+                          {group.games.length} {t("steam.games")}
+                        </Badge>
+                        <Text fontSize="xs" color={subTextColor}>
+                          {formatSize(group.totalSize)}
+                        </Text>
+                      </HStack>
+                    </GroupHeader>
+                    <StaggeredCards>
+                      {group.games.map((game) => (
+                        <UnifiedGameCard
+                          key={game.app_id}
+                          game={game}
+                          isLaunching={launchingAppId === game.app_id}
+                          onLaunch={handleLaunch}
+                          onOpenFolder={handleOpenFolder}
+                          onStorePage={handleStorePage}
+                        />
+                      ))}
+                    </StaggeredCards>
+                  </Box>
+                ))}
+              </VStack>
+            ) : (
+              <StaggeredCards>
+                {unifiedShown.map((game) => (
+                  <UnifiedGameCard
                     key={game.app_id}
                     game={game}
                     isLaunching={launchingAppId === game.app_id}
@@ -1683,10 +1519,162 @@ export default function SteamPage() {
                     onStorePage={handleStorePage}
                   />
                 ))}
-              </CardWrapGrid>
+              </StaggeredCards>
+            )}
+          </FilterSwap>
+
+          {unifiedFiltered.length > visibleCount && (
+            <VStack mt={4} align="center">
+              <Button
+                size="sm"
+                variant="outline"
+                borderRadius="lg"
+                onClick={() => setVisibleCount((c) => c + 120)}
+              >
+                {t("steam.loadMore")} ({unifiedFiltered.length - visibleCount})
+              </Button>
+            </VStack>
+          )}
+        </>
+      )}
+
+      <Divider my={8} borderColor={borderColor} />
+
+      {/* ══ 库信息（2026-10-04 用户裁决：「游戏库信息下移至卡片列表区域下方」）══
+          原先统计卡在**首屏顶部**、游戏库区块在卡片之上，两者都抢占了游戏库的
+          首屏位置。现整体下移到卡片列表之后 —— 用户先看到游戏，玩够了再看统计。
+          功能零删除：5 张统计卡与库卡（含占用条）全部保留。 */}
+      {data && (
+        <>
+          <HStack spacing={2} mb={4}>
+            <Box color={activeColor}>
+              <HardDrive size={18} />
             </Box>
-          ))}
-        </VStack>
+            <Text
+              fontSize="lg"
+              fontWeight="bold"
+              color={adaptiveTitle.text}
+              textShadow={adaptiveTitle.shadow}
+            >
+              {t("steam.statsTitle")}
+            </Text>
+          </HStack>
+
+          <HStack spacing={4} mb={6} flexWrap="wrap">
+            <StatCard
+              icon={<Gamepad2 size={16} />}
+              label={t("steam.totalGames")}
+              value={filterCounts.all || data.games.length}
+            />
+            <StatCard
+              icon={<HardDrive size={16} />}
+              label={t("steam.totalSize")}
+              value={formatSize(totalSize)}
+            />
+            <StatCard
+              icon={<Users size={16} />}
+              label={t("steam.accountCount")}
+              value={data.users.length}
+            />
+            <StatCard
+              icon={<HardDrive size={16} />}
+              label={t("steam.libraries")}
+              value={data.libraries.length}
+            />
+            {data.install_info.install_path && (
+              <StatCard
+                icon={<HardDrive size={16} />}
+                label={t("steam.installPath")}
+                value={data.install_info.install_path}
+              />
+            )}
+            {/* 原「库存」区块的 5 张统计（当前账号/库存总数/已装/未装/总时长）
+                一并下移至此 —— 合并区块后它们不再是独立区块的标题附属品。 */}
+            {inventory?.current_user && (
+              <StatCard
+                icon={<CircleUser size={16} />}
+                label={t("steam.currentAccount")}
+                value={inventory.current_user.persona_name || inventory.current_user.account_name}
+              />
+            )}
+            <StatCard
+              icon={<Clock3 size={16} />}
+              label={t("steam.totalPlaytime")}
+              value={formatPlaytime(inventory?.stats.total_playtime_minutes ?? 0) || "0"}
+            />
+          </HStack>
+
+          {/* 游戏库（每个盘一张，含占用进度条）—— 原「游戏库」区块的折叠能力保留 */}
+          <Box mb={6}>
+            <HStack
+              justify="space-between"
+              cursor="pointer"
+              onClick={() => setShowLibraries(!showLibraries)}
+              mb={showLibraries ? 3 : 0}
+            >
+              <HStack spacing={2}>
+                <Box color={activeColor}>
+                  <HardDrive size={18} />
+                </Box>
+                <Text
+                  fontSize="lg"
+                  fontWeight="bold"
+                  color={adaptiveTitle.text}
+                  textShadow={adaptiveTitle.shadow}
+                >
+                  {t("steam.libraries")}
+                </Text>
+                <Badge colorScheme="teal" variant="subtle" borderRadius="full">
+                  {data.libraries.length}
+                </Badge>
+              </HStack>
+              <IconButton
+                aria-label="toggle"
+                icon={showLibraries ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                size="sm"
+                variant="ghost"
+              />
+            </HStack>
+            <Collapse in={showLibraries}>
+              {data.libraries.length > 0 ? (
+                <SimpleGrid columns={{ base: 1, sm: 2, lg: 3 }} spacing={3}>
+                  {data.libraries.map((lib) => {
+                    const stats = getLibraryStats(lib.path);
+                    return (
+                      <LibraryCard
+                        key={`${lib.index}-${lib.path}`}
+                        lib={lib}
+                        gameCount={stats.count}
+                        gameSize={stats.size}
+                      />
+                    );
+                  })}
+                </SimpleGrid>
+              ) : (
+                <Box
+                  bg={cardBg}
+                  border="1px solid"
+                  borderColor={borderColor}
+                  borderRadius="xl"
+                  p={6}
+                  textAlign="center"
+                >
+                  <VStack spacing={2}>
+                    <HardDrive size={32} color={subTextColor} />
+                    <Text color={subTextColor} fontSize="sm">
+                      {t("steam.noLibraries")}
+                    </Text>
+                    {data.install_info.install_path && (
+                      <Text color={subTextColor} fontSize="xs">
+                        {t("steam.installPath")}: {data.install_info.install_path}
+                      </Text>
+                    )}
+                  </VStack>
+                </Box>
+              )}
+            </Collapse>
+          </Box>
+        </>
       )}
 
       {/* 删除账户确认弹窗 */}
@@ -1715,6 +1703,6 @@ export default function SteamPage() {
           </AlertDialogContent>
         </AlertDialogOverlay>
       </AlertDialog>
-    </Box>
+    </PageBody>
   );
 }

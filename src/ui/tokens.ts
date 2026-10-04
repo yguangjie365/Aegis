@@ -1,5 +1,6 @@
 // 设计令牌唯一事实源 —— 键集与《02-专题设计/03-UI设计规范.md》§二逐一对应
-// 覆盖基数：colors 23 + typography 12 + spacing 7 + rounded 3 + elevation 3 + motion 10 = 58 key
+// 覆盖基数：colors 24 + typography 12 + spacing 7 + rounded 3 + elevation 3 + motion 10 = 59 key
+// （2026-10-04 新增 focus-ring ⇒ colors 由 23 变 24；总数由 58 变 59）
 // 增删任何 key：先改规范 §二 与计数，再改本文件（规范 §五 红线）。
 //
 // 🔴 **motion 为第六维**（用户裁决 2026-10-04）：此前动效参数（时长/缓动）是裸值，
@@ -14,6 +15,10 @@ export const COLOR_TOKEN_KEYS = [
   "accent-pressed",
   "accent-strong",
   "accent-on",
+  // 🆕 focus-ring（2026-10-04）：焦点环语义键。**不写死 accent-strong** ——
+  // 浅底上 strong 是合规硬性要求（白底 5.18:1），深底上它只有 3.75:1 而 accent 有 8.06:1。
+  // 一个键写死会在换包时静默失去对比度，故独立成键由主题包各给一值。
+  "focus-ring",
   "ink",
   "canvas",
   "surface-soft",
@@ -113,6 +118,9 @@ export interface TypographyValue {
 
 export interface ThemePack {
   name: "Nvidia.Light" | "Nvidia.Dark";
+  /** 🔴 2026-10-04 复审新增：包的明暗模态。`html { color-scheme }` 由此派生，
+   * 不再硬编码 "dark" —— 否则切回 Light 包时原生控件/滚动条仍按深色渲染（静默难查）。 */
+  mode: "light" | "dark";
   colors: Record<ColorToken, string>;
   typography: Record<TypographyToken, TypographyValue>;
   spacing: Record<SpacingToken, string>;
@@ -126,10 +134,31 @@ export interface ThemePack {
 // + typography.mono 共三处消费，历史上各写一遍，故在此收口（P2-10）。
 export const MONO_FONT_STACK = '"JetBrains Mono","Consolas",monospace';
 
-// 首期仅交付浅色一包（TASKS Q-06 已拍板 2026-10-02）；Dark 包后续里程碑加入时，
-// 必须逐键覆盖全部 key 并过 §五/§六 对比度门禁——不得只反相。
+/* ══ 装饰圆角档（Chakra 兼容用，非规范档）═════════════════════════════════════
+ * 背景：项目圆角契约只有 **3 键**（`none` / `sm` / `full`），但 Chakra 内置组件
+ * 会按 `radii.base/md/lg/xl/2xl/3xl` 取默认值（如 `Card` 取 `lg`）。
+ * 若 `radii` 里没有这些档位 ⇒ 组件拿不到值 ⇒ 圆角回退/异常。
+ *
+ * 🔴 因此把「Chakra 需要的额外档位」作为**独立常量**导出，两个出口共用：
+ *   - Chakra 出口：`theme.radii` 展开它（让组件取到值）
+ *   - CSS 变量出口：`cssVars` 循环生成 `--aegis-radius-lg/xl/2xl/3xl`（让非组件层取到值）
+ *
+ * ⚠️ 它**不进 `ROUNDED_TOKEN_KEYS` 契约**：规范档是 3 键，这 4 档只是兼容 Chakra 内部默认值，
+ * 属于"实现细节"而非"设计契约"。混淆二者会让守卫把兼容档当成契约缺失而报错。
+ */
+export const DECORATIVE_RADII = {
+  lg: "8px",
+  xl: "12px",
+  "2xl": "16px",
+  "3xl": "24px",
+} as const;
+
+// 首期交付包已按用户 2026-10-04 裁决改为**深色单主题**（Nvidia 品牌风格更适合深色，
+// 浅色包另行设计、不在本期范围）。多主题包**机制不退役**：nvidiaLight 原样保留，
+// 未来加回浅色只需把它放回 themePacks —— 键集守卫会逐维校验，两包都不得缺键。
 export const nvidiaLight: ThemePack = {
   name: "Nvidia.Light",
+  mode: "light",
   colors: {
     accent: "#76b900", // 2.41:1 ⚠️ 仅作填充/描边/图形；**禁用**作文字色（须用 accent-on）
     "accent-pressed": "#5a8d00", // accent 按下态；与原 strong 同值，允许独立演化
@@ -142,6 +171,9 @@ export const nvidiaLight: ThemePack = {
     // 连带同步：UI 规范 §二 令牌表 + §六 #8 数值、§三 button-secondary 的偏离依据。
     "accent-strong": "#4d7900",
     "accent-on": "#000000", // accent 底上的前景（黑字压绿）
+    // 🆕 focus-ring：浅色包 = accent-strong（白底 5.18:1，浅底合规硬性要求）。
+    // 键集守卫要求**两包都逐键覆盖**，故此处也必须显式给值，不能靠守卫放行。
+    "focus-ring": "#4d7900",
     ink: "#1a1a1a", // 17.4:1 正文主色
     canvas: "#ffffff", // 页面底
     "surface-soft": "#f7f7f7", // 卡片/抬升面；对比度一律按下表的 surface-soft 列判
@@ -186,7 +218,13 @@ export const nvidiaLight: ThemePack = {
     },
     micro: { fontSize: "11px", fontWeight: 400, lineHeight: 1.4 }, // 元信息（禁用正文）
     mono: {
-      // fontFamily 由 :root --font-mono 统一提供（见 MONO_FONT_STACK）
+      // 🔴 2026-10-04 复审修复：fontFamily 必须**在本键上声明**，不能只靠 `:root --font-mono`。
+      // 原因：theme.ts 的 textStyles 生成器把 typography 逐键转成 Chakra textStyle，
+      // 若此处无 fontFamily，`textStyles.mono` 就只剩字号/字重/行高 ⇒
+      // `<Text textStyle="mono">` 静默回退正文字体（Inter / Noto Sans SC）——
+      // 数值全对、tsc 全绿、**唯独字体是错的**，属于最难发现的一类回归。
+      // 用 var() 而非字面量，保持「字体栈单一事实源 = MONO_FONT_STACK」不变。
+      fontFamily: "var(--font-mono)",
       fontSize: "13px",
       fontWeight: 400,
       lineHeight: 1.6,
@@ -213,6 +251,11 @@ export const nvidiaLight: ThemePack = {
   // ⚠️ 循环类装饰的**周期**（1.4s 骨架 / 2s 直播点 / 3.2s 流光环）**刻意不入契约** ——
   // 它们是「循环速率」而非「过渡时长」，语义不同，混进 duration 刻度会让人误以为
   // 改 slow 档会连带改流光环速度。循环周期仍留在组件内就近声明。
+  // 🔴 **消费路径只有 CSS 变量一条**（--aegis-motion-duration-* / --aegis-motion-easing-*）。
+  // theme 层**刻意不造** `theme.motion` 命名空间：Chakra 无 transition scale，硬造一个的
+  // 收益与直接用 CSS 变量完全等价，却多出一处可漂移的副本。
+  // ⇒ 组件里写 `transition: all var(--aegis-motion-duration-fast)`；
+  //   **不要**去 theme.motion 找（那里没有），更不要写 `transition="all 0.2s"` 裸值。
   motion: {
     duration: {
       instant: "0ms",
@@ -242,4 +285,67 @@ export const nvidiaLight: ThemePack = {
   },
 };
 
-export const themePacks: readonly ThemePack[] = [nvidiaLight];
+/* ══ Nvidia.Dark（本期唯一交付包，2026-10-04 用户裁决）═════════════════════
+ * 逐键实测记录见 Docs/开发文档/02-专题设计/03-UI设计规范.md §五，
+ * 复算脚本 .worknotes/dark-pack-proposal.txt（WCAG 2.1 独立复算，24/24 达标）。
+ *
+ * 🔴 **三处与浅色语义相反，改值前必读**：
+ *
+ * 1. canvas = #0d0d0d（不是纯黑）。四个候选 #000/#0d0d0d/#121212/#1a1a1a 实测**达标数
+ *    完全相同（9/0）** ⇒ canvas 是**视觉层次**决策，不是对比度决策。选 #0d0d0d 的真实理由：
+ *    与 chrome-dark #000 有 1.08:1 层级差（纯黑会完全同值、胶囊融掉）。
+ * 2. **surface-soft（抬升）= 更亮 #1c1c1c，surface-inset（凹）= 更暗 #060606** ——
+ *    与浅色（soft 更深 / inset 更浅）**方向相反**。沿用浅色值会把卡片变成亮块。
+ * 3. error 从 #e52020 提亮为 #ff5c5c：原值在 canvas 上仅 4.16:1，做错误提示文字不可读。
+ *
+ * ⚠️ 换 canvas 必须整表重算：本表所有对比度均以 canvas = #0d0d0d 为基准。
+ */
+export const nvidiaDark: ThemePack = {
+  name: "Nvidia.Dark",
+  mode: "dark",
+  colors: {
+    accent: "#76b900", // 8.06 (canvas) — 填充/图形；**禁作文字色**（见 03 规范 §二）
+    "accent-pressed": "#5f9a00", // 5.65 — 按下态，比 accent 略深
+    // 🔴 Dark 下与 accent 同值（03 规范 §五明文）。**不得合并成一个键**：Light 下 strong
+    // 是浅底合规的焦点环/文字色，角色不同。
+    "accent-strong": "#76b900",
+    "accent-on": "#000000", // 8.71（绿底黑字）
+    "focus-ring": "#76b900", // 8.06 — 浅底包用 accent-strong（5.18 白底），深底包用 accent
+    ink: "#e8e8e8", // 15.86 (canvas) / 13.91 (surface-soft)
+    canvas: "#0d0d0d", // 基准（页面底）
+    "surface-soft": "#1c1c1c", // 1.14 — 深色「抬升」= 更亮
+    "surface-inset": "#060606", // 1.04 — 深色「凹」= 更暗；靠 border-interactive 保证可见
+    hairline: "#3a3a3a", // 1.71 豁免（装饰线，沿用 03 规范 Dark 值）
+    "border-interactive": "#6e6e6e", // 3.81 (canvas) ✅ 非文本 3:1
+    mute: "#9a9a9a", // 6.91 (canvas) ✅
+    "mute-on-soft": "#a8a8a8", // 7.61 (surface-soft) ✅
+    stone: "#6e6e6e", // 3.81 — **门禁 3:1，仅图形/占位，禁文字**（与 border 同值但语义不同，刻意不合并）
+    disabled: "#555555", // 2.61 — 1.4.3 豁免；须比 mute 暗才不会成为视觉噪点
+    "chrome-dark": "#000000", // 1.08 (canvas) — 🔴 边界靠 1px 描边承担，不靠亮度差
+    "on-dark": "#ffffff", // 21.00 (chrome-dark)
+    "on-dark-mute": "#a8a8a8", // 8.83 (chrome-dark)
+    "chrome-elevated": "#2a2a2a", // 1.31 — 胶囊 hover 底
+    success: "#4fb500", // 7.35 (canvas) / 6.45 (surface-soft)
+    warning: "#ef9100", // 8.07
+    "warning-bright": "#ef9100", // 8.07 — 与 warning 同值（单主题下不再有「浅色面」场景）
+    error: "#ff5c5c", // 6.42 (canvas) / 5.63 (surface-soft) — 🔴 由 #e52020 提亮
+    link: "#6cb0ff", // 8.60 (canvas) / 7.54 (surface-soft)
+  },
+  // typography / spacing / rounded / motion 是**结构维度**，与主题模态无关（字号、间距、
+  // 圆角、动效时长不因深浅而改）⇒ 共用同一份对象。键集守卫仍会逐维校验，不因此放宽。
+  typography: nvidiaLight.typography,
+  spacing: nvidiaLight.spacing,
+  rounded: nvidiaLight.rounded,
+  elevation: {
+    flat: "none",
+    // 描边语义不变，只是描边色跟随 hairline 键（深色下是 #3a3a3a 而非浅色 #cccccc）
+    hairline: "0 0 0 1px var(--aegis-hairline)",
+    // 🔴 深色下纯黑阴影落在近黑底上 = 不可见（这是 elevation 维度**唯一**需要按模态重定的地方）。
+    // 处置：阴影加深 + 叠一道极弱亮边做边界，双保险。
+    sticky: "0 2px 8px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.05)",
+  },
+  motion: nvidiaLight.motion,
+};
+
+// Dark 在前：theme.ts 取 themePacks[0] 为 activePack。Light 保留在列表中，机制不退役。
+export const themePacks: readonly ThemePack[] = [nvidiaDark, nvidiaLight];

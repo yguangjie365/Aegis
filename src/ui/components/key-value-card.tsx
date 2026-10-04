@@ -1,26 +1,37 @@
 import { useTranslation } from "react-i18next";
 import styled from "@emotion/styled";
+import { Panel, PanelTitle, PanelReason } from "./panel";
 import type { DetailCardDto, DetailKind } from "@/types/overview";
 
-const Card = styled.div`
-  background: var(--aegis-surface-soft);
-  border-radius: var(--aegis-radius-sm);
-  padding: var(--aegis-space-lg);
-  box-shadow: var(--aegis-elevation-sticky);
-`;
-
-const Title = styled.h3`
-  font-size: var(--aegis-type-h3-size);
-  font-weight: 600;
-  margin: 0 0 var(--aegis-space-md) 0;
-  color: var(--aegis-ink);
+/**
+ * 🔴 2026-10-04 迁入 `panel.tsx` 的共享语汇：原先本文件自有一套
+ * `surface-soft` + `elevation-sticky` 阴影 + `font-weight: 600`，
+ * 与 `StatCard` 的 `canvas` + hairline 描边 + 无阴影**互斥**，
+ * 同一页面上两套卡片语系并存（详见 panel.tsx 头注）。
+ *
+ * 值列 `font-family: mono` + `text-align: right` 是**保留**的母本语义：
+ * 容量「476.9 GB」、主频「2.3 GHz」这类数字右对齐后小数点才能成列，
+ * 比例字体下各位数字宽度不等，视觉上会歪。
+ */
+const Key = styled.span`
+  color: var(--aegis-mute);
+  font-size: var(--aegis-type-body-size);
+  font-weight: 400;
+  /* 🔴 min-width: 0 是关键护栏：grid 项默认 min-width: auto，内容过长时会**撑破轨道**
+     把值列挤到零宽并溢出卡片（用户截图中detail.cpu.detail. 曾把键列顶满整行）。
+     置 0 后由 overflow: hidden 正常截断。
+     正常情况下键是中文短词（「型号」「核心 / 线程」），120px（母本
+     ColumnDefinition Width="120"）足够；只有 i18n 键解析失败露出裸键时才会截断
+     —— 那正是应该被看见的异常。 */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
 /**
- * 母本 `OverviewView.xaml:288-296` 的行布局：`ColumnDefinition Width="120"` + `Width="*"`，
- * 值用等宽字体（`Font_Mono`）并右对齐。
- *🔴 值用等宽是有原因的：容量「476.9 GB」、主频「2.3 GHz」这类数字右对齐后小数点才能成列，
- * 比例字体下各位数字宽度不等，视觉上会歪。
+ * 母本 `OverviewView.xaml:288-296` 的行布局：`ColumnDefinition Width="120"` + `Width="*"`。
+ * 🔴 `align-items: baseline`（而非 center）：键与值字号不同，居中对齐会让中文基线错位。
  */
 const Row = styled.div`
   display: grid;
@@ -35,41 +46,15 @@ const Row = styled.div`
   }
 `;
 
-/**
- * 键列。
- *
- * 🔴 `min-width: 0` 是关键护栏：grid 项默认 `min-width: auto`，内容过长时会**撑破轨道**
- * 把值列挤到零宽并溢出卡片（用户截图中`detail.cpu.detail.` 曾把键列顶满整行）。
- * 置0 后由下面的 `overflow: hidden` 正常截断。
- *
- * 正常情况下键是中文短词（「型号」「核心 / 线程」），120px（母本 `ColumnDefinition Width="120"`）
- * 足够；只有 i18n 键解析失败露出裸键时才会截断 —— 那正是应该被看见的异常。
- */
-const Key = styled.span`
-  color: var(--aegis-mute);
-  font-size: var(--aegis-type-body-size);
-  font-weight: 600; /* 母本 SemiBold：CJK 回退字体无Medium 权重，500 会被降为 Regular 显细 */
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
-
 const Value = styled.span<{ $missing?: boolean }>`
   color: ${(props) => (props.$missing ? "var(--aegis-stone)" : "var(--aegis-ink)")};
   font-size: var(--aegis-type-body-size);
-  font-weight: 600;
-  font-family: var(--font-mono); /* 母本 MonoText：数字右对齐才能成列 */
+  font-weight: 700;
+  font-family: var(--font-mono);
   text-align: right;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-`;
-
-const Reason = styled.p`
-  color: var(--aegis-warning);
-  font-size: var(--aegis-type-caption-size);
-  margin: var(--aegis-space-sm) 0 0 0;
 `;
 
 // 🔴 详情卡 kind → i18n 文案前缀的**唯一**映射表：界面（本组件）与 F-11 导出报告
@@ -114,8 +99,8 @@ export function KeyValueCard({ card }: KeyValueCardProps) {
   const prefix = DETAIL_KIND_I18N_PREFIX[card.kind];
 
   return (
-    <Card>
-      <Title>{t(`${prefix}.title`)}</Title>
+    <Panel>
+      <PanelTitle>{t(`${prefix}.title`)}</PanelTitle>
       {card.rows.map((row) => {
         const label = t(row.key);
         const isMissing = row.value == null || row.value === "";
@@ -131,7 +116,7 @@ export function KeyValueCard({ card }: KeyValueCardProps) {
           </Row>
         );
       })}
-      {card.reason ? <Reason>{card.reason}</Reason> : null}
-    </Card>
+      {card.reason ? <PanelReason>{card.reason}</PanelReason> : null}
+    </Panel>
   );
 }

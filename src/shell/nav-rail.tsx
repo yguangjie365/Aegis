@@ -54,11 +54,24 @@ const SETTLE_BASE_MS = 420;
 const SLOT = 44;
 
 const Rail = styled.nav`
-  /* 🔴 2026-10-04 悬浮胶囊（用户裁决：参照 NexBox / 原版 demo 形态）
-     旧：贴左边缘、上下满高的黑列（grid-row: 2）。
-     新：两端全圆角 26px 的悬浮胶囊（26 = 胶囊宽 52 的一半，与原版 .gnav 的 --gnav-r 同值），
-         垂直居中；**左右外边距由 shell-layout 的 Frame 安全区统一提供**（不各自为政），
-         因此这里不再自带 margin-left。 */
+  /* 🔴 2026-10-05 垂直迁移第 6 条 · **用户二次改判（澄清原裁决）**
+   *
+   * 原裁决「导航胶囊改为贯通除拖动条和底部空白外的区域」表达的是**上下界约束**，
+   * 不是「必须填满」：胶囊**不得越过**拖动条下沿与底部留白上沿，而**内容不足时按实际
+   * 尺寸在该区间内上下居中**。先前实现把它读成「align-self: stretch 拉满 736」，
+   * 结果 10 个槽位（516px）被硬撑到 736，胶囊内出现大片空白 —— 属实现过度。
+   *
+   * 正确实现两行即可（**不写死任何高度**）：
+   *   align-self: center  → 高度由内容决定（槽位数 × 间距 + padding），在 736 区间居中
+   *   max-height: 100%   → 槽位多到装不下时的**上界**（内容溢出时贴住上沿，不会越界）
+   *
+   * 当前 10 槽：8(padding) + 10×44 + 9×6(margin 3×2) + 8 = 516 ⇒ 736 内上下各留 110。
+   * 将来加到 13 槽（636）仍居中；14 槽（686）贴上下沿前仍有 50 余量。
+   * ⚠️ 若槽位多到超过 736，max-height 会**收住上界**（不越界）但内容会被 Frame 的
+   *   overflow:hidden 裁掉 —— 那时需另加滚动。**刻意不在此刻加 overflow-y**：
+   *   它会创建滚动容器，与「隐藏滚动条」方案（scrollbar-plan.md 的 Q1 待裁决）交互，
+   *   属于需要单独立项的决策，不该顺手塞进本次改判。
+   */
   align-self: center;
   margin: 0;
   max-height: 100%;
@@ -116,12 +129,12 @@ const Rail = styled.nav`
  * 因此这是**逐像素等价**的改造，不是重新设计。
  *
  * 三层分工：
- *   本层         —— 静止。`inset:-3.5px` + `overflow:hidden` 把载具裁成原 `::before` 的轮廓
- *                  （胶囊外扩 3.5px、圆角 30+3.5）。光晕也留在这一层：载具旋转后它的投影
+ *   本层         —— 静止。`inset:-4px` + `overflow:hidden` 把载具裁成原 `::before` 的轮廓
+ *                  （胶囊外扩 4px、圆角 30+4=34）。光晕也留在这一层：载具旋转后它的投影
  *                  会变成「一个大方块的投影」，不能跟着走。
  *   ::before     —— 载具。与胶囊同心的正方形，边长 ≥ 对角线故任意旋转角都覆盖整条胶囊；
  *                   只做 `rotate`（合成属性）。
- *   `Rail::after` —— 静止的盖底层，盖回胶囊内部；一减一留就是那 3.5px 的边缘环。
+ *   `Rail::after` —— 静止的盖底层，盖回胶囊内部；一减一留就是那 4px 的边缘环。
  *
  * ⚠️ 为什么不直接给 `Rail` 加 `clip-path`（那样不必加元素）：`clip-path` 会把外扩约 8px 的
  * 光晕一并裁掉，环外的柔和轮廓消失 —— 那是可见回归。独立裁切层能同时保住环宽与光晕。
@@ -130,8 +143,12 @@ const Rail = styled.nav`
  */
 const Ring = styled.span`
   position: absolute;
-  inset: -3.5px;
-  border-radius: 33.5px; /* = 胶囊圆角 30 + 外扩 3.5，与胶囊同心 */
+  /* 🔴 2026-10-04 用户裁决：safe-x 20 量的是**胶囊本体**，环外缘距窗口边应为 16
+     ⇒ 外扩量 = 20 − 16 = 4px（原 3.5px 是按「环外缘 16.5 对 20」的老口径估的，
+     那时本该是 4 才对；16.5 这个数是从边框位置反推的近似，不是设计量）。
+     环外缘 → 光晕 8px → 距窗口边 8px ⇒ 光晕完整在框内，余量 8px。 */
+  inset: -4px;
+  border-radius: 34px; /* = 胶囊圆角 30 + 外扩 4，与胶囊同心 */
   overflow: hidden;
   pointer-events: none;
   /* 整圈 60%绿作底 + 实色 accent 亮段在其上跑动。
@@ -267,8 +284,7 @@ const IndicatorFill = styled.span`
   height: var(--slot-w);
   /* 绿色实色（黑底上唯一能读出「它在动」的信号）。前景随之为**深色**：
      #76b900 亮度 0.386，对白仅 2.41:1（不足 AA），
-     对 --aegis-ink(#1a1a1a) 实测 **7.22:1** ✅（2026-10-04 复算；
-     🔴 原注释写 10.2:1 是未实测值，已改）。 */
+     对 --aegis-accent-on(#000000) 实测 **8.71:1** ✅（tokens.ts 已录该值）。 */
   background: var(--aegis-accent);
   /* 胶囊半径：在 44×44 上正好是正圆，在 44×114 上退化为「两端半圆 + 两侧平直」 */
   border-radius: var(--aegis-radius-full);
@@ -325,14 +341,15 @@ const Item = styled(NavLink)`
     white-space: nowrap;
   }
   /* 激活态底色与「可读性」由 Indicator 承担（圆形绿底会随动效移动），此处只切前景色与字重：
-     绿底上必须用深色前景（**实测 7.22:1**，ink #1a1a1a on accent #76b900），
-     沿用白字只有 2.41:1 达不到 AA。
-     🔴 2026-10-04：激活瞬间走 **0ms**，取消项仍走渐变。
-     理由：新的 stretch 公式保证绿底从第 0 帧就盖住目标槽，底色已就位 → 没有不可读窗口；
-     若此处还渐变 120ms，中间色在绿底上实测只有 1.31~2.86:1（如 #5a5a5a = 2.86），
-     等于自己造一个短暂不可读窗口。取消方向绿底正在离开，渐变是需要的。 */
+     绿底上必须用深色前景。
+     🔴🔴 2026-10-05 修正一个**被深色改造暴露的语义键误用**：此处原写 var(--aegis-ink)，
+        注释的依据是「ink #1a1a1a on accent 实测 7.22:1」—— 但 **#1a1a1a 是浅色包的 ink**。
+        换成深色包后 ink 变成 **#e8e8e8（浅色）**，绿底上只剩 **1.91:1** ⇒
+        激活项的图标「浅色字压在绿底上」几乎看不见（像素实测圆心为纯 #76B900，无图标色）。
+        正确键是 **accent-on**（语义就是「accent 底上的前景」）：#000000，**8.71:1**。
+        ⚠️ 这是「注释里的对比度数字必须随主题包重算」的又一例：注释声称 ≠ 代码事实。 */
   &[data-active="true"] {
-    color: var(--aegis-ink);
+    color: var(--aegis-accent-on);
     font-weight: 700;
     transition:
       background-color var(--aegis-motion-duration-fast) var(--aegis-motion-easing-standard),
@@ -358,6 +375,15 @@ const Glyph = styled.span`
 `;
 
 const Spacer = styled.div`
+  /* 🔴 2026-10-05 垂直迁移的实现修正（规范 §七 第 6 条原文写的是「槽位
+     justify-content: center」，落地时改为沿用本 Spacer）：
+     胶囊内槽位如何排布有两个选择 ——
+       A) 全部槽位居中：modules / orchestration / utility 会一起跑到中间，
+          **设置等 utility 项不再贴底**，破坏标准侧栏惯例（用户此前按 NexBox 校准过）。
+       B) 保持 Spacer(flex:1) 撑开：上组贴顶、utility 贴底，其余留白集中在中部。
+     取 B —— 胶囊高度由内容决定（当前 516）后，Spacer 只在**胶囊内部**把 utility 推到
+     胶囊底端，胶囊本身仍由 align-self: center 在 736 区间居中。
+     规范已回改留痕（规范 §七 第 6 条「贯通」= 上下界约束，非填满）。 */
   flex: 1;
 `;
 

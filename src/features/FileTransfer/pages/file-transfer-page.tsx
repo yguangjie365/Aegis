@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styled from "@emotion/styled";
 import { AppButton } from "@/ui/components/app-button";
-import { PageHeader } from "@/ui/components/page-header";
+import { useRegisterBrand } from "@/shell/brand-bar";
 import { log, newCorrelationId } from "@/lib/logging";
 import { PairCodeDialog } from "../components/pair-code-dialog";
 import { ReceiveConfirmDialog, formatBytes } from "../components/receive-confirm-dialog";
@@ -667,25 +667,32 @@ export function FileTransferPage() {
     [commit, persisted, t],
   );
 
+  /* 品牌区注册（2026-10-05 垂直迁移第 7 条）：主标题归壳层从 modules.ts 派生，
+     此处只上报副标题与右侧服务状态徽章。 */
+  const brandSub = useMemo(
+    () =>
+      t("page.sub", {
+        devices: peers.length,
+        tasks: 0, // 任务视图随传输任务批接入；此处不摆占位数字（R-29）
+      }),
+    [t, peers.length],
+  );
+  const brandActions = useMemo(
+    () => (
+      <Badge on={serviceRunning}>
+        {statusQuery.isPending
+          ? t("page.status.stopped")
+          : serviceRunning
+            ? t("page.status.desktopRunning")
+            : t("page.status.stopped")}
+      </Badge>
+    ),
+    [serviceRunning, statusQuery.isPending, t],
+  );
+  useRegisterBrand("/file-transfer", { sub: brandSub, actions: brandActions });
+
   return (
     <Wrap>
-      <PageHeader
-        title={t("page.title")}
-        sub={t("page.sub", {
-          devices: peers.length,
-          tasks: 0, // 任务视图随传输任务批接入；此处不摆占位数字（R-29）
-        })}
-        actions={
-          <Badge on={serviceRunning}>
-            {statusQuery.isPending
-              ? t("page.status.stopped")
-              : serviceRunning
-                ? t("page.status.desktopRunning")
-                : t("page.status.stopped")}
-          </Badge>
-        }
-      />
-
       {/* F-FT-01：双页签。片1 只交付「电脑互传」，手机页签随之禁用并标注去向——
           不做成"点了没反应"的死页签（用户裁决 2026-10-04：先交付电脑互传）。 */}
       <Tabs role="tablist">

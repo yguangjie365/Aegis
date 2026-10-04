@@ -48,9 +48,13 @@ export function SteamApiKeySection() {
   const [flash, setFlash] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const cardBg = useColorModeValue("white", "#1a1a1a");
-  const borderColor = useColorModeValue("gray.200", "#333333");
-  const subText = useColorModeValue("gray.600", "#a0a0a0");
+  /* 深色分支（2026-10-05 令牌化）：原为 #1a1a1a / #333333 / #a0a0a0 三个裸值。
+   * 前者与 canvas #0d0d0d 的层级差靠记忆维持、后两者在 canvas 上仅 1.54:1（装饰线豁免）
+   * —— 一律改读 aegis 语义键，换包自动跟随。useColorModeValue 结构保留：
+   * 浅色包将来交付时只需改第一个参数。 */
+  const cardBg = useColorModeValue("white", "aegis.surface-soft");
+  const borderColor = useColorModeValue("gray.200", "aegis.hairline");
+  const subText = useColorModeValue("gray.600", "aegis.mute");
 
   const load = useCallback(async () => {
     setState({ phase: "loading" });

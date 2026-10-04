@@ -194,12 +194,12 @@ function VirtualListInner<T>({
       {loading ? (
         <VStack h="100%" justify="center" py={6} spacing={2}>
           <Spinner size="sm" />
-          <Text fontSize="xs" color="gray.500">
+          <Text fontSize="xs" color="aegis.mute">
             {loadingText}
           </Text>
         </VStack>
       ) : total === 0 ? (
-        <Text fontSize="xs" color="gray.500" py={4} textAlign="center">
+        <Text fontSize="xs" color="aegis.mute" py={4} textAlign="center">
           {emptyText}
         </Text>
       ) : (
@@ -233,7 +233,7 @@ function VirtualListInner<T>({
               gap={2}
             >
               <Spinner size="xs" />
-              <Text fontSize="xs" color="gray.500">
+              <Text fontSize="xs" color="aegis.mute">
                 加载更多...
               </Text>
             </Box>

@@ -5,13 +5,38 @@ import styled from "@emotion/styled";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
-export const AppButton = styled.button<{ variant: ButtonVariant; size?: "md" | "sm" }>`
+/* 🔴 2026-10-04 复审修复 + CDP 实测发现：本组件是 **styled.button，不走 Chakra style config**
+ * ⇒ theme.ts 的 `components.Button.sizes` 覆盖对它**完全无效**（实测：按钮高确实是 28，
+ * 但那是本组件自己写的 height；`position` 与 `::after` 命中区一个都没落地）。
+ * 主题层那份只对用 Chakra `<Button>` 的 50 处生效。
+ * ⇒ 三档高度 / 命中区必须在**本组件内**也写一份，否则「统一控件规范」在这 29 处引用上是空的。
+ * 长期出路仍是控件规范 §八 的 C4「AppButton 与 Chakra Button 收敛为单一实现」。 */
+const SIZE_H = { sm: "28px", md: "36px", lg: "44px" } as const;
+const SIZE_PX = { sm: "12px", md: "16px", lg: "20px" } as const;
+
+export const AppButton = styled.button<{ variant: ButtonVariant; size?: "md" | "sm" | "lg" }>`
   display: inline-flex;
   align-items: center;
   gap: var(--aegis-space-xs);
-  height: ${(p) => (p.size === "sm" ? "28px" : "36px")};
-  padding: 0 var(--aegis-space-lg);
+  height: ${(p) => SIZE_H[p.size ?? "md"]};
+  padding: 0 ${(p) => SIZE_PX[p.size ?? "md"]};
   border-radius: var(--aegis-radius-sm);
+  /* 🔴 sm 档命中区补偿的定位宿主（控件规范 §5.1：视觉 28 / 命中 ≥32）。
+     Chakra 的 Button baseStyle 不提供 position:relative，styled.button 更没有 ——
+     缺了它，::after 会相对 BODY 定位，一块透明伪元素盖住整页并拦截点击。 */
+  position: relative;
+  ${(p) =>
+    p.size === "sm" &&
+    `
+    &::after {
+      content: "";
+      position: absolute;
+      top: -2px;
+      bottom: -2px;
+      left: 0;
+      right: 0;
+    }
+  `}
   font: inherit;
   font-size: 14px;
   font-weight: 700;

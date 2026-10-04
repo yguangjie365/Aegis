@@ -13,26 +13,29 @@
  *
  * 后续配置区往这里加（不预告，仅记录本页的定位）：主题色、背景、通知、语言等。
  */
+import { useMemo } from "react";
 import { Box, VStack } from "@chakra-ui/react";
 
-import { PageHeader } from "@/ui/components/page-header";
+import { useRegisterBrand } from "@/shell/brand-bar";
 import { SteamApiKeySection } from "@/features/Settings/components/steam-api-key-section";
 import { AboutSection } from "@/features/Settings/components/about-section";
 
 export function SettingsPage() {
+  /* 品牌区注册（2026-10-05 垂直迁移第 7 条）：主标题「设置」已由壳层从
+     modules.ts 的 nameKey 自动派生，此处只上报副标题。 */
+  const sub = useMemo(
+    () => "全局配置与凭据。各功能页只放该功能自己的操作，凭据类一律在此维护。",
+    [],
+  );
+  useRegisterBrand("/settings", { sub });
+
   return (
-    <>
-      <PageHeader
-        title="设置"
-        sub="全局配置与凭据。各功能页只放该功能自己的操作，凭据类一律在此维护。"
-      />
-      <VStack spacing="lg" align="stretch" maxW="760px">
-        <SteamApiKeySection />
-        {/* 版本 + 零遥测声明：2026-10-04 状态栏移除后由这里承载（合规红线不丢） */}
-        <AboutSection />
-        <Box />
-      </VStack>
-    </>
+    <VStack spacing="lg" align="stretch" maxW="760px">
+      <SteamApiKeySection />
+      {/* 版本 + 零遥测声明：2026-10-04 状态栏移除后由这里承载（合规红线不丢） */}
+      <AboutSection />
+      <Box />
+    </VStack>
   );
 }
 

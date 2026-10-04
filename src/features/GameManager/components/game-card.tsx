@@ -223,7 +223,7 @@ export const GameCover = memo(function GameCover({
   const [imgError, setImgError] = useState(false);
   const [coverUrls, setCoverUrls] = useState<string[]>(() => getStaticCoverUrls(appId));
   const [urlIndex, setUrlIndex] = useState(0);
-  const placeholderBg = useColorModeValue("gray.100", "#0a0a0a");
+  const placeholderBg = useColorModeValue("gray.100", "aegis.surface-inset");
 
   // 候选链：Tauri 运行时后台拉一次（含 appinfo 精确路径），命中则换到链首重新加载
   useEffect(() => {
@@ -477,7 +477,7 @@ export const CardActionButton = memo(function CardActionButton({
       spinnerPlacement="start"
       variant={primary ? "solid" : "outline"}
       {...(primary
-        ? { bg: activeColor, color: "var(--aegis-ink)", _hover: { opacity: 0.85 } }
+        ? { bg: activeColor, color: "var(--aegis-accent-on)", _hover: { opacity: 0.85 } }
         : { borderColor: "var(--aegis-hairline)", _hover: { borderColor: activeColor } })}
       onClick={onClick}
     >

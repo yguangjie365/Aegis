@@ -186,13 +186,13 @@ export function MusicLoginSection() {
   const activeColor = getActiveColor();
   const contrastText = getContrastTextColor();
 
-  const textColor = useColorModeValue("gray.800", "#ffffff");
-  const subTextColor = useColorModeValue("gray.500", "#ffffff");
+  const textColor = useColorModeValue("gray.800", "aegis.ink");
+  const subTextColor = useColorModeValue("gray.500", "aegis.mute");
   const modalBg = useColorModeValue("white", "#1a1a1a");
-  const modalBorder = useColorModeValue("gray.200", "#333333");
+  const modalBorder = useColorModeValue("gray.200", "aegis.hairline");
   const menuBg = useColorModeValue("white", "#1a1a1a");
-  const menuBorder = useColorModeValue("gray.200", "#333333");
-  const menuHoverBg = useColorModeValue("gray.50", "#252525");
+  const menuBorder = useColorModeValue("gray.200", "aegis.hairline");
+  const menuHoverBg = useColorModeValue("gray.50", "aegis.surface-soft");
 
   // 已登录的平台数量
   const loggedInProviders = PROVIDERS.filter((p) => !p.disabled && loginInfos[p.id]?.logged_in);
@@ -333,7 +333,7 @@ export function MusicLoginSection() {
             </Box>
             <Text
               fontSize="sm"
-              color={qishuiQrStatus.includes("成功") ? "green.400" : subTextColor}
+              color={qishuiQrStatus.includes("成功") ? "aegis.success" : subTextColor}
             >
               {qishuiQrStatus || "正在获取二维码..."}
             </Text>
@@ -383,7 +383,7 @@ export function MusicLoginSection() {
                 as={Box}
                 cursor="pointer"
                 borderRadius="var(--aegis-radius-sm)"
-                _hover={{ bg: useColorModeValue("gray.100", "#252525") }}
+                _hover={{ bg: useColorModeValue("gray.100", "aegis.surface-soft") }}
                 p={1}
               >
                 <HStack spacing={2}>

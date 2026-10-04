@@ -39,14 +39,14 @@ export function CustomSelect({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const scrollTopRef = useRef(0);
 
-  const textColor = useColorModeValue("gray.700", "#ffffff");
-  const iconColor = useColorModeValue("gray.500", "#999999");
+  const textColor = useColorModeValue("gray.700", "aegis.ink");
+  const iconColor = useColorModeValue("gray.500", "aegis.mute");
   const dropdownBg = useColorModeValue("white", "#111111");
   const itemBg = useColorModeValue("white", "#111111");
   // 主题色适配：选中项高亮使用主题色
   const { getActiveColor, getHoverColor, getBorderColor } = useThemeColor();
   const itemBgActive = getHoverColor();
-  const itemText = useColorModeValue("gray.600", "#cccccc");
+  const itemText = useColorModeValue("gray.600", "aegis.mute");
   const itemTextActive = useColorModeValue("gray.900", getActiveColor());
 
   useEffect(() => {

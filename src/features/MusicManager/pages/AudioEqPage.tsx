@@ -364,15 +364,15 @@ function FreqKnob({
 
 // ===== EQ 频段滑块组件 =====
 function EqBandSlider({ band, onChange }: { band: EqBand; onChange: (gain: number) => void }) {
-  const labelColor = useColorModeValue("gray.600", "#ffffff");
-  const valueColor = useColorModeValue("gray.800", "#e0e0e0");
+  const labelColor = useColorModeValue("gray.600", "aegis.mute");
+  const valueColor = useColorModeValue("gray.800", "aegis.ink");
   const { getActiveColor } = useThemeColor();
   const activeColor = getActiveColor();
 
   const gain = band.gain;
   const gainPercent = ((gain + 12) / 24) * 100;
-  const sTrackBg = useColorModeValue("gray.200", "#333333");
-  const sZeroBg = useColorModeValue("gray.400", "#555555");
+  const sTrackBg = useColorModeValue("gray.200", "aegis.surface-inset");
+  const sZeroBg = useColorModeValue("gray.400", "aegis.border-interactive");
 
   return (
     <VStack spacing={1} align="center" w="full">
@@ -380,7 +380,7 @@ function EqBandSlider({ band, onChange }: { band: EqBand; onChange: (gain: numbe
       <Text
         fontSize="xs"
         fontWeight="bold"
-        color={gain > 0 ? "green.500" : gain < 0 ? "orange.500" : valueColor}
+        color={gain > 0 ? "aegis.success" : gain < 0 ? "aegis.warning" : valueColor}
         minH="16px"
       >
         {gain > 0 ? "+" : ""}
@@ -472,12 +472,12 @@ export default function AudioEqPage() {
 
   const headingColor = useColorModeValue("#1A202C", "#ffffff");
   const adaptiveTitle = useAdaptiveTextColor();
-  const labelColor = useColorModeValue("gray.700", "#ffffff");
-  const descColor = useColorModeValue("gray.500", "#ffffff");
+  const labelColor = useColorModeValue("gray.700", "aegis.mute");
+  const descColor = useColorModeValue("gray.500", "aegis.mute");
   const presetIconColor = useColorModeValue("#4A5568", "#aaaaaa");
-  const iconBg = useColorModeValue("gray.100", "#222222");
+  const iconBg = useColorModeValue("gray.100", "aegis.surface-soft");
   const warningBg = useColorModeValue("orange.50", "rgba(237, 137, 54, 0.1)");
-  const warningColor = useColorModeValue("orange.600", "orange.300");
+  const warningColor = useColorModeValue("orange.600", "aegis.warning");
   const { getActiveColor } = useThemeColor();
   const activeColor = getActiveColor();
 
@@ -1130,7 +1130,7 @@ ${bandsStr}`;
                 {engineStatus.running && (
                   <Badge colorScheme="green" px={2} py={1} borderRadius="full" variant="subtle">
                     <HStack spacing={1}>
-                      <Box w={2} h={2} borderRadius="full" bg="green.400" />
+                      <Box w={2} h={2} borderRadius="full" bg="aegis.success" />
                       <Text fontSize="xs">{t("audioEq.running")}</Text>
                     </HStack>
                   </Badge>
@@ -1244,7 +1244,7 @@ ${bandsStr}`;
               </HStack>
             )}
             {!driverStatus?.installed && (
-              <Text fontSize="xs" color="orange.500">
+              <Text fontSize="xs" color="aegis.warning">
                 {t("audioEq.installDriverFirst")}
               </Text>
             )}
@@ -1620,7 +1620,7 @@ ${bandsStr}`;
                               size="xs"
                               variant="ghost"
                               color={descColor}
-                              _hover={{ color: "red.400", bg: "transparent" }}
+                              _hover={{ color: "aegis.error", bg: "transparent" }}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteSavedPreset(preset.id, preset.name);
@@ -1748,7 +1748,7 @@ ${bandsStr}`;
                                   size="xs"
                                   variant="ghost"
                                   color={descColor}
-                                  _hover={{ color: "red.400", bg: "transparent" }}
+                                  _hover={{ color: "aegis.error", bg: "transparent" }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     handleDeletePreset(preset.id, preset.name);
@@ -1914,7 +1914,7 @@ ${bandsStr}`;
         <ModalContent
           bg={useColorModeValue("white", "#1a1a1a")}
           border="1px solid"
-          borderColor={useColorModeValue("gray.100", "#333")}
+          borderColor={useColorModeValue("gray.100", "aegis.hairline")}
         >
           <ModalHeader fontSize="md" color={headingColor}>
             保存为预设

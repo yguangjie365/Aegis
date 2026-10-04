@@ -201,6 +201,7 @@
     "publisher": "发布商",
     "installDate": "安装日期",
     "size": "大小",
+    "searchPlaceholder": "按名称或发布商搜索…",
     "totalApps": "共 {{count}} 个应用",
     "noData": "没有匹配的软件 · 清空搜索框可看全部",
     "emptyState": "未检测到已安装的桌面应用（需管理员权限读取注册表）"

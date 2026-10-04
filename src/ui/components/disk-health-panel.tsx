@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import styled from "@emotion/styled";
+import { Panel, PanelTitle, PanelNote, PanelReason } from "./panel";
 import type { DiskHealthRowDto } from "@/types/overview";
 
 // disk-health-panel：F-06 磁盘健康（母本 SystemToolkit「磁盘健康」分区）。
@@ -9,38 +10,16 @@ import type { DiskHealthRowDto } from "@/types/overview";
 // 故那些类**一个都不生效** —— 面板实际渲染为无样式的裸 div（换皮遗留缺陷）。
 // 全部改写为 `styled` + `var(--aegis-*)` 令牌，与 `KeyValueCard` / `NetEndpointsPanel` 同构。
 //
-// 布局：用户 2026-10-04 裁决「磁盘健康分两列显示」→ 行以 `auto-fit/ minmax` 双列落位，
-// 单列时（窄窗或仅一块盘）自然退化为单列，不留空槽。
+// 🔴 2026-10-04 再改：迁入 `panel.tsx` 共享语汇（原先自有一套 surface-soft +
+// elevation-sticky 阴影 + 600 字重，与 StatCard 互斥；详见 panel.tsx 头注）。
+//
+// 布局：行以单列纵向排列 —— **两列由页面级 `HealthGrid` 承担**（母本「网络与存储健康」区
+// `UniformGrid Columns="2"` 装两个面板），面板内部再分两列会变成四列，与母本不符。
 
-const Card = styled.section`
-  background: var(--aegis-surface-soft);
-  border-radius: var(--aegis-radius-sm);
-  padding: var(--aegis-space-lg);
-  box-shadow: var(--aegis-elevation-sticky);
-`;
-
-const Title = styled.h3`
-  font-size: var(--aegis-type-h3-size);
-  font-weight: 600;
-  margin: 0 0 var(--aegis-space-md) 0;
-  color: var(--aegis-ink);
-`;
-
-const Empty = styled.p`
-  font-size: var(--aegis-type-body-size);
-  color: var(--aegis-mute);
-  margin: 0;
-`;
-
-/**
- * 行容器：单列。
- * 🔴 两列由**页面级** `HealthGrid` 承担（母本「网络与存储健康」区 `UniformGrid Columns="2"`
- * 装两个面板），面板内部再分两列会变成四列 —— 与母本不符。
- */
 const RowList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: var(--aegis-space-sm);
+  gap: var(--aegis-space-xs);
 `;
 
 const Row = styled.div`
@@ -52,7 +31,7 @@ const Row = styled.div`
   border: 1px solid var(--aegis-hairline);
   border-radius: var(--aegis-radius-sm);
   background: var(--aegis-canvas);
-  min-height: 34px;
+  min-height: 32px;
 `;
 
 const Device = styled.span`
@@ -62,7 +41,10 @@ const Device = styled.span`
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--aegis-type-body-size);
-  font-weight: 500;
+  /* 🔴 700 而非 500/600：规范 §一.4 只允许 400/700，且 500/600 在 CJK 回退字体上
+     不存在（会被合成或就近取档，导致同页字重实际不一致）。设备名是本行的主标识，
+     用 700 承担识别，与右侧元信息拉开层级。 */
+  font-weight: 700;
   color: var(--aegis-ink);
 `;
 
@@ -76,7 +58,13 @@ const Meta = styled.span`
   white-space: nowrap;
 `;
 
-/** 健康状态色：与 SegBar / TempBadge 同源令牌，避免"红绿"在两套体系里不一致 */
+/**
+ * 健康状态**文字**：颜色 + 文案双通道。
+ *
+ * 🔴 规范 §八「状态呈现不得只依赖颜色」—— 颜色只是强化，文字本身已经说明状态
+ * （健康/ 警告 / 故障 / 未知），故色盲用户与灰度打印同样可读。
+ * 色值与 `SegBar` / `TempBadge` 同源令牌，避免"红绿"在两套体系里不一致。
+ */
 const HealthText = styled.span<{ $level: "healthy" | "warning" | "unhealthy" | "unknown" }>`
   color: ${(p) =>
     p.$level === "healthy"
@@ -86,13 +74,11 @@ const HealthText = styled.span<{ $level: "healthy" | "warning" | "unhealthy" | "
         : p.$level === "unhealthy"
           ? "var(--aegis-error)"
           : "var(--aegis-stone)"};
-  font-weight: 600;
+  font-weight: 700;
 `;
 
-/** 采集失败原因整行占位（与 KeyValueCard 的 Reason 同口径：空态必写为什么是空的，R-08） */
-const Reason = styled.p`
-  font-size: var(--aegis-type-caption-size);
-  color: var(--aegis-warning);
+/** 采集失败原因整行占位（空态必写为什么是空的，R-08） */
+const RowReason = styled(PanelReason)`
   margin: 0;
   padding: var(--aegis-space-xs) 0;
 `;
@@ -121,16 +107,16 @@ export function DiskHealthPanel({ rows }: DiskHealthPanelProps) {
   const hasData = rows.some((row) => row.deviceName || row.reason);
   if (!hasData) {
     return (
-      <Card>
-        <Title>{t("diskHealth.title")}</Title>
-        <Empty>{t("diskHealth.noData")}</Empty>
-      </Card>
+      <Panel>
+        <PanelTitle>{t("diskHealth.title")}</PanelTitle>
+        <PanelNote>{t("diskHealth.noData")}</PanelNote>
+      </Panel>
     );
   }
 
   return (
-    <Card>
-      <Title>{t("diskHealth.title")}</Title>
+    <Panel>
+      <PanelTitle>{t("diskHealth.title")}</PanelTitle>
       <RowList>
         {rows.map((row, index) => {
           // 空行占位：保持行数不变，卡片高度不随采集结果跳动（L-08）
@@ -142,7 +128,7 @@ export function DiskHealthPanel({ rows }: DiskHealthPanelProps) {
           if (row.reason && !row.deviceName) {
             return (
               <Row key={index}>
-                <Reason>{row.reason}</Reason>
+                <RowReason>{row.reason}</RowReason>
               </Row>
             );
           }
@@ -165,6 +151,6 @@ export function DiskHealthPanel({ rows }: DiskHealthPanelProps) {
           );
         })}
       </RowList>
-    </Card>
+    </Panel>
   );
 }

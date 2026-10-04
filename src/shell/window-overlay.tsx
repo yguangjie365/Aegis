@@ -4,26 +4,28 @@ import styled from "@emotion/styled";
 import { Minus, X } from "lucide-react";
 import { isTauriRuntime } from "@/lib/tauri/invoke";
 
-// ── 窗口覆盖层（2026-10-04 壳层改版）──────────────────────────────────────────
-// 参照 NexBox `src/components/ui/title-bar.tsx` 的做法：**标题条不是文档流的一行，
-// 而是一条 position:fixed 的透明覆盖层**，只承载两件事 —— 拖动区 + 窗口控制。
-// 这样主内容区拿到完整视口高度，视觉上「没有标题栏」，但窗口仍可拖动、可关闭。
+// ── 窗口拖动条（2026-10-05 由 fixed 覆盖层改为进文档流）──────────────────────
+// 参照 NexBox `src/components/ui/title-bar.tsx`：透明、只承载拖动区 + 窗口控制。
 //
-// 与旧版 TitleBar 的差异：
-//   旧：Grid 文档流 32px 黑条（占高度、有底色、显示 AEGIS 大字）
-//   新：fixed 透明覆盖层（不占高度、无底色、左侧仅一个状态点）
+// 🔴 2026-10-05 变更（vertical-geometry-spec.md §七 迁移表第 1 条）：
+//   旧：`position: fixed` 覆盖层，**不占布局** ⇒ Frame 的 SAFE_TOP 必须写
+//       `calc(dragstrip-h + 10px)` 来给整条内容让出空间。
+//   新：**进文档流**，自己占 --aegis-dragstrip-h(32) ⇒ Frame 顶部内缩归零，
+//       否则内容会多出一段 32 的空隙（双重计算）。
+//   代价：拖动条与内容不再重叠，所以「拖动区压住首行内容」的问题自然消失，
+//         指针事件也不需要像旧版那样逐处豁免。
+//
+// 与更早的 Grid 版 TitleBar 的差异：
+//   更早：Grid 文档流 32px 黑条（占高度、有底色、显示 AEGIS 大字）
+//   现在：文档流 32px **透明**条（占高度、无底色、左侧仅一个状态点）
 //
 // 拖动用 JS onMouseDown + getCurrentWindow().startDragging()（NexBox 同款），
 // 而非 data-tauri-drag-region：后者无法排除交互元素，点在按钮上会误启动拖动。
-// 最大化按钮按 §四「禁最大化/全屏」恒灰移除（NexBox 有，本项目不启用）。
 
 const Overlay = styled.header`
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  /* 🔴 进文档流：flex:none 保证不被 Frame 的 flex 布局压缩，且高度就是 32。 */
+  flex: none;
   height: var(--aegis-dragstrip-h);
-  z-index: 999;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -33,10 +35,10 @@ const Overlay = styled.header`
   font-size: 11px;
   user-select: none;
   -webkit-user-select: none;
-  /* 🔴 拖动修复（2026-10-04）：此处曾设 pointer-events: none，导致整条覆盖层
-     不接收指针事件，onMouseDown 永远收不到 → 窗口无法拖动。覆盖层只有 32px 高，
-     且主内容区从 y=42 起（见 shell-layout 的 SAFE_TOP），二者不重叠，
-     因此恢复默认的 pointer-events: auto 不会挡住任何页面内容。 */
+  /* 🔴 左右内缩与 Frame 的 SAFE_LEFT/SAFE_RIGHT 同为 20 —— 窗口键的右缘
+     必须与内容区右缘（1280−20）对齐，否则「距边 20」在壳层出现两个口径。
+     同一组数值在 shell-layout 的 SAFE_LEFT / SAFE_RIGHT，改一处必须同改另一处。 */
+  padding: 0 20px;
 `;
 
 const Caps = styled.div`

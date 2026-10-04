@@ -622,7 +622,14 @@ const CommentPanel = memo(function CommentPanel({
       transition="background 0.15s"
     >
       <HStack spacing={2}>
-        <Box w="28px" h="28px" borderRadius="full" overflow="hidden" flexShrink={0} bg="gray.600">
+        <Box
+          w="28px"
+          h="28px"
+          borderRadius="full"
+          overflow="hidden"
+          flexShrink={0}
+          bg="aegis.surface-soft"
+        >
           <ChakraImage
             src={coverProxyUrl(c.avatar, proxyPort)}
             alt=""
@@ -718,7 +725,7 @@ const CommentPanel = memo(function CommentPanel({
       ) : commentError ? (
         <VStack flex={1} align="center" justify="center" spacing={2}>
           <MessageCircle size={28} color={subTextColor} opacity={0.4} />
-          <Text color="red.400" fontSize="sm">
+          <Text color="aegis.error" fontSize="sm">
             评论加载失败
           </Text>
           <Text color={subTextColor} fontSize="xs" textAlign="center" px={4} wordBreak="break-all">
@@ -1131,8 +1138,8 @@ const ExpandedPlayer = memo(function ExpandedPlayer({ onClose }: ExpandedPlayerP
 
   const bgColor = useColorModeValue("rgba(255,255,255,0.25)", "rgba(0,0,0,0.25)");
   const glassBorderColor = useColorModeValue("rgba(255,255,255,0.2)", "rgba(255,255,255,0.1)");
-  const textColor = useColorModeValue("gray.800", "#ffffff");
-  const subTextColor = useColorModeValue("gray.500", "#ffffff");
+  const textColor = useColorModeValue("gray.800", "aegis.ink");
+  const subTextColor = useColorModeValue("gray.500", "aegis.mute");
   const sliderTrackBg = useColorModeValue("rgba(0,0,0,0.1)", "rgba(255,255,255,0.9)");
 
   // 文字颜色覆写（现代/音域回响/透明彩胶；音域回响固定亮色，透明彩胶固定深灰）
@@ -1605,7 +1612,7 @@ const ExpandedPlayer = memo(function ExpandedPlayer({ onClose }: ExpandedPlayerP
                         w="100%"
                         h="100%"
                         objectFit="cover"
-                        fallback={<Box w="100%" h="100%" bg="gray.700" />}
+                        fallback={<Box w="100%" h="100%" bg="aegis.surface-soft" />}
                       />
                       {/* 封面上的高光反射 */}
                       <Box
@@ -1641,7 +1648,9 @@ const ExpandedPlayer = memo(function ExpandedPlayer({ onClose }: ExpandedPlayerP
                     w={{ base: "200px", md: "280px", lg: "320px" }}
                     h={{ base: "200px", md: "280px", lg: "320px" }}
                     objectFit="cover"
-                    fallback={<Box w="280px" h="280px" bg="gray.700" borderRadius="2xl" />}
+                    fallback={
+                      <Box w="280px" h="280px" bg="aegis.surface-soft" borderRadius="2xl" />
+                    }
                   />
                 </Box>
               )}
@@ -1834,7 +1843,7 @@ const ExpandedPlayer = memo(function ExpandedPlayer({ onClose }: ExpandedPlayerP
                             fontSize="xs"
                             textAlign="center"
                             mt={1}
-                            color={active ? activeColor : "whiteAlpha.700"}
+                            color={active ? activeColor : "aegis.mute"}
                             fontWeight={active ? "semibold" : "normal"}
                           >
                             {s.label}
@@ -1946,7 +1955,7 @@ const ExpandedPlayer = memo(function ExpandedPlayer({ onClose }: ExpandedPlayerP
                 top="-6px"
                 right="-11px"
                 zIndex={3}
-                bg="red.500"
+                bg="aegis.error"
                 color="white"
                 fontSize="11px"
                 fontWeight="bold"
@@ -2479,9 +2488,9 @@ const PlayerBar = memo(function PlayerBar({
   const contrastText = getContrastTextColor();
   const hoverBg = getHoverColor(false);
 
-  const borderColor = useColorModeValue("gray.200", "#333333");
-  const textColor = useColorModeValue("gray.800", "#ffffff");
-  const subTextColor = useColorModeValue("gray.500", "#ffffff");
+  const borderColor = useColorModeValue("gray.200", "aegis.hairline");
+  const textColor = useColorModeValue("gray.800", "aegis.ink");
+  const subTextColor = useColorModeValue("gray.500", "aegis.mute");
   const dropdownBg = useColorModeValue("white", "#1a1a1a");
   const sliderTrackBg = useColorModeValue("rgba(255,255,255,0.9)", "#333333");
 
@@ -2541,7 +2550,12 @@ const PlayerBar = memo(function PlayerBar({
                 borderRadius="var(--aegis-radius-sm)"
                 objectFit="cover"
                 fallback={
-                  <Box w="48px" h="48px" borderRadius="var(--aegis-radius-sm)" bg="gray.700" />
+                  <Box
+                    w="48px"
+                    h="48px"
+                    borderRadius="var(--aegis-radius-sm)"
+                    bg="aegis.surface-soft"
+                  />
                 }
               />
             </Box>
@@ -2868,7 +2882,9 @@ const SongRow = memo(function SongRow({
         h="40px"
         borderRadius="var(--aegis-radius-sm)"
         objectFit="cover"
-        fallback={<Box w="40px" h="40px" borderRadius="var(--aegis-radius-sm)" bg="gray.700" />}
+        fallback={
+          <Box w="40px" h="40px" borderRadius="var(--aegis-radius-sm)" bg="aegis.surface-soft" />
+        }
       />
       <VStack spacing={0} align="start" flex={1} minW={0}>
         <Text
@@ -2916,7 +2932,7 @@ const SongRow = memo(function SongRow({
           as="span"
           fontSize="11px"
           color={subTextColor}
-          bg={useColorModeValue("gray.100", "rgba(255,255,255,0.08)")}
+          bg={useColorModeValue("gray.100", "aegis.surface-soft")}
           px={1.5}
           py={0.5}
           borderRadius="sm"
@@ -3039,7 +3055,7 @@ const LocalSongRow = memo(function LocalSongRow({
         display="flex"
         alignItems="center"
         justifyContent="center"
-        bg={useColorModeValue("gray.200", "rgba(255,255,255,0.08)")}
+        bg={useColorModeValue("gray.200", "aegis.surface-soft")}
       >
         {song.cover ? (
           <ChakraImage
@@ -3183,7 +3199,9 @@ const HistorySongRow = memo(function HistorySongRow({
         h="40px"
         borderRadius="var(--aegis-radius-sm)"
         objectFit="cover"
-        fallback={<Box w="40px" h="40px" borderRadius="var(--aegis-radius-sm)" bg="gray.700" />}
+        fallback={
+          <Box w="40px" h="40px" borderRadius="var(--aegis-radius-sm)" bg="aegis.surface-soft" />
+        }
       />
       <VStack spacing={0} align="start" flex={1} minW={0}>
         <Text
@@ -3576,13 +3594,13 @@ function SearchProviderSwitcher({ onSwitch }: { onSwitch?: (provider: MusicProvi
   // 未开启液态玻璃：不透明背景（hover 用不透明色，不透明不透视）
   const plainBg = useColorModeValue("#ffffff", "#1a1a1a");
   const plainHoverBg = useColorModeValue("#f0f0f0", "#2a2a2a");
-  const plainBorder = useColorModeValue("gray.200", "#333333");
+  const plainBorder = useColorModeValue("gray.200", "aegis.hairline");
   // 开启液态玻璃：半透明背景，hover 时提高不透明度（更实，不透明）
   const glassBg = useColorModeValue("rgba(255,255,255,0.25)", "rgba(0,0,0,0.25)");
   const glassHoverBg = useColorModeValue("rgba(255,255,255,0.35)", "rgba(0,0,0,0.35)");
   const glassBorder = useColorModeValue("rgba(255,255,255,0.25)", "rgba(255,255,255,0.12)");
-  const textColor = useColorModeValue("gray.800", "#ffffff");
-  const subTextColor = useColorModeValue("gray.500", "#a0a0a0");
+  const textColor = useColorModeValue("gray.800", "aegis.ink");
+  const subTextColor = useColorModeValue("gray.500", "aegis.mute");
 
   // 已登录平台排在前面，未登录排后面（组内保持原有顺序）
   const sortedProviders = useMemo(() => {
@@ -3768,14 +3786,14 @@ const SearchBox = memo(function SearchBox({ onUnifiedSearch, onArtistClick }: Se
   const themeBorder = getBorderColor();
 
   const bgColor = useColorModeValue("white", "#111111");
-  const borderColor = useColorModeValue("gray.200", "#333333");
-  const textColor = useColorModeValue("gray.800", "#ffffff");
-  const subTextColor = useColorModeValue("gray.500", "#ffffff");
-  const itemHoverBg = useColorModeValue("gray.50", "rgba(255,255,255,0.05)");
+  const borderColor = useColorModeValue("gray.200", "aegis.hairline");
+  const textColor = useColorModeValue("gray.800", "aegis.ink");
+  const subTextColor = useColorModeValue("gray.500", "aegis.mute");
+  const itemHoverBg = useColorModeValue("gray.50", "aegis.surface-soft");
   const itemActiveBg = useColorModeValue(`${activeColor}22`, "rgba(255,255,255,0.08)");
   const dropdownBg = useColorModeValue("white", "#1a1a1a");
   const glassInputBg = useColorModeValue("rgba(255,255,255,0.15)", "rgba(0,0,0,0.25)");
-  const dropdownBorder = useColorModeValue("gray.200", "#333333");
+  const dropdownBorder = useColorModeValue("gray.200", "aegis.hairline");
 
   // 点击外部关闭搜索下拉/历史
   useEffect(() => {
@@ -4015,9 +4033,9 @@ const SearchBox = memo(function SearchBox({ onUnifiedSearch, onArtistClick }: Se
                     <Button
                       size="xs"
                       variant="ghost"
-                      color="red.400"
+                      color="aegis.error"
                       onClick={clearSearchHistory}
-                      _hover={{ color: "red.300", bg: "rgba(255,0,0,0.08)" }}
+                      _hover={{ color: "aegis.error", bg: "rgba(255,0,0,0.08)" }}
                     >
                       全部清除
                     </Button>
@@ -4055,7 +4073,7 @@ const SearchBox = memo(function SearchBox({ onUnifiedSearch, onArtistClick }: Se
                             e.stopPropagation();
                             removeHistoryItem(kw);
                           }}
-                          _hover={{ bg: "transparent", color: "red.400" }}
+                          _hover={{ bg: "transparent", color: "aegis.error" }}
                         />
                       </HStack>
                     ))}
@@ -4343,11 +4361,11 @@ export default function MusicPage() {
   const contrastText = getContrastTextColor();
   const hoverBg = getHoverColor(false);
 
-  const borderColor = useColorModeValue("gray.200", "#333333");
-  const textColor = useColorModeValue("gray.800", "#ffffff");
+  const borderColor = useColorModeValue("gray.200", "aegis.hairline");
+  const textColor = useColorModeValue("gray.800", "aegis.ink");
   const adaptiveTitle = useAdaptiveTextColor();
-  const subTextColor = useColorModeValue("gray.500", "#ffffff");
-  const itemHoverBg = useColorModeValue("gray.50", "rgba(255,255,255,0.05)");
+  const subTextColor = useColorModeValue("gray.500", "aegis.mute");
+  const itemHoverBg = useColorModeValue("gray.50", "aegis.surface-soft");
   const itemActiveBg = useColorModeValue(`${activeColor}22`, "rgba(255,255,255,0.08)");
   const dropdownBg = useColorModeValue("white", "#1a1a1a");
 
@@ -5100,7 +5118,9 @@ export default function MusicPage() {
         h="44px"
         borderRadius="var(--aegis-radius-sm)"
         objectFit="cover"
-        fallback={<Box w="44px" h="44px" borderRadius="var(--aegis-radius-sm)" bg="gray.700" />}
+        fallback={
+          <Box w="44px" h="44px" borderRadius="var(--aegis-radius-sm)" bg="aegis.surface-soft" />
+        }
       />
       <VStack spacing={0} align="start" flex={1} minW={0}>
         <HStack spacing={1.5} maxW="100%">
@@ -5155,7 +5175,7 @@ export default function MusicPage() {
   // 歌手详情视图
   // ═══════════════════════════════════════════════
   if (viewMode === "artistDetail") {
-    const artistTabBarBg = useColorModeValue("gray.100", "rgba(255,255,255,0.04)");
+    const artistTabBarBg = useColorModeValue("gray.100", "aegis.surface-soft");
     const artistTabActiveBg = useColorModeValue("white", "rgba(255,255,255,0.1)");
 
     const renderAlbumItem = (album: Album) => (
@@ -5184,7 +5204,7 @@ export default function MusicPage() {
               w="52px"
               h="52px"
               borderRadius="var(--aegis-radius-sm)"
-              bg="gray.700"
+              bg="aegis.surface-soft"
               display="flex"
               alignItems="center"
               justifyContent="center"
@@ -5257,7 +5277,7 @@ export default function MusicPage() {
               <Box
                 w="80px"
                 h="48px"
-                bg="gray.700"
+                bg="aegis.surface-soft"
                 display="flex"
                 alignItems="center"
                 justifyContent="center"
@@ -5341,7 +5361,7 @@ export default function MusicPage() {
                 h="56px"
                 borderRadius="full"
                 objectFit="cover"
-                fallback={<Box w="56px" h="56px" borderRadius="full" bg="gray.700" />}
+                fallback={<Box w="56px" h="56px" borderRadius="full" bg="aegis.surface-soft" />}
               />
               <VStack spacing={0} align="start">
                 <Text fontSize="xl" fontWeight="bold" color={textColor}>
@@ -5915,7 +5935,7 @@ export default function MusicPage() {
       playlistSearchResults.length > 0 ||
       artistSearchResults.length > 0;
 
-    const tabBarBg = useColorModeValue("gray.100", "rgba(255,255,255,0.04)");
+    const tabBarBg = useColorModeValue("gray.100", "aegis.surface-soft");
     const tabActiveBg = useColorModeValue("white", "rgba(255,255,255,0.1)");
 
     const tabs: {
@@ -5972,7 +5992,12 @@ export default function MusicPage() {
               borderRadius="var(--aegis-radius-sm)"
               objectFit="cover"
               fallback={
-                <Box w="40px" h="40px" borderRadius="var(--aegis-radius-sm)" bg="gray.700" />
+                <Box
+                  w="40px"
+                  h="40px"
+                  borderRadius="var(--aegis-radius-sm)"
+                  bg="aegis.surface-soft"
+                />
               }
             />
             <VStack spacing={0} align="start">
@@ -6216,7 +6241,7 @@ export default function MusicPage() {
                                     w="48px"
                                     h="48px"
                                     borderRadius="var(--aegis-radius-sm)"
-                                    bg="gray.700"
+                                    bg="aegis.surface-soft"
                                   />
                                 }
                               />
@@ -6344,7 +6369,7 @@ export default function MusicPage() {
                                         <Box
                                           w="60px"
                                           h="60px"
-                                          bg="gray.700"
+                                          bg="aegis.surface-soft"
                                           display="flex"
                                           alignItems="center"
                                           justifyContent="center"
@@ -6483,7 +6508,7 @@ export default function MusicPage() {
                         <Box
                           w="48px"
                           h="48px"
-                          bg="gray.700"
+                          bg="aegis.surface-soft"
                           display="flex"
                           alignItems="center"
                           justifyContent="center"
@@ -6551,9 +6576,9 @@ export default function MusicPage() {
             px={2.5}
             py={0.5}
             borderRadius="var(--aegis-radius-sm)"
-            bg={useColorModeValue("gray.100", "rgba(255,255,255,0.08)")}
+            bg={useColorModeValue("gray.100", "aegis.surface-soft")}
             border="1px solid"
-            borderColor={useColorModeValue("gray.200", "rgba(255,255,255,0.12)")}
+            borderColor={useColorModeValue("gray.200", "aegis.hairline")}
           >
             <Text fontSize="xs" color={subTextColor} fontWeight="medium" whiteSpace="nowrap">
               当前平台：{providerName}
@@ -6971,7 +6996,7 @@ export default function MusicPage() {
                         </Button>
                       )}
                       {qishuiDeps.error && (
-                        <Text fontSize="2xs" color="red.400" mt={1} wordBreak="break-all">
+                        <Text fontSize="2xs" color="aegis.error" mt={1} wordBreak="break-all">
                           {qishuiDeps.error}
                         </Text>
                       )}
@@ -7353,7 +7378,7 @@ export default function MusicPage() {
                                       <Box
                                         w="100%"
                                         h="100%"
-                                        bg="gray.700"
+                                        bg="aegis.surface-soft"
                                         display="flex"
                                         alignItems="center"
                                         justifyContent="center"
@@ -7492,7 +7517,7 @@ export default function MusicPage() {
                                       <Box
                                         w="100%"
                                         h="100%"
-                                        bg="gray.700"
+                                        bg="aegis.surface-soft"
                                         display="flex"
                                         alignItems="center"
                                         justifyContent="center"

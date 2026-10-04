@@ -1,7 +1,7 @@
 import { extendTheme } from "@chakra-ui/react";
 import {
-  nvidiaLight,
   themePacks,
+  DECORATIVE_RADII,
   MONO_FONT_STACK,
   COLOR_TOKEN_KEYS,
   TYPOGRAPHY_TOKEN_KEYS,
@@ -18,35 +18,66 @@ import {
 // - Chakra 组件经 theme.aegis.* / theme.radii.* 取键（W1-04 裸值棘轮的对照面）
 // - 非组件层（全局 css、伪元素）经 --aegis-<key> CSS 变量，两处同源
 //
-// 🔴 当前生效的主题包 = themePacks[0]（首期仅浅色一包，TASKS Q-06）。
-// 换 Dark 包时只改 activePack 的来源，theme 层不得再出现 nvidiaLight 字面引用。
+// 🔴 当前生效的主题包 = themePacks[0] = **Nvidia.Dark**（2026-10-04 用户裁决：
+// NVIDIA 品牌风格更适合深色，本期交付**纯深色单主题**，浅色包另行设计）。
+// 多主题包机制**不退役** —— nvidiaLight 仍注册在 themePacks 里，键集守卫逐维校验两包。
+//
+// 🔴 本文件**不得出现 nvidiaLight / nvidiaDark 的字面取值**，一切取值经 activePack 消费
+// （原注释里的「`??` 兜底值除外」已随兜底删除而失效 —— 见下方 activePack 处的显式 throw）。
 
-// 取 activePack：themePacks 的唯一消费点。 Dark 包加入时改为按 activePackId 取出即可。
-const activePack = themePacks[0] ?? nvidiaLight;
+// 取 activePack：themePacks 的唯一消费点。
+// 🔴 2026-10-04 复审：原写法 `themePacks[0] ?? nvidiaDark` 的兜底**永远不会生效**（数组是
+// 字面量且非空），却会在真为空时把错误伪装成"正常降级"。改为显式失败。
+const [activePack] = themePacks;
+if (!activePack) {
+  throw new Error(
+    "[theme] themePacks 为空，无可激活的主题包。这是模块初始化错误（打包配置 / 循环依赖），" +
+      "不应用 ?? 兜底掩盖。",
+  );
+}
 
 // ── 键集守卫（P0-3）────────────────────────────────────────────────────────────
 // 原实现只比对「五维 key 数之和 == 48」，改错一个键名（如 "mute-on-soft"→"muteOnSoft"）
 // 同时漏一个键时数量守恒，守卫静默通过。改为逐维比对键集，missing/extra 一并报出。
 // 2026-10-04：motion 升为第六维后，motion 内部再分duration / easing 两组分别校验 ——
 // 时长与缓动是两类不同的值，混在一维里比对会漏掉「加了时长没加缓动」这类半吊子改动。
-const assertKeys = (actual: readonly string[], declared: readonly string[], dim: string) => {
+const assertKeys = (
+  actual: readonly string[],
+  declared: readonly string[],
+  dim: string,
+  packName: string,
+) => {
   const miss = declared.filter((k) => !actual.includes(k));
   const extra = actual.filter((k) => !declared.includes(k));
   if (miss.length || extra.length) {
     throw new Error(
-      `[theme] 主题包 ${activePack.name} 维度 "${dim}" 键集漂移：missing=[${miss.join(", ")}]` +
+      `[theme] 主题包 ${packName} 维度 "${dim}" 键集漂移：missing=[${miss.join(", ")}]` +
         ` extra=[${extra.join(", ")}]\n` +
         `契约见 tokens.ts 的 *_TOKEN_KEYS（覆盖基数 ${TOKEN_KEY_COUNT}）`,
     );
   }
 };
-assertKeys(Object.keys(activePack.colors), COLOR_TOKEN_KEYS, "colors");
-assertKeys(Object.keys(activePack.typography), TYPOGRAPHY_TOKEN_KEYS, "typography");
-assertKeys(Object.keys(activePack.spacing), SPACING_TOKEN_KEYS, "spacing");
-assertKeys(Object.keys(activePack.rounded), ROUNDED_TOKEN_KEYS, "rounded");
-assertKeys(Object.keys(activePack.elevation), ELEVATION_TOKEN_KEYS, "elevation");
-assertKeys(Object.keys(activePack.motion.duration), MOTION_DURATION_TOKEN_KEYS, "motion.duration");
-assertKeys(Object.keys(activePack.motion.easing), MOTION_EASING_TOKEN_KEYS, "motion.easing");
+
+/* 🔴 2026-10-04 复审：原实现只对 activePack 校验，而上方注释写着「键集守卫逐维校验两包」
+ * —— 注释比代码更激进。后果是**非激活的那一包**（当前是 nvidiaLight）缺键时无人报错：
+ * TS 的 Record<ColorToken, string> 只在「字面量直接赋值」时做 excess-property 检查，
+ * 一旦将来某个包经 spread / 工厂 / 动态导入构造，类型层就失效，只剩运行时守卫兜底。
+ * ⇒ 改为遍历 themePacks 全量校验，并让报错信息带上**包名**（原来永远指 activePack）。 */
+const validatePack = (pack: typeof activePack): void => {
+  assertKeys(Object.keys(pack.colors), COLOR_TOKEN_KEYS, "colors", pack.name);
+  assertKeys(Object.keys(pack.typography), TYPOGRAPHY_TOKEN_KEYS, "typography", pack.name);
+  assertKeys(Object.keys(pack.spacing), SPACING_TOKEN_KEYS, "spacing", pack.name);
+  assertKeys(Object.keys(pack.rounded), ROUNDED_TOKEN_KEYS, "rounded", pack.name);
+  assertKeys(Object.keys(pack.elevation), ELEVATION_TOKEN_KEYS, "elevation", pack.name);
+  assertKeys(
+    Object.keys(pack.motion.duration),
+    MOTION_DURATION_TOKEN_KEYS,
+    "motion.duration",
+    pack.name,
+  );
+  assertKeys(Object.keys(pack.motion.easing), MOTION_EASING_TOKEN_KEYS, "motion.easing", pack.name);
+};
+themePacks.forEach(validatePack);
 
 // ── 派生：CSS 变量表 ──────────────────────────────────────────────────────────
 const cssVars: Record<string, string> = {
@@ -58,6 +89,13 @@ const cssVars: Record<string, string> = {
   // 圆角 / 高度：同样循环生成，避免逐条手写漏键（原实现只写了 sm/full 两条，flat/hairline/none 缺失）
   ...Object.fromEntries(
     Object.entries(activePack.rounded).map(([k, v]) => [`--aegis-radius-${k}`, v]),
+  ),
+  /* 🔴 2026-10-04 复审修复：装饰圆角档此前**只有 Chakra 出口、没有 CSS 变量出口**。
+   * 上面那行只循环 `activePack.rounded`（3 键）⇒ 生成三个变量；而 `theme.radii` 里
+   * 另有 lg / xl / 2xl / 3xl 四档，纯 CSS 层（伪元素 / 全局 css）根本拿不到。
+   * 这里补上循环，保证「两个出口同源」（与 tokens.ts 顶部纪律一致）。 */
+  ...Object.fromEntries(
+    Object.entries(DECORATIVE_RADII).map(([k, v]) => [`--aegis-radius-${k}`, v]),
   ),
   ...Object.fromEntries(
     Object.entries(activePack.elevation).map(([k, v]) => [`--aegis-elevation-${k}`, v]),
@@ -99,7 +137,11 @@ const toScale = <V extends string | number>(
   return out;
 };
 const fontSizes = toScale<string>((v) => v.fontSize);
-const fontWeights = toScale<string>((v) => String(v.fontWeight));
+// 🔴 2026-10-04 复审：原为 `toScale<string>((v) => String(v.fontWeight))`，把字重转成了字符串。
+// Chakra 默认 fontWeights 是 `{ normal: 400, bold: 700 }`（**数字**），转字符串后
+// ① 与 Chakra 自身刻度类型不一致 ② 任何参与算术/比较的用法会失效（字符串 "400" * 2 = NaN）。
+// ⇒ 改回 number。fontSizes / letterSpacings 保持字符串是对的（Chakra 默认即字符串）。
+const fontWeights = toScale<number>((v) => v.fontWeight);
 const lineHeights = toScale<number>((v) => v.lineHeight);
 const letterSpacings = toScale<string>((v) => v.letterSpacing);
 const textStyles = Object.fromEntries(
@@ -109,14 +151,62 @@ const textStyles = Object.fromEntries(
       fontSize: v.fontSize,
       fontWeight: v.fontWeight,
       lineHeight: v.lineHeight,
+      // 🔴 2026-10-04 复审修复：原生成器漏了 fontFamily，导致 `typography.mono` 的等宽
+      // 字体栈在 textStyle 出口丢失 —— `<Text textStyle="mono">` 静默回退正文字体。
+      // 现在由 tokens 侧声明（`mono.fontFamily = var(--font-mono)`），此处只负责透传。
+      ...(v.fontFamily ? { fontFamily: v.fontFamily } : {}),
       ...(v.letterSpacing ? { letterSpacing: v.letterSpacing } : {}),
       ...(v.textTransform ? { textTransform: v.textTransform } : {}),
     },
   ]),
 );
 
+// ── 控件尺寸档（控件规范 v1 §2.1）───────────────────────────────────────────
+// 🔴 显式标注 string：activePack.typography.body 若被改成 undefined / number，
+//    期望在此处的类型层就暴露，而不是等到 sizes 被 Chakra 消费时才出问题。
+const BODY_SIZE: string = activePack.typography.body.fontSize; // 14px，按钮/输入框统一字号
+
+/* 🔴 2026-10-04 复审修复（真实缺陷）：`::after` 是 absolute，必须有**定位宿主**。
+ * Chakra v2 的 Button / Input / Select / IconButton baseStyle **均无** `position: relative`
+ *（已查 node_modules/@chakra-ui/theme/dist/esm/components/button.mjs），
+ * 因此命中区会相对**最近的已定位祖先**定位 —— 往上找穿 Stack / Modal 直到 #root，
+ * 结果是 28×28 的按钮被一块覆盖整页的透明 ::after 包住，**拦截旁边所有元素的点击**。
+ * ⇒ 宿主必须由本 sizes 显式提供。relative 不脱离文档流，不影响任何布局。 */
+const RELATIVE = { position: "relative" } as const;
+
+/* 🔴 sm 档的命中区补偿：视觉 28 但可点区补到 32（Q4 裁决 A —— 桌面非纯触屏不必一律 44，
+ * 但命中区不得 <32）。用 ::after 而非 padding —— absolute 不参与布局，间距不变。
+ * 🔴 此常量**必须声明在 controlSizes 之前**：对象字面量在模块求值时就会读取它，
+ * 写反了是 TDZ ReferenceError（`const` 无提升）。 */
+const HIT_AREA_SM = {
+  content: '""',
+  position: "absolute",
+  top: "-2px",
+  bottom: "-2px",
+  left: "0",
+  right: "0",
+} as const;
+
+/** sm 28 / md 36 / lg 44；xs 是 sm 的别名（见 components 处的说明）。 */
+const controlSizes = {
+  xs: { ...RELATIVE, h: "28px", px: 3, fontSize: BODY_SIZE, _after: HIT_AREA_SM },
+  sm: { ...RELATIVE, h: "28px", px: 3, fontSize: BODY_SIZE, _after: HIT_AREA_SM },
+  md: { ...RELATIVE, h: "36px", px: 4, fontSize: BODY_SIZE },
+  lg: { ...RELATIVE, h: "44px", px: 5, fontSize: BODY_SIZE },
+};
+/** IconButton 无 px，改用 minW 固定正方形；命中区同理。 */
+const iconButtonSizes = {
+  xs: { ...RELATIVE, h: "28px", minW: "28px", fontSize: BODY_SIZE, _after: HIT_AREA_SM },
+  sm: { ...RELATIVE, h: "28px", minW: "28px", fontSize: BODY_SIZE, _after: HIT_AREA_SM },
+  md: { ...RELATIVE, h: "36px", minW: "36px", fontSize: BODY_SIZE },
+  lg: { ...RELATIVE, h: "44px", minW: "44px", fontSize: BODY_SIZE },
+};
+
 export const theme = extendTheme({
-  config: { initialColorMode: "light", useSystemColorMode: false },
+  // 🔴 initialColorMode = dark（2026-10-04 用户裁决：本期纯深色单主题）。
+  // useSystemColorMode 必须保持 false —— 单主题下若跟随系统，用户在浅色系统上会拿到未交付的
+  // 浅色包，而本期没有浅色包（nvidiaLight 虽在 themePacks 里但**不在交付范围**）。
+  config: { initialColorMode: "dark", useSystemColorMode: false },
   colors: { aegis: activePack.colors },
   fonts: {
     // 中文主面 = 思源黑体（Noto Sans SC，已定档 2026-10-02，规范 §二/§七）；雅黑仅兜底
@@ -151,10 +241,8 @@ export const theme = extendTheme({
     sm: activePack.rounded.sm, // 2px（规范档）
     base: activePack.rounded.sm, // 2px（Chakra 默认 4px，**默认落点**）
     md: activePack.rounded.sm, // 2px（Chakra 默认 6px，**默认落点**）
-    lg: "8px", // Chakra 默认，保留（换皮页显式使用）
-    xl: "12px", // Chakra 默认，保留（复刻/换皮显式使用）
-    "2xl": "16px", // Chakra 默认，保留（NexBox 复刻封面）
-    "3xl": "24px", // Chakra 默认，保留以免组件取到 undefined
+    // 装饰档（Chakra 兼容）：与 cssVars 同源常量，见 tokens.ts 的说明
+    ...DECORATIVE_RADII,
     full: activePack.rounded.full, // 9999px（头像/状态圆点，规范档）
   },
   fontSizes,
@@ -162,13 +250,68 @@ export const theme = extendTheme({
   lineHeights,
   letterSpacings,
   textStyles,
-  // ⚠️ 组件级兜底只剩 Badge：其 styleConfig 默认 `borderRadius: "full"`（胶囊），
-  // 而规范要求 badge 恒 2px —— 这不是「默认落点」问题，只能逐组件纠偏。
-  // Button/Input/Textarea/Select/IconButton 已走上面的 `radii.md`=2px，无需再列。
+  // 🟡 组件级兜底 = Badge + Card，二者**默认值与规范明确相反**，必须逐组件纠偏：
+  //   · Badge：Chakra styleConfig 默认 `borderRadius: "full"`（胶囊），规范要求恒 2px
+  //   · Card：默认 `size="md"` 取 `radii.md`，本主题已压到 2px ✓ ——
+  //     此处仍显式兜底，是为了防止将来有人改 `radii.md` 而让 Card 静默漂走
+  // （其余组件走 `radii.md`=2px，无需再列。）
   components: {
     Badge: {
       baseStyle: { borderRadius: activePack.rounded.sm },
     },
+    Card: {
+      baseStyle: { borderRadius: activePack.rounded.sm },
+    },
+    /* ══ 控件高度三档（控件规范 v1 §2.1 定稿，2026-10-04）══════════════════════
+     * sm 28 / md 36 / lg 44。**必须在主题层覆盖** —— Chakra 自带 xs24/sm32/md40/lg48 四档，
+     * 不覆盖则源码可以随便写 size，规范约束不住。
+     *
+     * 🔴 `xs` 保留但**映射到 sm**（Q2 裁决 A）：现状 `Button size="xs"` 有 20 处，
+     * 若此处不设 xs，它们会回退 Chakra 默认 24 ⇒ 凭空多出第五种高度。
+     * 下方注释已注明「xs 是 sm 的别名」，防后人误以为它是独立小号。
+     *
+     * px 用 Chakra spacing token（3/4/5 = 12/16/20px）而非字面量，以便跟随 spacing 刻度。
+     * fontSize 取 typography.body（14px）—— 本项目 typography 12 键里没有 sm 档，
+     * 写 fontSize:"sm" 会取到 undefined 而静默回退 Chakra 默认，不如写死来源。
+     */
+    Button: { sizes: controlSizes },
+    Input: { sizes: controlSizes },
+    Select: { sizes: controlSizes },
+    IconButton: { sizes: iconButtonSizes },
+    // Textarea 高度**不设档**（控件规范 §2.1）：只给最小高度，按 3 / 4 / 5 行递增。
+    Textarea: {
+      sizes: {
+        sm: { minH: "66px", fontSize: BODY_SIZE }, // 3 行
+        md: { minH: "88px", fontSize: BODY_SIZE }, // 4 行
+        lg: { minH: "110px", fontSize: BODY_SIZE }, // 5 行
+      },
+    },
+  },
+  /* 🔴 2026-10-04 复审修复：**焦点环双绘**。
+   *
+   * 事实链（均已查源码，非推测）。
+   * 注：复审原建议「把 shadows.outline 改成同色」被**否决**——那样会叠成
+   * 「内层 shadow 环 + 外层 outline 环」两圈分离的环，比一环更糟；
+   * 正确做法是禁用组件层，让全局 outline 成为唯一来源。
+   *   ① Chakra 组件的 `_focusVisible` 是 `{ boxShadow: "outline" }`
+   *      （node_modules/@chakra-ui/theme/dist/esm/components/button.mjs:11-13）；
+   *   ② `shadows.outline` 默认值 = `0 0 0 3px rgba(66, 153, 225, 0.6)` —— **蓝色**
+   *      （同包 foundations/shadows.mjs:9）；
+   *   ③ 全局 `*:focus-visible` 另有一条 `outline: 2px solid focus-ring`（绿色）。
+   *   `outline` 与 `box-shadow` 是**两个独立属性**，互不覆盖 ⇒ 组件聚焦时
+   *   **蓝色 3px 光晕 + 绿色 2px 描边同时出现**（原 P2-12「组件层控制、全局兜底」的
+   *   推理不成立 —— 那条 `:focus:not(:focus-visible)` 只处理「非 focus-visible 状态」，
+   *   对「两个属性同时画在 focus-visible 上」毫无作用）。
+   *
+   * 处置选择（**刻意不采用**「把 shadows.outline 改成同色」）：
+   *   同色方案下 shadow 在内、outline 在外（offset 2px 把 outline 推到 shadow 之外），
+   *   视觉是**两圈分离的环**，比一环更糟，且参数（spread vs offset）语义不同、难以对齐。
+   *   ⇒ 改为**禁用组件层**（shadows.outline = none），焦点环**单一来源** = 全局 outline。
+   *   好处：裸元素（<a> / <details> / 原生 checkbox）与 Chakra 组件表现完全一致，
+   *   且严格符合规范 §八「焦点环 2px、偏移 2px」的字面描述。
+   */
+  shadows: {
+    outline: "none",
   },
   styles: {
     global: {
@@ -181,6 +324,11 @@ export const theme = extendTheme({
       },
       html: {
         background: activePack.colors.canvas,
+        // 🔴 深色下必须声明 color-scheme，否则**原生控件与滚动条**（表单控件的原生内阴影、
+        // 选中文本高亮、滚动条轨道）仍按浅色渲染，在近黑底上出现刺眼白条。
+        // 🔴 已改为从包派生（不再硬编码 "dark"）：切回 Light 包时原生控件自动跟随，
+        //    不会再出现「换了包但原生滚动条/表单控件仍按深色渲染」的静默错位。
+        colorScheme: activePack.mode,
         // P1-6：`overflow-x: hidden` 在 html 上会隐式把 overflow-y 变 auto → 创建滚动容器，
         // 破坏后代 position:sticky / 100vh 语义与滚动锚定。`clip` 不创建滚动容器。
         overflowX: "clip",
@@ -195,13 +343,20 @@ export const theme = extendTheme({
         WebkitFontSmoothing: "antialiased",
         overflowX: "clip",
       },
-      // 规范 §八：焦点环 2px accent-strong（浅底）偏移 2px，禁 outline:none
+      // 规范 §八：焦点环 2px，偏移 2px，禁 outline:none
+      // 🔴 2026-10-04：色值改读 **focus-ring 语义键**，不再写死 accent-strong。
+      // 原因：focus-ring 在浅色包 = accent-strong（白底 5.18:1）、深色包 = accent（深底 8.06:1）；
+      // 写死 strong 在深底只有 3.75:1，虽越过非文本 3:1 但余量极薄，且与 03 规范 §五
+      // 「Dark 下焦点环可直接用 accent」的明文不一致。
       "*:focus-visible": {
-        outline: `2px solid ${activePack.colors["accent-strong"]}`,
+        outline: `2px solid ${activePack.colors["focus-ring"]}`,
         outlineOffset: "2px",
       },
-      // P2-12：Chakra 组件自身的 _focusVisible 特异性更高、会与之叠加成双环，
-      // 故显式收口 —— 焦点环统一由组件层 _focusVisible 控制，全局规则仅作兜底
+      // 🔴 2026-10-04 复审重写：原注释「焦点环统一由组件层 _focusVisible 控制，全局规则仅作
+      // 兜底」的前提是**组件层能画对颜色** —— 实际它画的是 Chakra 默认蓝色
+      // （shadows.outline，见上方 shadows 段），与全局的绿色 focus-ring 叠成双环。
+      // 现已把 shadows.outline 置 none ⇒ 组件层不再绘制，**焦点环唯一来源是这条全局规则**。
+      // 本行只负责「非 focus-visible（例如用鼠标点过）时不画环」，与双环问题无关，保留。
       ":focus:not(:focus-visible)": { outline: "none", outlineOffset: "0" },
       // 🔴 阶段一 100% 复刻补入（2026-10-03）：以下全局规则来自参照工程
       // NexBox `src/index.css`（64-92 / 255-292 行）。Aegis 无 index.css，
