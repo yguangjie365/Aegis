@@ -28,6 +28,7 @@
 //! （本仓 `clippy.toml` 禁用 `std::thread::sleep`，故等待用 `Condvar::wait_timeout`，
 //! 且超时值可注入）。
 
+use super::conflict::ConflictPolicy;
 use std::collections::HashMap;
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
@@ -65,6 +66,8 @@ pub struct PendingConfirmation {
 struct Slot {
     snapshot: PendingConfirmation,
     decision: Option<Decision>,
+    /// 用户在本次弹窗里选的冲突策略（只作用于本次传输，不落设置）
+    policy: Option<ConflictPolicy>,
     /// 登记时刻（**单调时钟**）：用来算"还剩多少毫秒"。
     ///
     /// 🔴 用 `Instant` 而不是墙上时钟：用户改系统时间不该让倒计时跳一下或直接到期。
@@ -107,6 +110,7 @@ impl ConfirmGate {
             Slot {
                 snapshot,
                 decision: None,
+                policy: None,
                 asked_at: std::time::Instant::now(),
             },
         );
@@ -118,6 +122,19 @@ impl ConfirmGate {
     /// 🔴 已回答过的不再被改写：这是"终态不可回退"在确认路径上的对应物
     /// （用户点了接收之后，一个迟到的"拒绝"不该把它翻过来）。
     pub fn resolve(&self, id: &str, decision: Decision) -> bool {
+        self.resolve_with_policy(id, decision, None)
+    }
+
+    /// 同 [`Self::resolve`]，但可一并带上**本次传输**的冲突策略（「同名文件」三个选项）。
+    ///
+    /// 🔴 只作用于本次接收，**不写设置**：用户在这次弹窗里选"覆盖"，
+    /// 不该把他下次的默认行为也一并改掉。
+    pub fn resolve_with_policy(
+        &self,
+        id: &str,
+        decision: Decision,
+        policy: Option<ConflictPolicy>,
+    ) -> bool {
         let mut map = self.lock();
         let Some(slot) = map.get_mut(id) else {
             return false;
@@ -126,30 +143,33 @@ impl ConfirmGate {
             return false;
         }
         slot.decision = Some(decision);
+        slot.policy = policy;
         self.signal.notify_all();
         true
     }
 
     /// 阻塞等待裁决；**超时即拒**（R-8），并在返回前清理该条待决。
     ///
-    /// 被 `resolve` 唤醒 → 返回用户的选择；超时 → [`Decision::Reject`]。
-    pub fn await_decision(&self, id: &str) -> Decision {
+    /// 被 `resolve` 唤醒 → 返回用户的选择与（可选的）本次冲突策略；
+    /// 超时/无此条 → [`Decision::Reject`] 且无策略。
+    pub fn await_decision(&self, id: &str) -> (Decision, Option<ConflictPolicy>) {
         let mut map = self.lock();
         let deadline = std::time::Instant::now() + self.timeout;
         loop {
             let Some(slot) = map.get(id) else {
                 // 已被清理（不该发生）——保守判拒
-                return Decision::Reject;
+                return (Decision::Reject, None);
             };
             if let Some(decision) = slot.decision {
+                let policy = slot.policy;
                 map.remove(id);
-                return decision;
+                return (decision, policy);
             }
             let now = std::time::Instant::now();
             if now >= deadline {
                 // 🔴 超时按拒绝（R-8 四条路径之一），并清理待决
                 map.remove(id);
-                return Decision::Reject;
+                return (Decision::Reject, None);
             }
             let (guard, timeout_result) = self
                 .signal

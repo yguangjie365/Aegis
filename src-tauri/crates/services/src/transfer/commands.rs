@@ -35,6 +35,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
+use super::conflict::ConflictPolicy;
 use super::discovery::Peer;
 use super::reasons;
 use super::service::{SendFailure, StartFailure, TransferService};
@@ -724,11 +725,13 @@ pub fn transfer_confirm_receive(
     envelope: contracts::CmdEnvelope,
     id: String,
     accept: bool,
+    // 本次传输的冲突策略覆盖（rename / ask / skip / overwrite）；None = 沿用设置。
+    conflict_policy: Option<String>,
 ) -> Result<(), TransferErrorDto> {
     let started = Instant::now();
     // 🔴 只调一次：`confirm_impl` 是**有副作用**的（它消费掉那条待决），
     // 调两次会让第二次必然返回 CONFIRM_GONE——首版就是这么写错的
-    let outcome = confirm_impl(&id, accept);
+    let outcome = confirm_impl(&id, accept, conflict_policy.as_deref());
     let (label, exception) = match &outcome {
         Ok(()) => (ResultLabel::Success, None),
         Err(code) => (ResultLabel::Failed, Some(*code)),
@@ -771,12 +774,20 @@ fn pending_confirms_impl() -> Vec<PendingConfirmDto> {
         .collect()
 }
 
-fn confirm_impl(id: &str, accept: bool) -> Result<(), &'static str> {
+fn confirm_impl(id: &str, accept: bool, policy: Option<&str>) -> Result<(), &'static str> {
     let state = lock_state();
     let Some(service) = state.service.as_ref() else {
         return Err(CODE_NOT_RUNNING);
     };
-    if service.resolve_confirm(id, accept) {
+    // 策略串非法时**不静默忽略**：它是界面来的输入，出错必须让用户看见
+    let parsed = match policy {
+        None => None,
+        Some(raw) => match parse_conflict_policy(raw) {
+            Some(value) => Some(value),
+            None => return Err(CODE_BAD_PAYLOAD),
+        },
+    };
+    if service.resolve_confirm_with_policy(id, accept, parsed) {
         Ok(())
     } else {
         Err(CODE_CONFIRM_GONE)
@@ -833,5 +844,18 @@ fn tasks_impl() -> Vec<TransferTaskDto> {
         .collect()
 }
 
+/// 把界面传来的冲突策略串解析成枚举。
+///
+/// 🔴 不认识的串返回 `None`（调用方据此回 `BAD_PAYLOAD`），**不静默落回默认值**——
+/// 静默落回会让用户以为"按我选的策略办了"，而实际按了别的。
+fn parse_conflict_policy(raw: &str) -> Option<ConflictPolicy> {
+    match raw {
+        "rename" => Some(ConflictPolicy::Rename),
+        "ask" => Some(ConflictPolicy::Ask),
+        "skip" => Some(ConflictPolicy::Skip),
+        "overwrite" => Some(ConflictPolicy::Overwrite),
+        _ => None,
+    }
+}
 #[cfg(test)]
 mod tests;

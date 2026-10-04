@@ -72,7 +72,7 @@ fn await_returns_the_users_decision_when_resolved() {
     // 给等待线程一点时间登入等待，再裁决
     std::thread::yield_now();
     assert!(gate.resolve("t1", Decision::Accept));
-    assert_eq!(handle.join().unwrap(), Decision::Accept);
+    assert_eq!(handle.join().unwrap().0, Decision::Accept);
 }
 
 /// 🔴 R-8 四条路径之一：**超时按拒绝**。
@@ -81,7 +81,7 @@ fn timeout_denies_by_default() {
     let gate = ConfirmGate::new(Duration::from_millis(20));
     gate.ask(snapshot("t1"));
     let started = std::time::Instant::now();
-    let decision = gate.await_decision("t1");
+    let (decision, _) = gate.await_decision("t1");
     assert_eq!(decision, Decision::Reject, "没人回答必须判拒绝");
     assert!(
         started.elapsed() >= Duration::from_millis(15),
@@ -105,13 +105,13 @@ fn reject_is_delivered_as_is() {
     let handle = std::thread::spawn(move || waiter.await_decision("t1"));
     std::thread::yield_now();
     assert!(gate.resolve("t1", Decision::Reject));
-    assert_eq!(handle.join().unwrap(), Decision::Reject);
+    assert_eq!(handle.join().unwrap().0, Decision::Reject);
 }
 
 #[test]
 fn awaiting_an_unknown_id_denies_conservatively() {
     let gate = ConfirmGate::new(Duration::from_millis(10));
-    assert_eq!(gate.await_decision("ghost"), Decision::Reject);
+    assert_eq!(gate.await_decision("ghost").0, Decision::Reject);
 }
 
 /// 🔴 服务停止时 `cancel_all` 必须**唤醒**等待者：否则 `stop()` 的 join 会卡到超时。
@@ -126,7 +126,7 @@ fn cancel_all_wakes_waiters_and_denies() {
 
     let started = std::time::Instant::now();
     gate.cancel_all();
-    assert_eq!(handle.join().unwrap(), Decision::Reject);
+    assert_eq!(handle.join().unwrap().0, Decision::Reject);
     assert!(
         started.elapsed() < Duration::from_secs(2),
         "必须被唤醒，而不是等满 30 秒超时（实测 {:?}）",
@@ -165,7 +165,7 @@ fn re_asking_the_same_id_overwrites_the_old_slot() {
 fn timeout_rejects_even_if_a_decision_arrives_immediately_after() {
     let gate = ConfirmGate::new(Duration::from_millis(20));
     gate.ask(snapshot("t1"));
-    assert_eq!(gate.await_decision("t1"), Decision::Reject);
+    assert_eq!(gate.await_decision("t1").0, Decision::Reject);
     // 迟到很久的"接收"没有对象可改（那条待决已被清理）
     assert!(!gate.resolve("t1", Decision::Accept));
 }

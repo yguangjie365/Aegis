@@ -435,7 +435,8 @@ enum HandshakePhase {
 fn admit_handshake<R: Read, W: Write>(
     reader: &mut FrameReader<R>,
     writer: &mut W,
-    admit: impl FnOnce(&HandshakeFacts<'_>) -> Admission,
+    policy: &mut ConflictPolicy,
+    admit: impl FnOnce(&HandshakeFacts<'_>, &mut ConflictPolicy) -> Admission,
 ) -> Result<HandshakePhase, TransportError> {
     let (message, _) = reader.read_frame()?;
     let (task_id, file_name, file_size, declared_hash, declared_chunk, pair_code) = match message {
@@ -464,7 +465,7 @@ fn admit_handshake<R: Read, W: Write>(
         pair_code: pair_code.as_deref(),
     };
     // 裁决点唯一：`admission::evaluate`，由调用方的闭包执行（白名单/配对/并发/磁盘都在里面）
-    let verdict = admit(&facts);
+    let verdict = admit(&facts, policy);
     // 防御：`evaluate` 的第 4 关本应拦住非法分块大小；这里再拦一次是因为
     // "分块大小"直接决定后续每次读取的缓冲，不该只依赖调用方把参数配对。
     let verdict = match verdict {
@@ -517,15 +518,17 @@ pub fn receive_file(
     stream: &TcpStream,
     root: &Path,
     peer_token: &str,
-    policy: ConflictPolicy,
-    admit: impl FnOnce(&HandshakeFacts<'_>) -> Admission,
+    // 🔴 &mut 而不是按值：准入闭包要在**拿到用户裁决之后**就地覆盖本次的冲突策略
+    //    （「同名文件」三个选项只在本次生效，不该改动持久设置）
+    policy: &mut ConflictPolicy,
+    admit: impl FnOnce(&HandshakeFacts<'_>, &mut ConflictPolicy) -> Admission,
     cancel: &CancellationToken,
 ) -> Result<ReceiveOutcome, TransportError> {
     let mut writer = stream;
     let mut reader = FrameReader::new(stream);
 
     // ── 握手 + 准入裁决（已抽出，见 `admit_handshake`） ──
-    let admitted = match admit_handshake(&mut reader, &mut writer, admit)? {
+    let admitted = match admit_handshake(&mut reader, &mut writer, policy, admit)? {
         HandshakePhase::Admitted(admitted) => admitted,
         // 🔴 拒收即不建任何文件（R-13 的顺序：闸门在"建未完成文件"之前）
         HandshakePhase::Rejected(outcome) => return Ok(outcome),
@@ -570,7 +573,7 @@ pub fn receive_file(
                         "Complete 声明的摘要与握手不一致（对端文件中途被改动？）",
                     ));
                 }
-                let outcome = sink.finish(&file_hash, policy, None, now_unix_ms())?;
+                let outcome = sink.finish(&file_hash, *policy, None, now_unix_ms())?;
                 let (ok, reason_code) = match &outcome {
                     FinishOutcome::Committed { .. } => (true, None),
                     FinishOutcome::Skipped => {

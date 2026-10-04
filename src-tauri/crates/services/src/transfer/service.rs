@@ -467,6 +467,32 @@ impl TransferService {
     /// （超时判拒），此时界面必须如实说"该请求已超时"，而不是显示"已接收"。
     #[must_use]
     pub fn resolve_confirm(&self, id: &str, accept: bool) -> bool {
+        self.resolve_confirm_with_policy(id, accept, None)
+    }
+
+    /// 同 `Self::resolve_confirm`，但可带上**本次传输**的冲突策略覆盖。
+    ///
+    /// 🔴 只作用于本次接收，**不写设置**。
+    #[must_use]
+    pub fn resolve_confirm_with_policy(
+        &self,
+        id: &str,
+        accept: bool,
+        policy: Option<ConflictPolicy>,
+    ) -> bool {
+        self.ctx.confirm.resolve_with_policy(
+            id,
+            if accept {
+                confirm::Decision::Accept
+            } else {
+                confirm::Decision::Reject
+            },
+            policy,
+        )
+    }
+
+    #[allow(dead_code)]
+    fn __old_resolve_confirm(&self, id: &str, accept: bool) -> bool {
         self.ctx.confirm.resolve(
             id,
             if accept {
@@ -589,12 +615,15 @@ fn handle_connection(
     // 🔴 用 `Cell` 而不是 `Mutex`：闭包与收尾在**同一线程**（`receive_file` 是阻塞调用），
     //    跨线程共享既无必要，也会掩盖"这段逻辑本该是单线程"这个事实。
     let task_id_slot: std::cell::Cell<Option<String>> = std::cell::Cell::new(None);
+    // 本次接收的冲突策略：初值取设置，但准入闭包可在**用户裁决之后**就地覆盖它
+    // （弹窗里的「同名文件」三个选项只作用于本次，不写设置）
+    let mut policy = ctx.settings.conflict_policy;
     let outcome = transport::receive_file(
         stream,
         &ctx.receive_root,
         &peer_token,
-        ctx.settings.conflict_policy,
-        |facts| {
+        &mut policy,
+        |facts, policy| {
             let available = infra::fs::available_bytes(&ctx.receive_root).ok();
             let disk = admission::classify_disk_space(available, facts.file_size);
             let verdict = ctx.admit(peer.ip(), facts, disk);
@@ -628,11 +657,16 @@ fn handle_connection(
                     name_conflict: infra::safe::join_under_root(&ctx.receive_root, facts.file_name)
                         .is_ok_and(|path| path.exists()),
                 });
-                if ctx.confirm.await_decision(&id) == confirm::Decision::Reject {
+                let (decision, chosen_policy) = ctx.confirm.await_decision(&id);
+                if decision == confirm::Decision::Reject {
                     return Admission::Rejected {
                         gate: admission::Gate::Confirm,
                         reason: reasons::USER_REJECT,
                     };
+                }
+                // 用户在这次弹窗里选了别的冲突策略：就地覆盖（只作用本次）
+                if let Some(chosen) = chosen_policy {
+                    *policy = chosen;
                 }
             }
             // 🔴 登记任务（F-FT-25）：位置在**闸门与确认全过之后**——
@@ -666,7 +700,7 @@ fn handle_connection(
                 // 对端明确拒收：原因码**取对端回传的那个**（R-16"以对端回传的原因码为准"）
                 (TaskState::Cancelled, Some(reason_code.as_str()))
             }
-            // 取消：原因码优先取承载它的那个（Cancelled 自带 eason_code）
+            // 取消：原因码优先取承载它的那个（Cancelled 变体自带 reason_code）
             Err(TransportError::Cancelled { reason_code }) => {
                 (TaskState::Cancelled, Some(reason_code.as_str()))
             }

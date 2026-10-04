@@ -48,7 +48,8 @@ fn connect(addr: SocketAddr) -> TcpStream {
     stream
 }
 
-fn always_admit(_facts: &HandshakeFacts<'_>) -> Admission {
+/// 一律放行（第二个参数是本次冲突策略，本辅助不改它）。
+fn always_admit(_facts: &HandshakeFacts<'_>, _policy: &mut ConflictPolicy) -> Admission {
     Admission::Admitted {
         disk_unknown: false,
     }
@@ -181,7 +182,7 @@ fn send_and_receive_round_trip_over_tcp() {
             &stream,
             &recv_dir,
             "peer1",
-            ConflictPolicy::Rename,
+            &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
         )
@@ -220,8 +221,8 @@ fn rejected_handshake_creates_no_file_and_tells_the_sender_why() {
             &stream,
             &recv_dir,
             "peer1",
-            ConflictPolicy::Rename,
-            |_| Admission::Rejected {
+            &mut ConflictPolicy::Rename,
+            |_, _| Admission::Rejected {
                 gate: Gate::Whitelist,
                 reason: crate::transfer::reasons::PEER_NOT_DISCOVERED,
             },
@@ -314,7 +315,7 @@ fn interrupted_transfer_resumes_on_a_second_connection() {
             &stream,
             &recv_dir_second,
             "peer1",
-            ConflictPolicy::Rename,
+            &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
         )
@@ -371,7 +372,7 @@ fn hash_mismatch_is_reported_to_both_sides_and_leaves_nothing() {
             &stream,
             &recv_dir,
             "peer1",
-            ConflictPolicy::Rename,
+            &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
         )
@@ -414,7 +415,7 @@ fn conflict_skip_is_reported_as_skipped_not_delivered() {
             &stream,
             &recv_dir,
             "peer1",
-            ConflictPolicy::Skip,
+            &mut ConflictPolicy::Skip,
             always_admit,
             &cancel,
         )
@@ -458,7 +459,7 @@ fn cancel_notifies_the_peer_and_keeps_the_partial_file() {
             &stream,
             &recv_dir_clone,
             "peer1",
-            ConflictPolicy::Rename,
+            &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
         )
@@ -509,7 +510,7 @@ fn garbage_on_the_wire_is_rejected_without_panicking() {
             &stream,
             &recv_dir,
             "peer1",
-            ConflictPolicy::Rename,
+            &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
         )
@@ -545,7 +546,7 @@ fn peer_that_never_speaks_is_cut_off_by_the_read_timeout() {
             &stream,
             &recv_dir,
             "peer1",
-            ConflictPolicy::Rename,
+            &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
         )
