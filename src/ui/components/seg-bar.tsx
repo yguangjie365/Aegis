@@ -6,18 +6,31 @@ import styled from "@emotion/styled";
 
 const Track = styled.div`
   height: 6px;
-  border-radius: var(--aegis-rounded-full);
+  border-radius: var(--aegis-radius-full);
   background: var(--aegis-surface-inset);
   overflow: hidden;
 `;
 
-const Fill = styled.div<{ width: number }>`
+// 🔴 三态配色与母本逐值对齐（`StatCardVm.SegLevel`）：Normal 走主色绿、
+// Warning=母本 `Brush_SegmentWarn` #EF9100、Critical 走 error 红。
+// 分级值由 Rust 判完下发，本组件只按值取色。
+const LEVEL_COLOR = {
+  normal: "var(--aegis-accent)",
+  warning: "var(--aegis-warning-bright)",
+  critical: "var(--aegis-error)",
+} as const;
+
+const Fill = styled.div<{ width: number; $level: keyof typeof LEVEL_COLOR }>`
   height: 100%;
   width: ${(p) => p.width}%;
-  border-radius: var(--aegis-rounded-full);
-  background: var(--aegis-accent);
-  /* 节拍 2 秒，过渡 400ms：肉眼能看出在动，又不至于永远追不上 */
-  transition: width 400ms ease;
+  border-radius: var(--aegis-radius-full);
+  background: ${(p) => LEVEL_COLOR[p.$level]};
+  /* 节拍 2 秒，过渡 slow 档(400ms)：肉眼能看出在动，又不至于永远追不上。
+     颜色一并过渡：跨档时（如 59% → 61%）色带平滑推过去，不闪一下。
+     🔴 2026-10-04 起取令牌（第六维 motion），不再裸写 400ms / ease。 */
+  transition:
+    width var(--aegis-motion-duration-slow) var(--aegis-motion-easing-standard),
+    background-color var(--aegis-motion-duration-slow) var(--aegis-motion-easing-standard);
 `;
 
 const Caption = styled.div`
@@ -27,7 +40,18 @@ const Caption = styled.div`
   color: var(--aegis-mute);
 `;
 
-export function SegBar({ percent, label }: { percent: number | null; label: string }) {
+export type SegLevel = "normal" | "warning" | "critical";
+
+export function SegBar({
+  percent,
+  label,
+  level = "normal",
+}: {
+  percent: number | null;
+  label: string;
+  /** 🔴 由后端 `segLevel` 下发（`SegLevel::from_percent`）；缺省仅供无后端的预览场景 */
+  level?: SegLevel;
+}) {
   const width = percent === null ? 0 : Math.min(100, Math.max(0, percent));
   return (
     <div>
@@ -37,8 +61,10 @@ export function SegBar({ percent, label }: { percent: number | null; label: stri
         aria-valuenow={percent ?? undefined}
         aria-valuemin={0}
         aria-valuemax={100}
+        // 🔴 无障碍：三态不只靠颜色区分，读屏需能读到档位
+        aria-valuetext={percent === null ? label : `${percent}%`}
       >
-        <Fill width={width} />
+        <Fill width={width} $level={level} />
       </Track>
       <Caption>{label}</Caption>
     </div>

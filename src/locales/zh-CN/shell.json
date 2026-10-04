@@ -5,8 +5,9 @@
   },
   "window": {
     "minimize": "最小化",
-    "maximizeDisabled": "最大化（规范 §四 禁用）",
-    "close": "关闭"
+    "close": "关闭",
+    "overlayAria": "窗口拖动区与窗口控制",
+    "maximize": "最大化"
   },
   "nav": {
     "fold": "折叠",
@@ -33,5 +34,12 @@
     "version": "v0.1.0",
     "noTelemetry": "零遥测",
     "browserPreview": "浏览器预览模式 · 后端未接入（W0-02）"
+  },
+  "about": {
+    "title": "关于",
+    "sub": "版本与合规声明",
+    "versionLabel": "版本",
+    "telemetryLabel": "遥测",
+    "note": "本应用不采集、不上传任何遥测数据；所有数据仅保存在本机。"
   }
 }

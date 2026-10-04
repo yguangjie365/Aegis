@@ -15,7 +15,7 @@ const Row = styled.div`
   gap: var(--aegis-space-xs) var(--aegis-space-sm);
   padding: var(--aegis-space-sm) var(--aegis-space-md);
   border: 1px solid var(--aegis-hairline);
-  border-radius: var(--aegis-rounded-sm);
+  border-radius: var(--aegis-radius-sm);
   background: var(--aegis-surface-soft);
   font-size: 12px;
   line-height: 1.5;

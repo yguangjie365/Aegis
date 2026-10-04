@@ -57,4 +57,22 @@
 > 🟡 片1-c 已把该状态机落进 `services/src/overview/sensor_bridge.rs` 并由单测钉住（`force_exe_missing_for_tests()` 走"5s 快败"的结构性上界，测试里**不真起** sidecar）；下面两条是**真机**动作，尚未实测，不得记为已验证。
 
 - 🔲 把 `AegisMonitor.exe` 改名后启动主程序：验证 **5s 快败 / 30s 冷却 / 连败 5 次禁用** 与四卡 L-08 降级（卡不消失、卡高不变）。
-- 🔲 管理员启动同产物：确认 `HardDisk` / `Motherboard` 是否补齐，据此定 F-06 是否走"提权后重采"分支。
+- 🔲 管理员启动同产物：确认 `HardDisk` / `Motherboard` 是否补齐，据此定 F-06 是否走"提权后重采"分支。🔴 需 UAC 交互，交用户执行。
+
+## 六、片4 F-11 前的复测（同日 23:20，非管理员 + 未装 PawnIO）
+
+取数方式与 §一 相同（stdin `{"cmd":"read"}`，stdout 一行 JSON）。**结论未变，数字随负载浮动**：
+
+- 体量：64 条传感器 / 10,261 B；硬件面仍只有 `Cpu` ×26、`Memory` ×6、`GpuNvidia` ×32，**`HardDisk` / `Motherboard` 仍 0 条**，`Fan` 类仍 0 条 → §一 的三态判定与 F-06「空面板 + 原因」口径继续成立。
+- CPU 面本次见 `CPU Total` 23.09%、`CPU Core Max` 66.67%，`Temperature` 仍 0 条（L-01 再次印证）。
+- GPU 面本次见 `GPU Core` 60℃ / `GPU Hot Spot` 64.69℃ / `GPU Core` 负载 3%，与 §一 同构。
+- Memory 面见 `Total Memory` 42.95% 与 `Virtual Memory` 42.43% **两条并存** → 聚合规则 4 的 `hardware == "Total Memory"` 收窄不是可选优化，缺它就把虚拟内存当物理内存占用展示（R-08 违规）。
+
+### F-11 传感器全量表的两条新结论
+
+1. **sidecar 每条读数自带 `unit`**（℃ / % / W / MHz / GB / MB / B/s / V 实测均出现）。
+   单位是**数据不是文案**，故 `overview_sensor_table` 直接透传（`SensorReading.unit` → `SensorRowDto.unit`），
+   🔴 不在本仓重抄一份 15 项单位表（那份表的唯一 owner 在 sidecar `Program.cs::GetUnit`）。
+2. 本机 64 条覆盖 8 种 `sensorType`：`Load` `Temperature` `Power` `SmallData` `Data` `Clock` `Throughput` `Voltage`
+   → `locales/zh-CN/overview.json` 的 `sensor.type.*` 已**全部覆盖这 8 种**，本机导出不漏译名；
+   未知类型（如他机上出现的 `Fan` / `Control`）按"词典无此键则原样透出 sidecar 串"处理，🔴 不臆造译法。

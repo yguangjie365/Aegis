@@ -92,21 +92,21 @@ export interface Lyrics {
 /** 逐词数据 */
 export interface LyricWord {
   text: string;
-  t: number;     // 开始时间（秒）
-  d: number;     // 持续时间（秒）
-  c0: number;    // 在整行文本中的起始字符索引
-  c1: number;    // 在整行文本中的结束字符索引
+  t: number; // 开始时间（秒）
+  d: number; // 持续时间（秒）
+  c0: number; // 在整行文本中的起始字符索引
+  c1: number; // 在整行文本中的结束字符索引
 }
 
 /** 卡拉OK歌词行 */
 export interface KaraokeLine {
-  time: number;          // 行开始时间（秒）
-  duration: number;      // 行持续时间（秒）
-  text: string;          // 整行文本
-  translation?: string;  // 翻译
-  words?: LyricWord[];   // 逐词数据（有 YRC 时存在）
-  charCount: number;     // 字符数
-  hasKaraoke: boolean;   // 是否有逐字数据
+  time: number; // 行开始时间（秒）
+  duration: number; // 行持续时间（秒）
+  text: string; // 整行文本
+  translation?: string; // 翻译
+  words?: LyricWord[]; // 逐词数据（有 YRC 时存在）
+  charCount: number; // 字符数
+  hasKaraoke: boolean; // 是否有逐字数据
 }
 
 export interface QrCheckResult {
@@ -121,7 +121,7 @@ export interface QrCheckResult {
 export interface MusicComment {
   comment_id: number;
   content: string;
-  time: number;       // 毫秒时间戳
+  time: number; // 毫秒时间戳
   liked_count: number;
   liked: boolean;
   user_id: number;

@@ -45,8 +45,8 @@ sysinfo = "0.30"
 # M-01 本机概览 片2（2026-10-03）：WMI / NVML 属 FFI 类系统访问，按 04 分册 §一 准入表
 # （"FFI 只出现在 infra 与 elevated-helper"）声明在 crates/infra，本 crate 经 infra::wmi / infra::nvml 使用。
 # 版本与许可登记见 ../../../DEPENDENCIES.md §一，K-004 收窄口径见同文件 §五
-# libloading：system_info.rs 动态加载 ntdll RtlGetVersion（NexBox 同路径）
-libloading = "0.8"
+# 🔴 2026-10-03 片4 收口批：曾在此声明 `libloading = "0.8"`（供 system_info 手写 RtlGetVersion），
+# 属违反准入表的落点错位，已改走注册表/WMI/sysinfo 三通道并把依赖摘出本 crate（登记见变更记录）。
 # M-01 片2-e：快照指纹计算（SHA-256；hex 已在 MU-4 段声明）
 sha2 = "0.10"
 

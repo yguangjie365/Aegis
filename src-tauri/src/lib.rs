@@ -15,7 +15,11 @@ use tauri::{
     AppHandle, Manager, RunEvent, WebviewWindow,
 };
 
-mod music_login;
+// 🔴 2026-10-03 清理：原 `mod music_login;` 及其实现文件 `src/music_login.rs`（470 行）
+// **整体删除**。该文件是 Aegis 在复刻期自建的宿主层登录窗（自造 `LoginFlow` 两平台流 +
+// `spawn_login_poll` + 八字段 `tracing` 日志），功能被 services 版取代，改动后全文件
+// dead_code（7 项警告）。🔴 同名命令不可并存：Tauri 解析不确定（见下方注册表注释）。
+// 详见下方「音乐登录窗口」注册段的口径说明。
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -65,11 +69,12 @@ pub fn run() {
             // 上列命令前端当前零引用（NexBox 侧亦仅供壳层/其它页面使用），
             // 但按「100% 复刻 = 能力不缺」口径一并注册，避免阶段二接入时再缺。
             //
-            // 🔴 例外：`music_api::music_open_login_window`（mod.rs:945）已**移除注册**（2026-10-03）。
-            //     它与宿主层 `music_login::music_open_login_window`（lib.rs:236）**同名**，而 Tauri
-            //     对同名 command 的解析不确定 → 可能命中「只开窗、不轮询 cookie、不写凭据」的旧版，
+            // 🔴 例外说明：`music_api::music_open_login_window`（mod.rs:1128）是**唯一注册版本**，
+            //     另有历史上一份宿主层同名实现（原 `src/music_login.rs`）已整体删除（2026-10-03）：
+            //     Tauri 对同名 command 的解析不确定 → 可能命中只开窗、不轮询 cookie、不写凭据的旧版，
             //     表现为「点了登录、窗口开了、但登录态永远不落库」的功能性失效。
-            //     保留功能完整（轮询 + cookie 捕获 + `save_cookie` + emit 事件）的宿主版本，勿加回。
+            //     更长的覆盖不全原因（宿主版只有 netease/qq 两流、事件名非各平台专属
+            //     `kugou-login-success` 等、provider 键 `qq` ≠ 前端 `qqmusic`）记在该文件 git 历史中。
             services::external_player::external_player_state,
             services::music::music_api::kugou_guess_like,
             services::music::music_api::kugou_login_cookie,
@@ -229,6 +234,10 @@ pub fn run() {
             services::steam::steam::steam_debug,
             services::steam::steam::get_steam_user_avatars,
             services::steam::steam::get_steam_inventory,
+            // ── 游戏封面候选链（2026-10-04 修「获取不到封面」）──
+            // 前端按返回顺序逐个 <img> 尝试、onError 前进；头一条取 appinfo
+            // `common.header_image`（新式资源带 hash 子目录，最准）。
+            services::steam::steam::steam_cover_urls,
             // ── Steam 在线库存（Aegis 新增 · 2026-10-03 用户裁决）──
             // NexBox 的 get_steam_inventory 纯本地、无 API Key 路径（source 只有
             // cache/none），故按 SystemToolkit 的 GetOwnedGames 补全在线能力。
@@ -238,15 +247,29 @@ pub fn run() {
             services::steam::inventory_online::steam_save_api_key,
             services::steam::inventory_online::get_steam_inventory_online,
             services::steam::inventory_online::steam_installed_appids,
-            // 🔴 窗口命令例外（music_login.rs 头注）：WebviewWindow 属宿主类型无法下沉 services
-            music_login::music_open_login_window
+            // ── 音乐登录窗口 ──
+            // 🔴 2026-10-03 修正（回归修复）：此处原注册宿主层 `music_login::music_open_login_window`，
+            //    但它**只覆盖 netease / qq 两个平台**，而前端 `MusicLoginSection.tsx:51-83` 有
+            //    **5 个平台**（netease / kugou / qqmusic / migu / qishui），且事件名
+            //    `kugou-login-success` / `qqmusic-login-success` / `migu-login-success`
+            //    与 `music-store.ts` 的 listen 一一对应 —— 宿主层 emit 不出这些事件，
+            //    表现为**除网易云与汽水外三个平台点登录无反应**。
+            //    另：宿主层的 provider 键是 `qq`，前端传的是 `qqmusic`，连 QQ 音乐都不匹配。
+            // 故改回注册 services 版（NexBox 原样搬入）：它 4 个平台开窗 + 轮询 cookie +
+            // `save_cookie` + emit 各平台事件，功能完整且与前端契约天然吻合（签名就是
+            // `(app, provider: String)`，不需要 CmdEnvelope）。
+            // ⚠️ 该文件**不再保留**宿主层同名的第二份实现：同名命令会致 Tauri 解析不确定，
+            //    且它是 Aegis 自造层（非 NexBox 原样），留着违反「复刻域不得自造」口径。
+            services::music::music_api::music_open_login_window
         ])
         .setup(|app| {
             // 🔴 MU-1 曲库状态托管段已删除（2026-10-03 用户裁决「全删 Aegis 自造层」）：
             //     原先在此 new MusicState + 从 app_data_dir 加载曲库缓存 + 对各曲库根
             //     重授 asset 协议（services::music::{library, commands}），随自造层整体移除。
             //     现音乐域为纯 NexBox 复刻形态：曲库读取走 music_api 的本地扫描命令，
-            //     登录凭据走 music_api::cookie::save_cookie（见 music_login.rs）。
+            //     登录凭据走 `services::music::music_api::cookie::save_cookie`
+            //     （settings.json，键 `cookie_<provider>`；2026-10-03 起即此路径，
+            //      原宿主层 `src/music_login.rs` 自造实现已整体删除）。
             //     如后续要恢复 Aegis 自建本地曲库（目录树 + 元数据标签 + 封面代理），
             //     应作为**新功能**重新设计，不再挂回 MU-1 的过渡形态。
             // M-01 片1：概览域状态托管（传感器桥 + 缓存 + sysinfo 实例；随应用生命周期释放，

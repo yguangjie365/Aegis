@@ -16,8 +16,13 @@ export interface UptimeUnits {
  *
  * 口径：最多给两段（天+时 或 时+分），尾段为 0 时省略——
  * 与 F-12 预期结果"任一组成项缺失时该段自然省略，不出现空分隔符"一致。
+ *
+ * 🔴 `null` = **尚未知**（F-09 快照占位），返回 `null` 交由调用方整段省略。
+ * 🔴 不得把它折成 `belowMinute`（「不足 1 分钟」是**观测结论**，而 `null` 是「没数据」，
+ * 两者语义不同；混同会凭空显示「刚开机」—— 2026-10-04 审查严重 3 即此）。
  */
-export function formatUptime(totalSecs: number, units: UptimeUnits): string {
+export function formatUptime(totalSecs: number | null, units: UptimeUnits): string | null {
+  if (totalSecs === null) return null;
   if (!Number.isFinite(totalSecs) || totalSecs < 0) return units.belowMinute;
   const days = Math.floor(totalSecs / 86400);
   const hours = Math.floor((totalSecs % 86400) / 3600);

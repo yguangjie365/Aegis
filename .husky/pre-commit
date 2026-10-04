@@ -1,11 +1,33 @@
 # pre-commit 拦截（03-开发规范/05 §5.5 钩子与 CI 的分工，全量判定）：
-#   ESLint --max-warnings 0 → Prettier --check → tsc --noEmit → vitest run →（本次含 Rust 改动时）cargo fmt --check
-# 规范要求的检查点均为全量判定（--max-warnings 0 / 无差异），不按暂存文件收窄，避免"存量红"被绕过。
+#   ESLint（复刻域按 warn 口径）→ Prettier --check → tsc --noEmit → vitest run →（本次含 Rust 改动时）cargo fmt --check
+# 规范要求的检查点均为全量判定，不按暂存文件收窄，避免"存量红"被绕过。
 # vitest 腿自 M-01 片1（2026-10-03）起常驻：引入测试框架却不进门禁 = 测试会在无人察觉时烂掉。
 export PATH="$HOME/.cargo/bin:$PATH"
 
-if ! npx eslint . --max-warnings 0; then
-  echo "pre-commit: ESLint 未过（--max-warnings 0），提交已拦截" >&2
+# 🔴 ESLint 分两档判，与 eslint.config.mjs 的复刻域豁免口径一致（2026-10-04 修）
+#
+# 背景：`eslint.config.mjs` 对 MusicManager / GameManager 两个**复刻域**把结构性规则
+# 显式降为 `warn`（而非 `off`），意图是「保留可见度、但不当门禁」——
+# 音乐模块铁律是「代码原样搬入、不得重写」，故这些 warning 恰恰是**不该修**的。
+# 而本钩子原先统一用 `--max-warnings 0`，把 `warn` 判成红 → 复刻域一旦入库就永远提交不了。
+# 实测 13 个出问题的文件 100% 落在两个复刻域内（72 warnings），非复刻域零警告。
+#
+# 故改为：**非复刻域 --max-warnings 0（真门禁）+ 复刻域只拦 error（warning 放行）**。
+# 这样既守住「非复刻域零容忍」，又不逼迫去改复刻域的 NexBox 原件。
+# 🔴 绝不用 `--no-verify`：那会连带跳过 tsc / vitest / cargo fmt，等于把整道门禁作废。
+#
+# ⚠️ `--ignore-pattern` **每个 flag 只收一个模式**：曾把三个 glob 写进一个引号变量里
+# （等价于一个含空格的不存在路径）→ 过滤失效、复刻域警告仍被判红。必须逐个flag 写。
+if ! npx eslint . --max-warnings 0 \
+  --ignore-pattern 'src/features/MusicManager/**' \
+  --ignore-pattern 'src/features/GameManager/**' \
+  --ignore-pattern 'src/types/music.ts'; then
+  echo "pre-commit: ESLint 未过（非复刻域 --max-warnings 0），提交已拦截" >&2
+  exit 1
+fi
+
+if ! npx eslint src/features/MusicManager src/features/GameManager src/types/music.ts --quiet; then
+  echo "pre-commit: 复刻域存在 ESLint **error**（warning 已按复刻口径放行），提交已拦截" >&2
   exit 1
 fi
 

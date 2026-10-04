@@ -75,11 +75,23 @@ pub enum AdapterKind {
 #[must_use]
 pub fn kind_from_type_name(type_name: &str) -> AdapterKind {
     let lowered = type_name.to_ascii_lowercase();
-    if lowered.contains("wireless") || lowered.contains("wlan") || lowered.contains("802.11") {
+    // 🔴 **必须同时匹配中文**（2026-10-04 实测修复）：中文 Windows 的
+    // `Win32_NetworkAdapter.AdapterType` 返回的是**本地化字符串**，实测为
+    // 「以太网 802.3」/「无线 IEEE 802.11」—— 只认英文时全部落进 `Other`，
+    // 而 `is_user_facing_adapter` 只放行 `Ethernet` / `Wireless80211`
+    // → **中文系统上所有真实网卡都被判为不可见，详情区网卡卡整张不出现**
+    // （用户截图「无已连接的用户可见物理网卡（R-02 口径）」即此因）。
+    // 母本 NexBox 没有类型闸门（只做名称关键词黑名单）故不暴露此问题。
+    if lowered.contains("wireless")
+        || lowered.contains("wlan")
+        || lowered.contains("802.11")
+        || lowered.contains("无线")
+    {
         AdapterKind::Wireless80211
     } else if lowered.contains("ethernet")
         || lowered.contains("ieee802.3")
         || lowered.contains("local area connection")
+        || lowered.contains("以太网")
     {
         AdapterKind::Ethernet
     } else {
@@ -183,6 +195,37 @@ pub fn display_order(kind: AdapterKind) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 🔴 中文 Windows 的 `AdapterType` 是**本地化字符串**（实测「以太网 802.3」）。
+    /// 只认英文会让中文系统上所有真实网卡落进 `Other` → 被类型闸门拦掉 →
+    /// 网卡详情卡整张不显示（用户 2026-10-04 截图暴露）。这两个用例把口径钉死。
+    #[test]
+    fn localized_adapter_type_still_resolves_kind() {
+        assert_eq!(
+            kind_from_type_name("以太网 802.3"),
+            AdapterKind::Ethernet,
+            "中文「以太网 802.3」必须判为 Ethernet，不能落 Other"
+        );
+        assert_eq!(
+            kind_from_type_name("无线 IEEE 802.11"),
+            AdapterKind::Wireless80211,
+            "中文「无线 IEEE 802.11」必须判为 Wireless80211"
+        );
+    }
+
+    /// 中文系统上的**端到端**闸门：有线网卡（已连接）必须可见。
+    /// 复现用户现场：Realtek PCIe GbE / physical=true / enabled=true / is_up=true，
+    /// 修复前因 kind=Other 被拦，修复后放行。
+    #[test]
+    fn local_realtek_nic_passes_gate_on_chinese_windows() {
+        assert!(is_user_facing_adapter(
+            kind_from_type_name("以太网 802.3"),
+            true,  // is_up
+            false, // receive_only
+            "Realtek PCIe GbE Family Controller",
+            "以太网",
+        ));
+    }
 
     #[test]
     fn filter_driver_children_of_the_real_card_are_junk() {

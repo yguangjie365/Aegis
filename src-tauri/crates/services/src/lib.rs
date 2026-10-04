@@ -32,7 +32,7 @@ pub mod media_keys;
 // 根 crate 需跨 crate 引用，故此处改为 pub —— 属「工程分层让位」豁免范围（规格 §〇·0.4），
 // 模块内部实现逐字未改。
 pub mod external_player;
-mod spectrum;
 pub mod network;
 pub mod overview;
+mod spectrum;
 pub mod sys;

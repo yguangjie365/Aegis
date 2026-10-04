@@ -58,6 +58,7 @@ function statCard(patch: Partial<StatCard> = {}): StatCard {
     bigValue: 37,
     valueSource: "usage",
     barPercent: 37,
+    segLevel: "normal",
     badge: { state: "measured", temperatureC: 45, level: "normal" },
     degradeReason: null,
     ...patch,
@@ -68,7 +69,7 @@ function detailCard(patch: Partial<DetailCardDto> = {}): DetailCardDto {
   return {
     kind: "cpu",
     index: 0,
-    rows: [{ key: "model", value: "AMD Ryzen 7 5800H" }],
+    rows: [{ key: "detail.cpu.model", value: "AMD Ryzen 7 5800H" }],
     reason: null,
     ...patch,
   };
@@ -86,19 +87,43 @@ function sensorRow(patch: Partial<SensorRow> = {}): SensorRow {
 }
 
 function baseInput() {
+  // 🔴 `systemCards` 必须逐元素标成 `DetailCardDto`：直接写对象字面量时
+  // `kind: "os"` 会被推断成 `string`，而 `DetailCardDto.kind` 已收窄为 `DetailKind` 联合类型
+  // （2026-10-04 审查一般 6）。这也正是「不写类型约束 → 错键静默通过」的反面证明：
+  // 收窄后夹具的形状漂移会在编译期暴露，而不是运行时透出裸键。
+  const systemCards: DetailCardDto[] = [
+    {
+      kind: "os",
+      index: 0,
+      rows: [{ key: "detail.os.osName", value: "Windows 11" }],
+      reason: null,
+    },
+  ];
   return {
     computerName: "DESKTOP-TEST",
     generatedAt: at,
     statCards: [statCard()],
     detailCards: [detailCard()],
-    systemCards: [
-      { kind: "os", index: 0, rows: [{ key: "osName", value: "Windows 11" }], reason: null },
-    ],
+    systemCards,
     sensors: [sensorRow()],
   };
 }
 
 describe("buildReport", () => {
+  // 🔴 防回归（2026-10-04 用户截图暴露）：`row.key` 是后端给的**完整** i18n 键
+  // （`hardware/cpu.rs` 的 `kv("detail.cpu.model", …)`）。若前端再拼一次 `prefix`，
+  // 会得到 `detail.cpu.detail.cpu.model`，词典查不到 → 裸键被写进用户的报告文件。
+  // 这条断言把该契约钉死：报告正文里不得出现任何含`detail.` 的裸键片段。
+  it("正文不泄漏任何未解析的 i18n 键", () => {
+    const md = buildReport(baseInput(), t);
+    const leaked = md
+      .split("\n")
+      .filter((line) =>
+        /\b(detail|systemInfo|badge|card|processes|endpoints)\.[a-zA-Z]/.test(line),
+      );
+    expect(leaked).toEqual([]);
+  });
+
   it("按硬件概览→硬件详情→系统概览→传感器快照的顺序出四节", () => {
     const md = buildReport(baseInput(), t);
     expect(md.indexOf("# 硬件信息报告")).toBe(0);
@@ -161,7 +186,10 @@ describe("buildReport", () => {
 
   it("键值表逐行取词典标签，缺失值填「未检测」", () => {
     const md = buildReport(
-      { ...baseInput(), detailCards: [detailCard({ rows: [{ key: "model", value: null }] })] },
+      {
+        ...baseInput(),
+        detailCards: [detailCard({ rows: [{ key: "detail.cpu.model", value: null }] })],
+      },
       t,
     );
     expect(md).toContain("| --- | --- |");
@@ -212,7 +240,10 @@ describe("buildReport", () => {
 
   it("值里的竖线被转义，不破坏表格结构", () => {
     const md = buildReport(
-      { ...baseInput(), detailCards: [detailCard({ rows: [{ key: "model", value: "A|B" }] })] },
+      {
+        ...baseInput(),
+        detailCards: [detailCard({ rows: [{ key: "detail.cpu.model", value: "A|B" }] })],
+      },
       t,
     );
     expect(md).toContain("| 型号 | A\\|B |");

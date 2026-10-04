@@ -12,14 +12,20 @@ import { onWindowFocusChanged } from "@/lib/tauri/window";
 export const REFRESH_INTERVAL_MS = 2000;
 
 /**
- * 页面是否处于"可跳表"状态：窗口聚焦 **且** 文档可见。
+ * 本页是否处于"可跳表"状态：**窗口聚焦** 且 **文档可见**。
  *
- * 两个信号都要，缺一不可：
- * - 仅 `visibilitychange` 拦不住"窗口在前景但被别的程序盖住"（WebView 仍算可见）；
- * - 仅聚焦事件拦不住最小化到任务栏后部分平台不发 blur 的情形。
+ * 两个信号缺一不可（缺一个就会出现"看不见的常驻轮询"）：
+ * - 切页停表靠的是**组件卸载**（TanStack Query 在 `refetchInterval: false`
+ *   时彻底清表，本页组件随路由卸载即停），**不需要**在这里判路由 ——
+ *   反过来做会引入 `useLocation` 依赖与无意义的样板代码。本仓无 keep-alive，
+ *   故卸载即等价于"不在本页"。
+ * - 聚焦：仅 `visibilitychange` 拦不住"窗口在前景但被别的程序盖住"（WebView 仍算可见）。
+ * - 可见：仅聚焦事件拦不住最小化到任务栏后部分平台不发 blur 的情形。
+ *
+ * 🔴 三个状态初值都为"活跃"：取 false 会让首拍延后一个事件周期，
+ * 与 F-01「进入页面时先显示采集值」相悖。
  */
 export function usePageLiveness(): boolean {
-  // 进页即视为活跃：初始状态若取 false 会让首拍延后一个事件周期（F-01「进入页面时先显示采集值」）
   const [focused, setFocused] = useState(true);
   const [visible, setVisible] = useState(() => document.visibilityState !== "hidden");
 

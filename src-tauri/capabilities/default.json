@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "主窗最小权限面：自绘标题条的窗口控制 + 首帧后显形（01 总览 §三 Shell 职责）。命令通道权限随 W0-07 契约落地逐域追加。",
+  "description": "主窗最小权限面：自绘标题条的窗口控制 + 首帧后显形（01 总览 §三 Shell 职责）。命令通道权限随 W0-07 契约落地逐域追加。🔴 2026-10-03 实机验证补登 store 权限：`tauri_plugin_store` 已在 lib.rs:30 注册，但权限面缺 `store:*`，导致前端 `store.load/save` 被拒（报 \"store.load not allowed\"），表现为主题色/背景设置读不进也存不下、`[Music] persist play history failed` 使播放历史无法持久化。",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -12,6 +12,22 @@
     "core:window:allow-hide",
     "core:window:allow-set-focus",
     "core:window:allow-start-dragging",
-    "dialog:default"
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "dialog:default",
+    "store:default",
+    "store:allow-load",
+    "store:allow-save",
+    "store:allow-get",
+    "store:allow-set",
+    "store:allow-delete",
+    "store:allow-clear",
+    "store:allow-entries",
+    "store:allow-keys",
+    "store:allow-values",
+    "store:allow-length",
+    "store:allow-reset"
   ]
 }

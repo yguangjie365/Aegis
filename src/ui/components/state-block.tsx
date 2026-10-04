@@ -7,7 +7,7 @@ import { AppButton } from "./app-button";
 
 const Frame = styled.section`
   border: 1px solid var(--aegis-hairline);
-  border-radius: var(--aegis-rounded-sm);
+  border-radius: var(--aegis-radius-sm);
   background: var(--aegis-canvas);
   padding: var(--aegis-space-xxl) var(--aegis-space-lg);
   display: flex;
@@ -34,7 +34,7 @@ const SkelRow = styled.div<{ w: string }>`
   width: ${(p) => p.w};
   max-width: 480px;
   align-self: flex-start;
-  border-radius: var(--aegis-rounded-sm);
+  border-radius: var(--aegis-radius-sm);
   background: linear-gradient(
     90deg,
     var(--aegis-surface-inset) 25%,
@@ -42,11 +42,22 @@ const SkelRow = styled.div<{ w: string }>`
     var(--aegis-surface-inset) 75%
   );
   background-size: 200% 100%;
-  animation: aegis-sk 1.4s infinite linear;
+  /* 周期 1.4s 属「循环速率」而非「过渡时长」，按 motion 契约刻意不入 duration 刻度
+     （混进去会让人以为改 slow 档会连带改骨架速度）；缓动则取令牌。 */
+  animation: aegis-sk 1.4s infinite var(--aegis-motion-easing-linear);
   @keyframes aegis-sk {
     to {
       background-position: -200% 0;
     }
+  }
+  /* 规范 §8.3 / ADR-006 §三 P1-5：prefers-reduced-motion 下**停在这一帧**，
+     而不是把时长压到 0.01ms —— 无限动画 + 0.01ms 会在 60fps 下每帧重放约 1670 次
+     （theme.ts 已记载该教训并整段移除了全局兜底，故此处由组件局部实现）。
+     🔴 本处曾是本域唯一漏做reduced-motion 的 infinite 动画（2026-10-04 审查「一般 2」）：
+     nav-rail 的流光环与 live-dot 的呼吸点都已就位，只有骨架屏漏了。
+     停帧后渐变仍在、信息不丢失，只是不再扫光。 */
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
   }
 `;
 

@@ -1,4 +1,4 @@
-import type { DetailCardDto, SensorRow, StatCard } from "@/types/overview";
+import type { DetailCardDto, DetailKind, SensorRow, StatCard } from "@/types/overview";
 import { DETAIL_KIND_I18N_PREFIX, SYSTEM_INFO_KINDS } from "@/ui/components/key-value-card";
 import { statCaptionKey, statValueUnit } from "@/ui/components/stat-card";
 
@@ -67,8 +67,10 @@ function formatSensorValue(row: SensorRow): string {
  * 同名多卡（R-01 多显卡 / 多盘 / 多网卡全列）时给标题加序号，
  * 单卡保持光标题——与母本"一类一条"的排版等价，又能区分本仓的一设备一卡。
  */
-function cardTitle(card: DetailCardDto, counted: Map<string, number>, t: Translate): string {
-  const prefix = DETAIL_KIND_I18N_PREFIX[card.kind] ?? `detail.${card.kind}`;
+function cardTitle(card: DetailCardDto, counted: Map<DetailKind, number>, t: Translate): string {
+  // 🔴 同 `KeyValueCard`：kind 已是联合类型、映射表已穷尽，**不加 `??` 兜底**
+  // （加了就把「新增类目忘配文案」重新变成静默裸键写进用户文件）。
+  const prefix = DETAIL_KIND_I18N_PREFIX[card.kind];
   const base = t(`${prefix}.title`);
   const total = counted.get(card.kind) ?? 1;
   return total > 1 ? `${base} ${card.index + 1}` : base;
@@ -98,15 +100,16 @@ function statLine(card: StatCard, t: Translate): string {
 /** 键值卡块：`### 标题` + `| 项目 | 值 |` 表（+ 降级原因一行，R-08 空态必写为什么是空的） */
 function detailBlock(
   card: DetailCardDto,
-  counted: Map<string, number>,
+  counted: Map<DetailKind, number>,
   t: Translate,
   out: string[],
 ): void {
   out.push(`### ${escapeCell(cardTitle(card, counted, t))}`, "");
   out.push(`| ${t("report.colKey")} | ${t("report.colValue")} |`, TABLE_RULE);
-  const prefix = DETAIL_KIND_I18N_PREFIX[card.kind] ?? `detail.${card.kind}`;
   for (const row of card.rows) {
-    const key = t(`${prefix}.${row.key}`);
+    // 🔴 同 `KeyValueCard`：`row.key` 已是后端给的**完整** i18n 键（如 `detail.cpu.model`），
+    // 再拼 `prefix` 会得到 `detail.cpu.detail.cpu.model` —— 词典查不到，裸键会被写进用户文件。
+    const key = t(row.key);
     const value = row.value ?? t("badge.undetected");
     out.push(`| ${escapeCell(key)} | ${escapeCell(value)} |`);
   }
@@ -117,8 +120,8 @@ function detailBlock(
 }
 
 /** 同类卡计数（决定 `cardTitle` 是否加序号） */
-function countKinds(cards: DetailCardDto[]): Map<string, number> {
-  const counted = new Map<string, number>();
+function countKinds(cards: DetailCardDto[]): Map<DetailKind, number> {
+  const counted = new Map<DetailKind, number>();
   for (const card of cards) {
     counted.set(card.kind, (counted.get(card.kind) ?? 0) + 1);
   }

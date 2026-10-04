@@ -32,6 +32,11 @@ export interface StatCard {
   bigValue: number | null;
   valueSource: ValueSource | null;
   barPercent: number | null;
+  /**
+   * 分段条三级分级（🔴 由 Rust 判完：`SegLevel::from_percent`，阈值 <60 / <85 /其余）。
+   * 前端**不得**自行按百分比判级——两处判级必然漂成两种颜色。
+   */
+  segLevel: "normal" | "warning" | "critical";
   badge: TempBadge;
   /** L-08 卡内一行降级原因（卡不消失、卡高不变） */
   degradeReason: string | null;
@@ -40,8 +45,38 @@ export interface StatCard {
 export interface HeaderInfo {
   computerName: string;
   osName: string;
-  uptimeSecs: number;
+  /**
+   * 🔴 `null` = **尚未知**，不是 0。
+   *
+   * F-09 快照只存四卡与慢变量，页头无历史值；冷启动秒显时用 `null` 占位。
+   * 此前填 `0`，而 `formatUptime(0)` 会渲染成「不足 1 分钟」——真实开机时长可能数天，
+   * 凭空造出一个「刚开机」的假事实（R-08 状态诚实）。
+   * 后端真机上行恒为数字，`null` 只来自前端快照占位。
+   */
+  uptimeSecs: number | null;
 }
+
+/**
+ * F-02 详情卡类目（与后端 `dto.rs` 的 `DetailKind` 逐项对应）。
+ *
+ * 🔴 收窄为联合类型而非 `string`：两侧（后端 `kv(key: &str, …)`、前端 i18n 映射表）
+ * 都没有约束时，写错键只会变成「界面透出裸键」，`tsc`/lint/build 全绿也发现不了
+ * —— 本项目 22 处裸键事故即此根因（2026-10-04）。
+ * 新增类目时**必须**同时改：`dto.rs` 的 `DetailKind`、此处、`DETAIL_KIND_I18N_PREFIX`、
+ * `src/locales`下的 `overview.json`（各语言一份）。
+ */
+export type DetailKind =
+  | "cpu"
+  | "gpu"
+  | "storage"
+  | "memory"
+  | "board"
+  | "bios"
+  | "network"
+  | "audio"
+  | "display"
+  | "os"
+  | "userRegion";
 
 /** F-12 传感器通道状态（N-06 降级留痕的用户可见面） */
 export type MonitorState = "ready" | "starting" | "coolingDown" | "disabled" | "exeMissing";
@@ -119,7 +154,7 @@ export interface KvRowDto {
 
 /** F-02 一张详情卡 */
 export interface DetailCardDto {
-  kind: string;
+  kind: DetailKind;
   index: number;
   rows: KvRowDto[];
   reason: string | null;
@@ -137,6 +172,11 @@ export interface SnapshotDto {
   writtenAtMs: number;
   fingerprint: string;
   payload: HardwareDetailDto;
+  /**
+   * 🔴 F-01 四卡的**上次**读数（启动秒显用，2026-10-04）。
+   * 语义是「上次读数」而非当前值，故读到后必须立即回源；空数组 = 无历史，四卡自然缺席。
+   */
+  cards: StatCard[];
 }
 
 /** F-07 已安装软件清单一行 */

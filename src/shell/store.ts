@@ -1,26 +1,15 @@
 import { create } from "zustand";
 
-// 外壳客户端状态（Zustand，总览 §二）。折叠选择属慢变量：
-// settings 服务落地（W0-08/W1-11 之后的持久化通道就绪）前先记 localStorage 兜预览体验，
-// 届时迁移并删除本兜底——迁移点已在此登记，不留暗账。
-const FOLD_KEY = "aegis.shell.nav-folded";
-
-function readFolded(): boolean {
-  // 无记录时默认折叠态（2026-10-02 用户裁定）；用户显式选择过则尊重其选择
-  const saved = localStorage.getItem(FOLD_KEY);
-  return saved === null ? true : saved === "1";
-}
-
+// 外壳客户端状态（Zustand，总览 §二）。
+//
+// 🟡 2026-10-04 用户裁决「导航栏仅保留折叠态」：折叠/展开双态机制整体下线，
+// 原 `navFolded` / `toggleNavFolded`（含 localStorage 兜底 FOLD_KEY）一并删除。
+// 导航栏宽度固定 64px，无用户可切换的状态，也就不再需要持久化。
+// 旧 profile 里的 `aegis.shell.nav-folded` 键会自然失效（读取方已删），不主动清理 ——
+// 留着无害，删它反而引入一次性迁移代码。
 interface ShellState {
-  navFolded: boolean;
-  toggleNavFolded: () => void;
+  /** 占位：壳层状态目前全空，保留 store 形状以便后续接入（如导航位置偏好）。 */
+  readonly _reserved?: never;
 }
 
-export const useShellStore = create<ShellState>((set, get) => ({
-  navFolded: readFolded(),
-  toggleNavFolded: () => {
-    const next = !get().navFolded;
-    localStorage.setItem(FOLD_KEY, next ? "1" : "0");
-    set({ navFolded: next });
-  },
-}));
+export const useShellStore = create<ShellState>(() => ({}));

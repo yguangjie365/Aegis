@@ -11,7 +11,7 @@ export const AppButton = styled.button<{ variant: ButtonVariant; size?: "md" | "
   gap: var(--aegis-space-xs);
   height: ${(p) => (p.size === "sm" ? "28px" : "36px")};
   padding: 0 var(--aegis-space-lg);
-  border-radius: var(--aegis-rounded-sm);
+  border-radius: var(--aegis-radius-sm);
   font: inherit;
   font-size: 14px;
   font-weight: 700;
@@ -19,9 +19,9 @@ export const AppButton = styled.button<{ variant: ButtonVariant; size?: "md" | "
   cursor: pointer;
   border: 1px solid transparent;
   transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease;
+    background-color var(--aegis-motion-duration-fast) var(--aegis-motion-easing-standard),
+    border-color var(--aegis-motion-duration-fast) var(--aegis-motion-easing-standard),
+    color var(--aegis-motion-duration-fast) var(--aegis-motion-easing-standard);
   ${(p) =>
     p.variant === "primary" &&
     `
@@ -37,7 +37,9 @@ export const AppButton = styled.button<{ variant: ButtonVariant; size?: "md" | "
     /* 偏离①已批准（2026-10-02）：浅底 accent 仅 2.41:1 不达文字门禁，用 accent-strong；规范 §三 已同步 */
     border-color: var(--aegis-accent-strong);
     color: var(--aegis-accent-strong);
-    &:hover { background: rgba(118, 185, 0, 0.06); }
+    /* 🔴 6% 淡绿底由令牌派生（2026-10-04 审查一般 7）：此前写死 rgba(118,185,0,0.06)，
+       换主题时不会跟着变。同文件 :30 的 hover 已是 color-mix 写法，此处漏网。 */
+    &:hover { background: color-mix(in srgb, var(--aegis-accent) 6%, transparent); }
   `}
   ${(p) =>
     p.variant === "ghost" &&
@@ -52,7 +54,9 @@ export const AppButton = styled.button<{ variant: ButtonVariant; size?: "md" | "
     background: var(--aegis-error);
     color: var(--aegis-on-dark);
     &:hover { background: color-mix(in srgb, var(--aegis-error) 88%, var(--aegis-ink)); }
-    &:active { background: #650b0b; }
+    /* 🔴 按下态由 error 令牌压深派生（2026-10-04 审查一般 7）：此前写死 #650b0b，
+       与 :52 的 var(--aegis-error) 是两套色值，改主题必漂。 */
+    &:active { background: color-mix(in srgb, var(--aegis-error) 62%, var(--aegis-ink)); }
   `}
   &:disabled {
     background: var(--aegis-surface-soft);

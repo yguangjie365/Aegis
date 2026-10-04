@@ -28,6 +28,13 @@ describe("formatUptime（F-12 运行时长）", () => {
     expect(formatUptime(Number.NaN, UNITS)).toBe("不足 1 分钟");
     expect(formatUptime(Number.POSITIVE_INFINITY, UNITS)).toBe("不足 1 分钟");
   });
+
+  it("🔴 null（尚未知）返回 null 而非「不足 1 分钟」——两者语义不同", () => {
+    // 快照占位曾传 0，折成「不足 1 分钟」显示成「刚开机」，而真实开机时长可能数天
+    expect(formatUptime(null, UNITS)).toBeNull();
+    // 真机 0 秒仍应给「不足 1 分钟」（那是可信的观测结论）
+    expect(formatUptime(0, UNITS)).toBe("不足 1 分钟");
+  });
 });
 
 describe("joinHeader（F-12「任一项缺失该段自然省略」）", () => {

@@ -9,6 +9,7 @@ import { invoke } from "./invoke";
 import type { LogModule } from "@/lib/logging";
 import type {
   HardwareDetailDto,
+  StatCard,
   LiveSample,
   MonitorStatus,
   NetEndpoints,
@@ -51,9 +52,20 @@ export async function readSnapshot(): Promise<SnapshotDto | null> {
   );
 }
 
-/** F-09 写快照 */
-export async function writeSnapshot(payload: HardwareDetailDto): Promise<void> {
-  return invoke<void>("overview_snapshot_write", OVERVIEW, "overviewSnapshotWrite", payload);
+/**
+ * F-09 写快照。
+ *
+ * @param cards F-01 四卡的上一拍读数 —— 供下次冷启动秒显（启动首屏不能是加载态）。
+ *   可省略：此时后端写空数组，下次启动四卡自然缺席（而非读到空壳）。
+ */
+export async function writeSnapshot(
+  payload: HardwareDetailDto,
+  cards?: readonly StatCard[],
+): Promise<void> {
+  return invoke<void>("overview_snapshot_write", OVERVIEW, "overviewSnapshotWrite", {
+    ...payload,
+    cards: cards ?? [],
+  });
 }
 
 /** F-07 已安装软件清单（慢变量，不进 2 秒节拍） */

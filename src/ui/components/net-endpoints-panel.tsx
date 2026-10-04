@@ -3,46 +3,46 @@ import styled from "@emotion/styled";
 import type { NetEndpoints } from "@/types/overview";
 
 const Container = styled.div`
-  background: var(--aegis-bg-surface);
-  border-radius: var(--aegis-radius-md);
+  background: var(--aegis-surface-soft);
+  border-radius: var(--aegis-radius-sm);
   padding: var(--aegis-space-lg);
-  box-shadow: var(--aegis-shadow-sm);
+  box-shadow: var(--aegis-elevation-sticky);
 `;
 
 const Title = styled.h3`
-  font-size: var(--aegis-font-lg);
+  font-size: var(--aegis-type-h3-size);
   font-weight: 600;
   margin: 0 0 var(--aegis-space-md) 0;
-  color: var(--aegis-text-primary);
+  color: var(--aegis-ink);
 `;
 
 const Summary = styled.p`
-  font-size: var(--aegis-font-sm);
-  color: var(--aegis-text-secondary);
+  font-size: var(--aegis-type-body-size);
+  color: var(--aegis-mute);
   margin: 0 0 var(--aegis-space-md) 0;
 `;
 
 const Table = styled.table`
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--aegis-font-sm);
+  font-size: var(--aegis-type-body-size);
 `;
 
 const Thead = styled.thead`
-  border-bottom: 2px solid var(--aegis-border-color);
+  border-bottom: 2px solid var(--aegis-hairline);
 `;
 
 const Th = styled.th`
   text-align: left;
   padding: var(--aegis-space-xs) var(--aegis-space-sm);
-  color: var(--aegis-text-secondary);
+  color: var(--aegis-mute);
   font-weight: 600;
   white-space: nowrap;
 `;
 
 const Tbody = styled.tbody`
   tr {
-    border-bottom: 1px solid var(--aegis-border-color);
+    border-bottom: 1px solid var(--aegis-hairline);
 
     &:last-child {
       border-bottom: none;
@@ -52,7 +52,7 @@ const Tbody = styled.tbody`
 
 const Td = styled.td`
   padding: var(--aegis-space-xs) var(--aegis-space-sm);
-  color: var(--aegis-text-primary);
+  color: var(--aegis-ink);
   white-space: nowrap;
 
   &.numeric {
@@ -62,8 +62,8 @@ const Td = styled.td`
 `;
 
 const Placeholder = styled.p`
-  color: var(--aegis-text-muted);
-  font-size: var(--aegis-font-sm);
+  color: var(--aegis-stone);
+  font-size: var(--aegis-type-body-size);
   margin: var(--aegis-space-md) 0 0 0;
 `;
 
@@ -78,8 +78,7 @@ export function NetEndpointsPanel({ data }: NetEndpointsPanelProps) {
     <Container>
       <Title>{t("endpoints.title")}</Title>
       <Summary>
-        {t("endpoints.totalEndpoints")}:{" "}
-        <strong>{data.total}</strong>
+        {t("endpoints.totalEndpoints")}: <strong>{data.total}</strong>
       </Summary>
 
       {data.rows.length === 0 ? (
@@ -108,7 +107,13 @@ export function NetEndpointsPanel({ data }: NetEndpointsPanelProps) {
       )}
 
       {data.reason ? (
-        <p style={{ color: "var(--aegis-text-warning)", fontSize: "var(--aegis-font-xs)", marginTop: "var(--aegis-space-sm)" }}>
+        <p
+          style={{
+            color: "var(--aegis-warning)",
+            fontSize: "var(--aegis-type-caption-size)",
+            marginTop: "var(--aegis-space-sm)",
+          }}
+        >
           {data.reason}
         </p>
       ) : null}

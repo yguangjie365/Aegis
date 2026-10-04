@@ -13,7 +13,7 @@ const Chip = styled.span<{ tone: "normal" | "warning" | "critical" | "mute" }>`
   gap: 3px;
   height: 20px;
   padding: 0 7px;
-  border-radius: var(--aegis-rounded-full);
+  border-radius: var(--aegis-radius-full);
   font-size: 12px;
   font-weight: 700;
   line-height: 1;

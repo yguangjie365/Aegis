@@ -3,18 +3,20 @@
 > 口径事实源：[ADR-003 §二.2](../Docs/开发文档/04-决策/ADR-003-第三方代码引入与许可证规范.md)（档位表见其 §三，本表不复述）。
 > 引入五步（02 分册 §6.2）缺一即违规；`NOTICE` 由本表生成。
 > 版本一律记 **lockfile 实测值**（钉版纪律见 TASKS §五 "W0-01/W0-02 收口"条目；基线 = NexBox 实测）。
+> 🔴 **基线条口的唯一例外**：**tauri 全家桶**（`tauri` / `tauri-build` / `tauri-plugin-*`）以 **Aegis lockfile 实测值为基线**，不再逐版对齐 NexBox；详见 [ADR-005](../Docs/开发文档/04-决策/ADR-005-依赖基线与钉版口径.md)（2026-10-04 用户拍板）。
 > 本表 2026-10-02 建表时一次性补登 W0 期已引入的直接依赖（登记日期如实标注）。
 
 ## 一、Rust 直接依赖（`src-tauri/Cargo.lock` 实测）
 
 | 名称 | 版本（lock 实测） | 许可证 | 引入方式 | 用途 | 档位 | 登记日期 | 变更行 |
 |---|---|---|---|---|---|---|---|
-| tauri | 2.11.1 | MIT OR Apache-2.0 | crate 引用 | 应用宿主（features: protocol-asset, tray-icon） | 🟢 | 2026-10-02（补登 W0-01） | 建表补登 |
-| tauri-build | 2.6.1 | MIT OR Apache-2.0 | crate（build-dep） | 构建期代码生成 | 🟢 | 2026-10-02（补登 W0-01） | 建表补登 |
+| tauri | 2.12.1 | MIT OR Apache-2.0 | crate 引用 | 应用宿主（features: protocol-asset, tray-icon） | 🟢 | 2026-10-02（补登 W0-01） | 建表补登；**2026-10-03 修正漂移**——`Cargo.toml` 声明 `"2.10"` 属 caret 语义，lock 实测已解析到 **2.12.1**（原登记写 2.11.1 与实测不符）。🔴 该漂移正是 `tauri dev` 报 "Found version mismatched Tauri packages" 的根因：Rust 2.12.1 vs npm `@tauri-apps/api` 2.11.1 |
+| tauri-build | 2.7.1 | MIT OR Apache-2.0 | crate（build-dep） | 构建期代码生成 | 🟢 | 2026-10-02（补登 W0-01） | 建表补登；**2026-10-03 修正漂移**（原登记 2.6.1，lock 实测 2.7.1） |
 | tauri-plugin-single-instance | 2.4.2 | MIT OR Apache-2.0 | crate 引用 | 单实例守卫 | 🟢 | 2026-10-02（补登 W0-01） | 建表补登 |
 | serde | 1.0.x | MIT OR Apache-2.0 | crate 引用 | 序列化基座 | 🟢 | 2026-10-02（补登 W0-01） | 建表补登 |
 | serde_json | 1.0.x | MIT OR Apache-2.0 | crate 引用 | JSON（缓存/IPC 载荷） | 🟢 | 2026-10-02（补登 W0-01） | 建表补登 |
 | tauri-plugin-dialog | 2.7.1 | MIT OR Apache-2.0 | crate 引用 | 原生目录选择框（MU-1 导入文件夹） | 🟢 | 2026-10-02 | MU-1 新增；连带 tauri-plugin-fs 2.5.1（同许可，钉回 NexBox 基线） |
+| tauri-plugin-store | 2.5.0 | MIT OR Apache-2.0 | crate 引用（NexBox `lib.rs:312` 注册 `plugin-store`，本侧 `src-tauri/Cargo.toml` 与 `crates/services/Cargo.toml` 双声明） | 音乐/设置持久化 Store（主题、播放历史、`cookie_<provider>` 等键值落地） | 🟢 | 2026-10-03 | **建表时漏登 → 2026-10-03 补登并统一版本**：`cargo update -p tauri-plugin-store` **2.4.5 → 2.5.0**，对齐 npm `@tauri-apps/plugin-store` 实测 2.5.0（此前 Rust 2.4.5 vs npm `^2.5.0` 反向不匹配，属同一"版本不匹配 Tauri 包"问题的另一半）。🔴 **偏离 NexBox 基线 +1 次版本**（NexBox lock 实测 `tauri-plugin-store` 2.4.3 / npm `^2.4.3`）：非主动追新，而是为消除 Rust↔npm 双向错配、且 npm 侧 `^2.5.0` 已先落地；mismatch 修复后遗留的"全家桶是否零偏差"口径见 §一 表下注。**当前 Rust 2.5.0 ↔ npm 2.5.0 已对齐**，`cargo check` 0 error、`cargo test --workspace` 198 passed（24 + 174） |
 | lofty | 0.21.1 | MIT OR Apache-2.0 | crate 引用 | 音频标签读取（MU-1 元数据/内嵌封面歌词） | 🟢 | 2026-10-02 | MU-1 新增（NexBox 同版实测） |
 | image | 0.25.10 | MIT OR Apache-2.0 | crate 引用（default-features=false，仅 png/jpeg/ico） | 封面压缩缩放（MU-1） | 🟢 | 2026-10-02 | MU-1 新增（NexBox 同版实测） |
 | keyring | 3.6.3 | MIT OR Apache-2.0 | crate 引用（features: windows-native） | 凭据安全存储（MU-4.1，Windows 侧走 Credential Manager） | 🟢 | 2026-10-02 | MU-4 新增；🔴 **NexBox 无此依赖**（其用明文 `music-cookies.json`，触本工程红线，故属有意偏离，见 §三"Aegis 自建凭据加密层"行）。Windows 后端单条 blob 上限 2560 **字节**，超长凭据分片方案见 [02 专题设计 §5.3](../Docs/开发文档/02-专题设计/02-安全与特权通道.md) |
@@ -40,7 +42,7 @@
 | wmi | 0.14.5 | MIT OR Apache-2.0 | crate 引用（🔴 **`crates/infra`** 的 `[target.'cfg(windows)'.dependencies]`，default features = `chrono`；`services` 经 `infra::wmi` 使用） | 本机概览片2 静态硬件采集：`Win32_Processor` / `Win32_BaseBoard` / `Win32_BIOS` / `Win32_PhysicalMemory` / `Win32_DiskDrive` / `Win32_SoundDevice` / `Win32_NetworkAdapter` / `WmiMonitorID`（F-02 八类详情卡） | 🟢 | 2026-10-03 | OV-2 新增；版本钉 NexBox 实测（`Source/NexBox/src-tauri/Cargo.toml:47` 声明 `"0.14"`，其 `Cargo.lock` = 0.14.5，checksum `7787dacd…8e71`）——🔴 同版零偏差。传递依赖逐查见下方「片2-a 传递依赖逐查」；🔴 **落点更正（片2-b，2026-10-03）**：本行原记 `services`，违反 [04 分册 §一](../Docs/开发文档/03-开发规范/04-文件与目录规范.md) 准入表"FFI 只出现在 infra 与 elevated-helper"（WMI 走 COM），已迁至 `crates/infra` |
 | nvml-wrapper | 0.10.0 | MIT OR Apache-2.0 | crate 引用（🔴 **`crates/infra`** 的 `[target.'cfg(windows)'.dependencies]`，**default features 为空**，未开 `legacy-functions` / `serde`；`services` 经 `infra::nvml` 使用） | NVIDIA GPU **显存总量 + 驱动版本**两项静态规格（F-02 显卡卡，M-01 片2）。🔴 温度/负载/显存已用**不用本 crate**，只走 sidecar——收口口径见 §五 | 🟢 | 2026-10-03 | OV-2 新增；🔴 **不是新增技术路线**：NexBox `Cargo.toml:55` 已带 `nvml-wrapper = "0.10"`（lock 0.10.0，checksum `0c9bff0a…38c5`），母本实现即 `hardware.rs:741 get_nvidia_gpus_with_nvml()`（取 `name/memory_info/temperature/utilization_rates/sys_driver_version`），本工程属②档移植而非自造。🔴 **分发面**：经 `libloading 0.8.9` **运行时动态加载用户机器上随 NVIDIA 驱动已装好的 `nvml.dll`**，Aegis 包内🟰**零 NVIDIA 二进制/零 `nvml.h`**（取证见 §五）；🔴 **落点更正（片2-b）**：原记 `services`，因 NVML 走 `libloading` C 互操作属 FFI，按 04 分册 §一 准入表迁入 `crates/infra` |
 
-> 🟡 **MU-4 钉版偏差如实申报**：上表 6 个 crate（tokio / regex / futures-util / chrono / rand / sha1）实测版本**高于 NexBox lockfile 基线**，均为 `Cargo.toml` 声明区间内的依赖解析漂移，非本工程主动跳版本。🔴 tauri 全家桶（含 `tauri-plugin-*`）**零偏差**，符合"全家桶锁 NexBox"红线。收口动作 = 把 MU-4 这批声明补成 NexBox 实测精确版本或整体抬基线，**须用户拍板**（见 TASKS §三 Q-23）。许可证档位本身全部落在 ADR-003 允许档（MIT / Apache-2.0 / MIT OR Apache-2.0），无许可风险。
+> 🟡 **钉版偏差如实申报**：上表 6 个 crate（tokio / regex / futures-util / chrono / rand / sha1）实测版本**高于 NexBox lockfile 基线**，均为 `Cargo.toml` 声明区间内的依赖解析漂移，非本工程主动跳版本。🔴 tauri 全家桶（含 `tauri-plugin-*`）**除 `tauri-plugin-store` 外零偏差**，符合"全家桶锁 NexBox"红线。⚠️ **唯一已知偏差（2026-10-03 由我引入，为修 mismatch 而主动升级）**：`tauri-plugin-store` Rust **2.4.5 → 2.5.0**（NexBox 基线 2.4.3，即 +1 次版本），背景与收口口径见该行"变更行"。✅ **收口：用户 2026-10-04 拍板 = A「维持 2.5.0 双对齐 + 整体抬基线」**，已立 [ADR-005](../Docs/开发文档/04-决策/ADR-005-依赖基线与钉版口径.md)：`tauri-plugin-store` 的 **Aegis 基线钉 2.5.0**（同时抬 NexBox 侧同步口径：今后 p2p 对账以 2.5.0 为对齐目标），并籍此把"全家桶基线 = NexBox 实测"放宽为"**tauri 全家桶以 Aegis lock 实测为基线 + 其余 crate 仍落 NexBox 同 semver 区间**"。处置同批生效：Rust 2.5.0 ↔ npm 2.5.0 双对齐、`cargo check` 0 error、`cargo test --workspace` 198 passed。收口动作 = 把 MU-4 这批声明补成 NexBox 实测精确版本或整体抬基线，**须用户拍板**（见 TASKS §三 Q-23）。许可证档位本身全部落在 ADR-003 允许档（MIT / Apache-2.0 / MIT OR Apache-2.0），无许可风险。
 
 内部 crate（`contracts` / `infra` / `services` / `elevated-helper` / `worker`，path 引用）随仓库整体 GPL-3.0，不占本表。
 
@@ -80,9 +82,10 @@
 
 | 名称 | 版本（lock 实测） | 许可证 | 引入方式 | 用途 | 档位 | 登记日期 | 变更行 |
 |---|---|---|---|---|---|---|---|
-| @tauri-apps/api | 2.11.1（exact） | MIT OR Apache-2.0 | npm 引用 | 前端宿主通道（invoke/event/window） | 🟢 | 2026-10-02（补登 W0） | 建表补登 |
-| @tauri-apps/cli | 2.11.4（exact, dev） | MIT OR Apache-2.0 | npm（dev） | 构建 CLI | 🟢 | 2026-10-02（补登 W0） | 建表补登 |
+| @tauri-apps/api | 2.12.1（exact） | MIT OR Apache-2.0 | npm 引用 | 前端宿主通道（invoke/event/window） | 🟢 | 2026-10-02（补登 W0） | 建表补登；**2026-10-03 升级 2.11.1 → 2.12.1**（exact）。理由：`Cargo.toml` 声明 `tauri = "2.10"` 是 caret 语义，lock 实测已到 **2.12.1**，而 npm 侧钉在 2.11.1 → `tauri dev` 报 `Found version mismatched Tauri packages (tauri v2.12.1 : @tauri-apps/api v2.11.1)`。按「npm 对齐 Rust 实际版本」处置，取与 lock 完全一致的 2.12.1（用户 2026-10-03 裁决） |
+| @tauri-apps/cli | 2.12.1（exact, dev） | MIT OR Apache-2.0 | npm（dev） | 构建 CLI | 🟢 | 2026-10-02（补登 W0） | 建表补登；**2026-10-03 升级 2.11.4 → 2.12.1**（exact）。与 `@tauri-apps/api` 同批对齐 Rust `tauri` lock 实测 2.12.1（官方要求 CLI 与 runtime 同版本） |
 | @tauri-apps/plugin-dialog | 2.7.3（exact） | MIT OR Apache-2.0 | npm 引用 | 目录选择器 JS 侧（MU-1） | 🟢 | 2026-10-02 | MU-1 新增 |
+| @tauri-apps/plugin-store | 2.5.0（exact） | MIT OR Apache-2.0 | npm 引用 | 设置持久化（主题/播放历史/音乐凭据键值）JS 侧 | 🟢 | 2026-10-03 | **建表时漏登 → 补登**：`node_modules` 实测 2.5.0，与 Rust `tauri-plugin-store` 2.5.0 对齐（NexBox 基线 `^2.4.3`）。🔴 同一持久化通道跨 Rust/npm 两侧，任何一侧单改都会触发 `Found version mismatched Tauri packages`，故两侧必须同批升 |
 | react / react-dom | ^19.0 | MIT | npm 引用 | UI 框架 | 🟢 | 2026-10-02（补登 W0） | 建表补登 |
 | react-router-dom | ^7.1.5 | MIT | npm 引用 | 路由 | 🟢 | 2026-10-02（补登 W0） | 建表补登 |
 | @chakra-ui/react | ^2.10.9 | MIT | npm 引用 | UI 组件底座 | 🟢 | 2026-10-02（补登 W0） | 建表补登 |
@@ -138,6 +141,8 @@
 | SystemToolkit `TopProcessSampler`（进程 CPU 差分采样思路） | GPL-3.0（同向） | ③仅思路复用（非代码移植）：两轮差分才出 CPU 值，🔴 拒绝 WMI `PerfProc` 路线（母本实测冷启动 6291ms）；新增口径：sysinfo Windows 进程 CPU 是"占一个核"语义，展示前先除逻辑核数再钳 0–100（R-17），PID 0 不入榜，无计数器上一值一律 `None`（R-08 禁 0% 冒充） | `crates/services/src/overview/processes.rs` | M-01 片1 提前建（原计划片3），2026-10-03 |
 | SystemToolkit `TcpConnectionTable`（`GetExtendedTcpTable` + `MIB_TCPTABLE_OWNER_PID`） | GPL-3.0（同向） | ③仅思路复用（C#→Rust，非代码移植）：改走 `windows-sys` 0.59 官方绑定；🔴 刻意**不采本机/远端 IP**（F-05 数据视图只需端点总数 + 进程归属 + 监听端口摘要，隐私面收窄） | `crates/infra/src/net_tcp_table.rs`、`crates/services/src/overview/endpoints.rs` | M-01 片1 提前建（原计划片3），2026-10-03 |
 | SystemToolkit `OverviewView.xaml`（547 行视觉树） | GPL-3.0（同向） | ③仅布局参照，🔴 **零代码/零 XAML 复制**：六分区流式结构、四卡 `UniformGrid Columns=4`、键值卡 `120\|*`、固定 5 行表、软件表 `MaxHeight` 有界视口等布局语义转写为 emotion styled + `--aegis-*` 令牌 | `src/features/Overview/pages/overview-page.tsx`、`src/ui/components/{stat-card,seg-bar,temp-badge,live-dot}.tsx` | M-01 片1，2026-10-03；线框经批准（plans/grand-pine-perch.md §一）后编码，满足 UI 先审后写 |
+| NexBox `src-tauri/src/app_manager.rs`（「已安装应用扫描」半区：`UNINSTALL_KEY`/`score_text`/`read_reg_str_raw_decode`/`dedupe_key`/`scan_uninstall_key`/`list_installed_apps`） | GPL-3.0（同向） | ③同 API 思路复用（**非逐行移植**，函数签名重做）：`winreg` 三视图扫描（HKLM64 `Uninstall` + HKLM `Wow6432Node` + HKCU）、`SystemComponent=1` 剔除、多编码打分解码（UTF-16LE/UTF-8/GBK 三候选排序取最优，REG_MULTI_SZ 只取首段）、名称+版本跨来源去重、按小写名升序——口径与母本一致。🔴 **两处有意偏离**：① 新增 `is_update_or_tool`（R-16 剔除 Update/Patch/Hotfix/Redistributable/DirectX 等，母本**无此过滤**，实测 `app_manager.rs` 全文零命中 `update/patch/KB`）；② 大小单位：母本 `estimated_size_kb` 原样透传 KB，本工程归一为 `estimated_size_bytes`（展示层 `format_bytes` 单源）。🔴 **整段不移植**：`registry_source` 字段、`parse_display_icon`/`get_app_icons`、`open_app`、`uninstall_app` + `launch_elevated`（F-07 是只读清单；卸载属 F-13，且母本那两处提权触本工程红线） | `crates/services/src/overview/software.rs` | M-01 片4，2026-10-03；真机冒烟 `real_registry_scan_yields_user_apps_without_patches` 实测本机 **51 条**（非空 + 零补丁混入 + 去重后无重 + 行序稳定四项断言） |
+| SystemToolkit `src/SystemToolkit.Core/Overview/Services/OverviewReportBuilder.cs`（89 行，Markdown 报告纯函数 `Build`） | GPL-3.0（同向，C#→TS 跨栈重写） | ③仅思路复用（零代码复制）。🟢 沿用的口径：四节顺序（硬件概览→硬件详情→系统概览→传感器快照）、`\| 项目 \| 值 \|` + `\| --- \| --- \|` 表式、`\|` 转义防破表、"传感器探测失败则**整节省略**不输出空表"、统计卡行式 `标题：大数字（副文案） · 说明 百分比`、🔴 R-15 不含已安装软件清单。🔴 **落点反转（本条最重要的偏离）**：母本在 Core 层用 C# 直接拼 Markdown，本工程**不能照此分层**——DTO 的 `KvRowDto.key` 按设计只装 i18n key（文案单源纪律），Rust 侧拼装必然把裸 key 写进用户文件；故拼装在 `src/features/Overview/lib/export-report.ts`（纯函数，vitest 15 例钉住），后端只留两个命令：`overview_sensor_table`（数据上行，`unit` 随读数透传避免重抄单位表）+ `overview_report_write`（仅落盘，走 `infra::fs::atomic_write`）。另有一处口径修正：说明段跟随 `bigValue` 的**来源**而非母本的 `Percent is {}` 门——R-07 温度顶位时没有进度条，报告仍须写明该数是温度而非占用率 | `src/features/Overview/lib/export-report.ts`、`src/features/Overview/hooks/use-export-report.ts`、`crates/services/src/overview/report.rs`（61 行，仅落盘） | M-01 片4，2026-10-03；保存/提示经 `@tauri-apps/plugin-dialog` 2.7.3 `save()`+`message()`（本工程**无** plugin-fs，故落盘必须走后端命令）；取消路径零副作用 |
 
 ## 四、C# 传感器 sidecar 的第三方二进制与内核驱动边界（M-01 本机概览，2026-10-03）
 

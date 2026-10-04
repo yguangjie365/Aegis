@@ -4,17 +4,17 @@ import styled from "@emotion/styled";
 import type { SoftwareList } from "@/types/overview";
 
 const Container = styled.div`
-  background: var(--aegis-bg-surface);
-  border-radius: var(--aegis-radius-md);
+  background: var(--aegis-surface-soft);
+  border-radius: var(--aegis-radius-sm);
   padding: var(--aegis-space-lg);
-  box-shadow: var(--aegis-shadow-sm);
+  box-shadow: var(--aegis-elevation-sticky);
 `;
 
 const Title = styled.h3`
-  font-size: var(--aegis-font-lg);
+  font-size: var(--aegis-type-h3-size);
   font-weight: 600;
   margin: 0 0 var(--aegis-space-md) 0;
-  color: var(--aegis-text-primary);
+  color: var(--aegis-ink);
 `;
 
 const Toolbar = styled.div`
@@ -29,11 +29,11 @@ const SearchInput = styled.input`
   flex: 1;
   max-width: 400px;
   padding: var(--aegis-space-xs) var(--aegis-space-sm);
-  border: 1px solid var(--aegis-border-color);
+  border: 1px solid var(--aegis-hairline);
   border-radius: var(--aegis-radius-sm);
-  background: var(--aegis-bg-input);
-  color: var(--aegis-text-primary);
-  font-size: var(--aegis-font-sm);
+  background: var(--aegis-surface-inset);
+  color: var(--aegis-ink);
+  font-size: var(--aegis-type-body-size);
 
   &:focus {
     outline: none;
@@ -41,29 +41,29 @@ const SearchInput = styled.input`
   }
 
   &::placeholder {
-    color: var(--aegis-text-muted);
+    color: var(--aegis-stone);
   }
 `;
 
 const Count = styled.span`
-  font-size: var(--aegis-font-sm);
-  color: var(--aegis-text-secondary);
+  font-size: var(--aegis-type-body-size);
+  color: var(--aegis-mute);
 `;
 
 const Table = styled.table`
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--aegis-font-sm);
+  font-size: var(--aegis-type-body-size);
 `;
 
 const Thead = styled.thead`
-  border-bottom: 2px solid var(--aegis-border-color);
+  border-bottom: 2px solid var(--aegis-hairline);
 `;
 
 const Th = styled.th<{ width?: string }>`
   text-align: left;
   padding: var(--aegis-space-xs) var(--aegis-space-sm);
-  color: var(--aegis-text-secondary);
+  color: var(--aegis-mute);
   font-weight: 600;
   white-space: nowrap;
   ${(props) => props.width && `width: ${props.width};`}
@@ -71,7 +71,7 @@ const Th = styled.th<{ width?: string }>`
 
 const Tbody = styled.tbody`
   tr {
-    border-bottom: 1px solid var(--aegis-border-color);
+    border-bottom: 1px solid var(--aegis-hairline);
 
     &:last-child {
       border-bottom: none;
@@ -81,21 +81,21 @@ const Tbody = styled.tbody`
 
 const Td = styled.td`
   padding: var(--aegis-space-xs) var(--aegis-space-sm);
-  color: var(--aegis-text-primary);
+  color: var(--aegis-ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 `;
 
 const Placeholder = styled.p`
-  color: var(--aegis-text-warning);
-  font-size: var(--aegis-font-sm);
+  color: var(--aegis-warning);
+  font-size: var(--aegis-type-body-size);
   margin: var(--aegis-space-md) 0 0 0;
 `;
 
 const EmptyState = styled.p`
-  color: var(--aegis-text-muted);
-  font-size: var(--aegis-font-sm);
+  color: var(--aegis-stone);
+  font-size: var(--aegis-type-body-size);
   margin: var(--aegis-space-md) 0 0 0;
 `;
 
@@ -116,7 +116,7 @@ export function SoftwareListPanel({ data }: SoftwareListPanelProps) {
     return data.apps.filter(
       (app) =>
         app.name.toLowerCase().includes(term) ||
-        (app.publisher?.toLowerCase().includes(term) ?? false)
+        (app.publisher?.toLowerCase().includes(term) ?? false),
     );
   }, [data.apps, searchTerm]);
 

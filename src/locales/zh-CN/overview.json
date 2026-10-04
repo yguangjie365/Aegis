@@ -47,7 +47,8 @@
       "normal": "温度正常",
       "warning": "温度偏高",
       "critical": "温度过热"
-    }
+    },
+    "undetected": "未检测"
   },
   "monitor": {
     "reason": {
@@ -66,6 +67,9 @@
   "state": {
     "error": {
       "title": "概览采集失败"
+    },
+    "boot": {
+      "collecting": "正在读取硬件信息…"
     }
   },
   "detail": {
@@ -157,7 +161,8 @@
       "systemLocale": "系统区域",
       "timezone": "时区",
       "keyboardLayout": "键盘布局"
-    }
+    },
+    "sectionTitle": "详细信息"
   },
   "processes": {
     "sectionTitle": "实时占用进程榜",
@@ -247,5 +252,12 @@
       "smallData": "容量",
       "factor": "系数"
     }
+  },
+  "systemInfo": {
+    "sectionTitle": "系统信息",
+    "notAvailable": "系统信息读取失败"
+  },
+  "health": {
+    "sectionTitle": "网络与存储健康"
   }
 }
