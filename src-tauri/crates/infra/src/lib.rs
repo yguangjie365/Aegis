@@ -2,7 +2,10 @@
 //!
 //! 计划落点（不在本骨架内实现）：
 //! - ✅ 原子写最小版已落 `fs::atomic_write`（W0-09 提前子集，随 MU-1 落地）
-//! - `safe::join_under_root` 路径越界守卫——外部路径拼接唯一入口（W0-09，02 专题 §五）
+//! - ✅ **路径越界守卫已落 [`safe`]**（W0-09 子集，2026-10-04 随 M-05 文件互传片1 落地）——
+//!   `safe::join_under_root` 是**外部路径拼接的唯一入口**（02 专题 §5.1）。
+//!   🟠 命名不一致待统一：规格写 `safe::join_under_root`、TASKS W0-09 写 `PathGuard`，同一物两名字，
+//!   本实现按**规格**命名为 `safe::join_under_root`（规格是唯一事实源），已登记变更记录。
 //! - DPAPI / Windows 凭据管理器封装（凭据永不明文落盘）
 //! - SQLite 访问 + `migrations/`（W0-19；🔴 业务代码禁建表）
 //! - tracing JSONL 日志总线落盘（W0-10）
@@ -22,6 +25,9 @@ pub mod net_tcp_table;
 #[cfg(windows)]
 pub mod nvml;
 pub mod registry;
+// M-05 片1（2026-10-04，dsh（互传批），W0-09 子集）：路径越界守卫，
+// 「外部字符串 + 根目录」拼接的唯一入口（02 专题 §5.1 / 04 分册 §一 目录树）。
+pub mod safe;
 pub mod sidecar;
 // M-01 片3-c（2026-10-03）：SMART 硬盘健康度检测（CrystalDiskInfo 移植，FFI 层）
 #[cfg(windows)]
