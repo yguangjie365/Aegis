@@ -229,6 +229,14 @@ export const nvidiaLight: ThemePack = {
       // 同用 overshoot 实测多出 ~11px 抖动（h 384→282）。口诀：被拉开的不要弹，落到位的才弹。
       decelerate: "cubic-bezier(0, 0, 0.2, 1)",
       draw: "cubic-bezier(0.32, 0.72, 0.24, 1)",
+      /* ⚠️ 本值 = 导航指示器在 **BOUNCE 50**（原调校手感）下的**位移**过冲。
+         🔴 但导航当前跑在 `BOUNCE = 60`，实际用的是 `cubic-bezier(0.28, 1.456, 0.36, 1)`
+         —— 运行期由 `overshoot(60, 1.38)` 算出，落在 `shell/nav-rail.tsx` 的 `--ind-move`。
+         它**刻意不消费本令牌**：同一处还要给尺寸用第二个过冲量（`overshoot(60, 1.5)` = 1.6），
+         一个键装不下两个值，而"位移与尺寸过冲量不同"正是那个刻意的「让步感」。
+         故：**不要把 `--ind-move` 改成 `var(--aegis-motion-easing-overshoot)`** ——
+         那会把回弹从 60 静默降回 50（视觉上指示器"没那么 Q"，但没有任何报错）。
+         本键留给"只需要一个过冲量"的通用落位场景。 */
       overshoot: "cubic-bezier(0.28, 1.38, 0.36, 1)",
     },
   },
