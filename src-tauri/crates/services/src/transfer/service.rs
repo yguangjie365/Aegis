@@ -1005,6 +1005,8 @@ fn handle_connection(
     // 🔴 用 `RefCell` 而不是 `Cell`：进度闭包要按引用读（`Cell` 只能整体 take，
     //    那会把 id 从槽里拿走，后续的块就没得读了）。同一线程，无跨线程顾虑。
     let task_id_slot: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
+    // F-FT-27：本地暂停上限（设置 0 = 不限 ⇒ None）。一次会话内取一次即可。
+    let pause_limit = ctx.pause_limit();
     // 本次接收的进度节流器（01 分册 §3.1：建议 ≥100ms 合并一次）
     let mut progress = super::tasks::ProgressThrottle::default();
     // 本次接收的冲突策略：初值取设置，但准入闭包可在**用户裁决之后**就地覆盖它
@@ -1075,6 +1077,10 @@ fn handle_connection(
                     super::sink::now_unix_ms(),
                 );
                 ctx.register_cancel(&id, cancel.clone());
+                // 🔴 暂停闸门同样按 id 登记（F-FT-26）：命令层按 id 拿到的是**同一个** Arc，
+                //    下面的进度闭包用它等待 ⇒ "暂停"才可能生效。
+                //    与令牌同一条纪律：收尾必删（见 `forget_pause`）。
+                ctx.register_pause(&id);
                 task_id_slot.replace(Some(id));
             }
             verdict
@@ -1169,10 +1175,28 @@ fn handle_connection(
         // 分块进度：🔴 每块如实报一次，但**按 100ms 合并**后才写台账——
         // 2 MiB 的块在千兆网上每秒几十次，逐次写会既费锁又让界面抖。
         |transferred| {
+            // 🔴 F-FT-26：暂停在**这里**兑现——`on_progress` 是"每块之后"被调一次，
+            //    在此阻塞正好等于"停在块边界"，块内绝不被打断（R-14 原文）。
+            //
+            // 🔴 这段必须在**节流判断之前**：若放在 `should_report` 之后，
+            //    被节流吞掉的那些块就不会检查暂停 ⇒ 暂停生效时刻变得不可预期。
+            //
+            // 🔴 也不能让 `borrow()` 的守卫跨过阻塞点：那会把 RefCell 借走整个暂停时长
+            //    （准入闭包还要 borrow_mut 去写回任务 id），故先 clone 成局部变量。
+            let current_id = task_id_slot.borrow().clone();
+            if let Some(id) = &current_id {
+                if let Some(gate) = ctx.pause_gate(id) {
+                    if gate.wait_if_paused(pause_limit, cancel) == super::pause::PauseExit::TimedOut
+                    {
+                        // F-FT-27：本地暂停超上限 ⇒ 自动取消（原因由收尾处判成 PAUSE_TIMEOUT）
+                        cancel.cancel();
+                    }
+                }
+            }
             if !progress.should_report(super::sink::now_unix_ms()) {
                 return;
             }
-            if let Some(id) = task_id_slot.borrow().as_deref() {
+            if let Some(id) = &current_id {
                 ctx.lock_tasks().advance(id, transferred);
             }
         },
@@ -1184,15 +1208,27 @@ fn handle_connection(
     if let Some(id) = task_id_slot.borrow_mut().take() {
         // 文本分支的台账与历史在 commit 闭包里已经写齐（那里才有正文），
         // 故这里只可能是文件路径；`task_id_slot` 非空本身就说明登记的是文件任务。
-        let (state, reason) = match &outcome {
-            Ok(transport::AnyOutcome::File(file)) => receive_terminal_state(file),
-            Err(TransportError::Cancelled { reason_code }) => {
-                (TaskState::Cancelled, Some(reason_code.clone()))
+        //
+        // 🔴 F-FT-27：本地暂停超上限 ⇒ 终态必须记 PAUSE_TIMEOUT 而**不是** USER_CANCEL。
+        //    两者走的是同一条"取消"回收路径，只能靠闸门留下的痕迹来分辨；
+        //    不分辩的话，用户会以为"是我按了取消"，而事实是"放太久自动放弃了"。
+        let paused_too_long = ctx.pause_gate(&id).is_some_and(|gate| gate.timed_out());
+        let (state, reason) = if paused_too_long {
+            (
+                TaskState::Cancelled,
+                Some(reasons::PAUSE_TIMEOUT.to_owned()),
+            )
+        } else {
+            match &outcome {
+                Ok(transport::AnyOutcome::File(file)) => receive_terminal_state(file),
+                Err(TransportError::Cancelled { reason_code }) => {
+                    (TaskState::Cancelled, Some(reason_code.clone()))
+                }
+                _ => (
+                    TaskState::Failed,
+                    Some(reasons::PEER_DISCONNECTED.to_owned()),
+                ),
             }
-            _ => (
-                TaskState::Failed,
-                Some(reasons::PEER_DISCONNECTED.to_owned()),
-            ),
         };
         let finished_at_ms = super::sink::now_unix_ms();
         // 🔴 先从**台账**取一份快照：历史要的是当时的事实（文件名/大小/对端），
@@ -1200,8 +1236,9 @@ fn handle_connection(
         let snapshot = ctx.lock_tasks().get(&id).cloned();
         ctx.lock_tasks()
             .finish(&id, state, reason.as_deref(), finished_at_ms);
-        // 收尾即移除令牌：不移除这张表会随会话无限增长
+        // 收尾即移除令牌与闸门：不移除这两张表会随会话无限增长
         ctx.forget_cancel(&id);
+        ctx.forget_pause(&id);
         if let Some(task) = snapshot {
             ctx.record_history(super::history::HistoryEntry {
                 id,

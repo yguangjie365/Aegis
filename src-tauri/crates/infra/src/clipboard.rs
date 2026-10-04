@@ -28,6 +28,7 @@
 
 use std::fmt;
 use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::time::Duration;
 
 /// 剪贴板错误。
 ///
@@ -207,6 +208,24 @@ pub fn get_text() -> Result<String, ClipboardError> {
 mod tests {
     use super::*;
 
+    /// 写剪贴板，遇到"被别的程序占用"时**短重试**。
+    ///
+    /// 🔴 为什么要有这个：剪贴板是**系统级共享资源**，任何程序都可能临时占住它。
+    /// 这条测试因此**天生可能撞上 Busy**——不重试就会偶发失败，
+    /// 而偶发失败会把整套门禁的可信度一起拖下水（实测撞到过一次）。
+    ///
+    /// 返回 `false` = 重试后仍被占用（调用方应**跳过**并说明原因，而不是判失败）。
+    fn set_with_retry(text: &str) -> bool {
+        for _ in 0..8 {
+            match set_text(text) {
+                Ok(()) => return true,
+                Err(ClipboardError::Busy) => std::thread::sleep(Duration::from_millis(120)),
+                // 其它错误不是"被占用"，照旧暴露出来
+                Err(other) => panic!("写剪贴板失败（非占用）：{other}"),
+            }
+        }
+        false
+    }
     /// 🔴 往返测试**会动到用户当前的剪贴板**，故先存后还原：
     /// 一个测试不该把别人正在用的剪贴板内容弄丢。
     ///
@@ -215,7 +234,10 @@ mod tests {
     fn set_then_get_round_trips_and_restores_the_users_clipboard() {
         let saved = get_text().ok();
         let probe = "Aegis 剪贴板往返测试 🚀 / tab\t/ 换行\n";
-        set_text(probe).expect("写剪贴板");
+        if !set_with_retry(probe) {
+            eprintln!("跳过：剪贴板被其它程序持续占用（环境相关，不是实现缺陷）");
+            return;
+        }
         assert_eq!(
             get_text().expect("读剪贴板"),
             probe,
@@ -229,7 +251,10 @@ mod tests {
     #[test]
     fn empty_text_is_writable_and_readable() {
         let saved = get_text().ok();
-        set_text("").expect("空串也应能写入");
+        if !set_with_retry("") {
+            eprintln!("跳过：剪贴板被其它程序持续占用（环境相关，不是实现缺陷）");
+            return;
+        }
         assert_eq!(get_text().expect("读回"), "");
         if let Some(previous) = saved {
             let _ = set_text(&previous);
