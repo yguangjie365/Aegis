@@ -1022,6 +1022,10 @@ pub struct TransferHistoryEntryDto {
     pub file_size: u64,
     /// 文本条目的字符数（F-FT-35：大小列显示"共 N 字"；文件条目恒为 0）
     pub chars: u64,
+    /// 本次传输耗时毫秒（F-FT-54：快照含"耗时与速度信息"）
+    pub duration_ms: u64,
+    /// 平均速度（字节/秒）；`null` = 判不出来（未传成 / 样本不足）⇒ 界面显示"—"
+    pub avg_speed_bps: Option<u64>,
     /// `completed` | `skipped` | `failed` | `cancelled`
     pub state: String,
     pub reason_code: Option<String>,
@@ -1134,6 +1138,8 @@ fn history_impl() -> Vec<TransferHistoryEntryDto> {
                 file_name: entry.file_name,
                 file_size: entry.file_size,
                 chars: entry.chars,
+                duration_ms: entry.duration_ms,
+                avg_speed_bps: entry.avg_speed_bps,
                 state: entry.state.as_str().to_owned(),
                 reason_code: entry.reason_code,
                 reason_text,

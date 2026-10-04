@@ -1375,6 +1375,18 @@ export function FileTransferPage() {
                     : formatBytes(entry.fileSize)}
                 </span>
                 <span style={{ width: 60, fontSize: 12 }}>{t(`tasks.state.${entry.state}`)}</span>
+                {/* 🔴 F-FT-54：快照要含"耗时与速度信息"。
+                    与任务行同款格式；判不出来就"—"，**不编数字**。 */}
+                <span
+                  style={{
+                    width: 128,
+                    fontSize: 12,
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--aegis-mute)",
+                  }}
+                >
+                  {formatDuration(entry.durationMs)} · {formatSpeed(entry.avgSpeedBps)}
+                </span>
                 {/* 🔴 失败/跳过/取消必须带原因——R-29：不摆无解释的红字 */}
                 {entry.reasonCode !== null && (
                   <span

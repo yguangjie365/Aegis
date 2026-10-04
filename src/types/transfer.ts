@@ -171,6 +171,14 @@ export interface TransferHistoryEntry {
   fileSize: number;
   /** 文本条目的字符数（F-FT-35：大小列显示"共 N 字"；文件条目为 0） */
   chars: number;
+  /** 本次传输耗时毫秒（F-FT-54：快照含"耗时与速度信息"） */
+  durationMs: number;
+  /**
+   * 平均速度（字节/秒）；`null` = 判不出来（没传成或样本不足）⇒ 界面显示"—"。
+   *
+   * 🔴 后端**不给未传成的条目编速度**：见 `history::average_speed_bps`。
+   */
+  avgSpeedBps: number | null;
   state: TransferTaskState;
   reasonCode: string | null;
   /** 原因说明（🔴 未知码原样回显，不硬翻——F-FT-31 末句） */
