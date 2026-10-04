@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styled from "@emotion/styled";
 import { AppButton } from "@/ui/components/app-button";
 import { PageHeader } from "@/ui/components/page-header";
+import { log, newCorrelationId } from "@/lib/logging";
+import { useTransferDrop } from "../hooks/use-transfer-drop";
 import {
+  usePickFilesToSend,
   useRefreshTransferPeers,
   useSaveTransferSettings,
+  useSendTransferFile,
   useTransferPeers,
   useTransferServiceControl,
   useTransferSettings,
@@ -14,6 +18,7 @@ import {
 import { asTransferError } from "@/lib/tauri/transfer";
 import type { TransferSettings } from "@/types/transfer";
 import { formatCountdown, isExpiringSoon } from "../lib/countdown";
+import type { DropRowRect } from "../lib/drop-target";
 import { validate, sizeLine } from "../lib/text-metrics";
 
 /**
@@ -366,8 +371,84 @@ export function FileTransferPage() {
       ? t("service.stopIncomplete", { reason: control.stop.data.message })
       : null;
 
-  const peers = peersQuery.data ?? [];
+  // 🔴 `?? []` 必须包在 useMemo 里：否则每次渲染都造一个新数组，
+  // 使下面依赖 `peers` 的 useCallback 每轮都变（react-hooks/exhaustive-deps 是 error 级）
+  const peers = useMemo(() => peersQuery.data ?? [], [peersQuery.data]);
   const peerError = peersQuery.error !== null ? asTransferError(peersQuery.error).message : null;
+
+  // ── 目标选择与发送（F-FT-11/12；R-7：目标不许猜测） ──
+  // 按钮路径用"所选行"、拖放路径用"落点命中哪一行"——两条路径都不猜。
+  const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const send = useSendTransferFile();
+  const pickFiles = usePickFilesToSend();
+
+  // 设备行的 DOM 引用（拖放命中测试用；每次事件现取，避免与列表变化脱节）
+  const rowRefs = useRef(new Map<string, HTMLElement>());
+
+  const collectRows = useCallback(
+    (): DropRowRect[] =>
+      peers
+        .map((peer) => {
+          const element = rowRefs.current.get(peer.deviceId);
+          if (element === undefined) return null;
+          const rect = element.getBoundingClientRect();
+          return {
+            id: peer.deviceId,
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+          };
+        })
+        .filter((row): row is DropRowRect => row !== null),
+    [peers],
+  );
+
+  /** 把一批路径发给某个设备（F-FT-11：每个文件一条"入队发送"日志）。 */
+  const sendPathsTo = useCallback(
+    (rowId: string, paths: string[]): void => {
+      const peer = peers.find((candidate) => candidate.deviceId === rowId);
+      if (peer === undefined) {
+        // 命中了已消失的行（列表刚刷新）——如实提示，不静默丢弃
+        setNotice(t("send.targetMissing"));
+        return;
+      }
+      const peerLabel = `${peer.ip}:${peer.port}`;
+      for (const path of paths) {
+        const name = path.split(/[\\/]/).pop() ?? path;
+        // F-FT-11 的原文日志："入队发送：{文件名} → {ip}:{端口}"
+        log({
+          level: "info",
+          module: "Transfer",
+          action: "transferSendFile",
+          result: "Success",
+          correlationId: newCorrelationId(),
+        });
+        setNotice(t("send.queued", { name, peer: peerLabel }));
+        send.mutate({ ip: peer.ip, port: peer.port, path });
+      }
+    },
+    [peers, send, t],
+  );
+
+  const drop = useTransferDrop({
+    rows: collectRows,
+    onDropOnRow: sendPathsTo,
+    // 🔴 R-7 的原文：不猜测目标，要求用户重新拖到行上
+    onDropOutside: () => setNotice(t("send.dropOutside")),
+  });
+
+  /** 按钮路径：发给"所选设备"。没选就明确提示，不静默。 */
+  const sendPickedToSelection = useCallback(async (): Promise<void> => {
+    if (selectedPeerId === null) {
+      setNotice(t("send.needSelection"));
+      return;
+    }
+    const paths = await pickFiles();
+    if (paths.length === 0) return; // 用户取消：零副作用
+    sendPathsTo(selectedPeerId, paths);
+  }, [pickFiles, selectedPeerId, sendPathsTo, t]);
 
   return (
     <Wrap>
@@ -616,7 +697,27 @@ export function FileTransferPage() {
               </Empty>
             ) : (
               peers.map((peer) => (
-                <EditRow key={peer.deviceId}>
+                <EditRow
+                  key={peer.deviceId}
+                  ref={(element) => {
+                    // 拖放命中测试要按行取 DOM 矩形；卸载时清掉，否则会命中已消失的行
+                    if (element === null) rowRefs.current.delete(peer.deviceId);
+                    else rowRefs.current.set(peer.deviceId, element);
+                  }}
+                  onClick={() => setSelectedPeerId(peer.deviceId)}
+                  style={{
+                    cursor: "pointer",
+                    // 拖拽高亮：只在命中行变化时才变（over 每秒 238 次，见拖放钩子）
+                    background:
+                      drop.hoveredRowId === peer.deviceId
+                        ? "var(--aegis-surface-hover, rgba(127,127,127,0.12))"
+                        : undefined,
+                    outline:
+                      selectedPeerId === peer.deviceId
+                        ? "1px solid var(--aegis-border-strong, rgba(127,127,127,0.5))"
+                        : undefined,
+                  }}
+                >
                   <Label>{t("discovered.online")}</Label>
                   <span style={{ fontSize: 13 }}>{peer.deviceName}</span>
                   <MonoInput readOnly value={`${peer.ip}:${peer.port}`} style={{ width: 178 }} />
@@ -628,11 +729,22 @@ export function FileTransferPage() {
             )}
           </List>
           <EditRow>
-            <AppButton variant="secondary" size="sm">
+            {/* F-FT-08「发送文件到所选设备」：按钮路径用**所选行**（拖放路径用落点，见 R-7） */}
+            <AppButton
+              variant="primary"
+              size="sm"
+              disabled={selectedPeerId === null || send.isPending}
+              onClick={() => void sendPickedToSelection()}
+            >
               {t("discovered.sendToSelected")}
             </AppButton>
             <Hint>{t("discovered.dragHint")}</Hint>
           </EditRow>
+          {/* 发送与目标选择的提示都在这里（R-7 的"请拖到目标设备行上"、入队回执、失败原因） */}
+          {notice !== null && <Hint span>{notice}</Hint>}
+          {send.error !== null && (
+            <Hint span>{t("send.failed", { reason: asTransferError(send.error).message })}</Hint>
+          )}
         </Card>
       </Cols>
 

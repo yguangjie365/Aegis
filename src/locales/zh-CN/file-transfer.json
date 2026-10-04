@@ -103,7 +103,14 @@
     "failed": "发送失败：{{reason}}",
     "delivered": "已送达",
     "skipped": "对端已跳过",
-    "hashMismatch": "校验不符（对端已丢弃该文件）"
+    "hashMismatch": "校验不符（对端已丢弃该文件）",
+    "pickTitle": "选择要发送的文件（可多选）",
+    "dropOutside": "请把文件拖到目标设备行上，再松开发送。",
+    "needSelection": "请先在「局域网设备」里选择目标设备。",
+    "targetMissing": "目标设备已不在在线列表里，请刷新后重试。",
+    "queued": "入队发送：{{name}} → {{peer}}",
+    "sendingCount": "正在发送 {{count}} 个文件…",
+    "doneCount": "已处理 {{count}} 个文件"
   },
   "text": {
     "title": "文本 / 文件 / 剪贴板",
