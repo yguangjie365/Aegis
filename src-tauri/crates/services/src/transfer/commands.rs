@@ -985,5 +985,113 @@ pub fn transfer_cancel_task(envelope: contracts::CmdEnvelope, id: String) -> Tra
     TransferCancelDto { cancelled }
 }
 
+/// 一条传输历史的对外快照（F-FT-54）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferHistoryEntryDto {
+    pub id: String,
+    /// `send` | `receive`
+    pub direction: String,
+    pub peer_label: String,
+    pub file_name: String,
+    pub file_size: u64,
+    /// `completed` | `skipped` | `failed` | `cancelled`
+    pub state: String,
+    pub reason_code: Option<String>,
+    /// 原因说明（🔴 未知码原样回显，不硬翻——F-FT-31 末句）
+    pub reason_text: String,
+    pub finished_at_ms: i64,
+    /// 本地时区的可读时间（界面与 CSV 共用，避免两处各格式化一遍）
+    pub finished_at_text: String,
+}
+
+/// 列出传输历史（F-FT-54）。服务未运行时返回**空表**（不是错误，与设备列表同口径）。
+#[must_use]
+#[tauri::command]
+pub fn transfer_history_list(envelope: contracts::CmdEnvelope) -> Vec<TransferHistoryEntryDto> {
+    let started = Instant::now();
+    let list = history_impl();
+    log_command(
+        "transferHistoryList",
+        ResultLabel::Success,
+        &envelope.correlation_id,
+        started,
+        None,
+    );
+    list
+}
+
+/// 导出历史为 CSV 到 `path`（F-FT-58）。
+///
+/// 🔴 写盘放在**后端**（[`infra::fs::atomic_write`]）：这样不必为了导出再引入前端 fs 插件，
+/// 也顺带拿到原子写——半截 CSV 比没有 CSV 更糟。
+///
+/// # Errors
+/// 服务未运行、或路径不可写时返回带原因码的 DTO。
+#[tauri::command]
+pub fn transfer_history_export(
+    envelope: contracts::CmdEnvelope,
+    path: String,
+) -> Result<(), TransferErrorDto> {
+    let started = Instant::now();
+    let csv = {
+        let state = lock_state();
+        match state.service.as_ref() {
+            Some(service) => service.history_csv(),
+            None => {
+                return Err(TransferErrorDto::new(
+                    CODE_NOT_RUNNING,
+                    "传输服务未在运行。",
+                ));
+            }
+        }
+    };
+    let target = std::path::PathBuf::from(&path);
+    let result = infra::fs::atomic_write(&target, csv.as_bytes())
+        .map_err(|error| TransferErrorDto::new(CODE_SETTINGS_IO, format!("导出失败：{error}")));
+    let (label, exception) = match &result {
+        Ok(()) => (ResultLabel::Success, None),
+        Err(error) => (ResultLabel::Failed, Some(error.code.as_str())),
+    };
+    log_command(
+        "transferHistoryExport",
+        label,
+        &envelope.correlation_id,
+        started,
+        exception,
+    );
+    result
+}
+
+fn history_impl() -> Vec<TransferHistoryEntryDto> {
+    let state = lock_state();
+    let Some(service) = state.service.as_ref() else {
+        return Vec::new();
+    };
+    service
+        .history_snapshot()
+        .into_iter()
+        .map(|entry| {
+            // 🔴 先算 reason_text：字段被移出后再调就会借用已移动的值（任务 DTO 同款教训）
+            let reason_text = entry.reason_text();
+            TransferHistoryEntryDto {
+                id: entry.id,
+                direction: match entry.direction {
+                    Direction::Send => "send".to_owned(),
+                    Direction::Receive => "receive".to_owned(),
+                },
+                peer_label: entry.peer_label,
+                file_name: entry.file_name,
+                file_size: entry.file_size,
+                state: entry.state.as_str().to_owned(),
+                reason_code: entry.reason_code,
+                reason_text,
+                finished_at_ms: entry.finished_at_ms,
+                finished_at_text: super::history::format_time(entry.finished_at_ms),
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests;

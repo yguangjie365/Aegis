@@ -353,6 +353,10 @@ impl TransferService {
     ///
     /// # Errors
     /// 同 [`Self::start`]。
+    #[allow(clippy::too_many_lines)]
+    // 🔴 允许超长：这是 F-FT-02 的**四步线性拉起**（校验端口 → 建接收目录 → TCP → UDP），
+    // 每一步失败都要回滚前一步，而"回滚了没有"必须和"哪一步失败"读在一起。
+    // 拆成辅助函数会把这条线性因果链打散——那正是本函数最需要被读懂的东西。
     pub fn start_with_history(
         settings: TransferSettings,
         machine_name: &str,
@@ -557,6 +561,18 @@ impl TransferService {
     #[must_use]
     pub fn pending_confirms_with_ttl(&self) -> Vec<(confirm::PendingConfirmation, i64)> {
         self.ctx.confirm.pending_with_ttl()
+    }
+
+    /// 传输历史快照（F-FT-54；**只读**，命令层不得改写——快照不可变）。
+    #[must_use]
+    pub fn history_snapshot(&self) -> Vec<super::history::HistoryEntry> {
+        self.ctx.lock_history().entries().iter().cloned().collect()
+    }
+
+    /// 导出历史为 CSV（F-FT-58）。
+    #[must_use]
+    pub fn history_csv(&self) -> String {
+        self.ctx.lock_history().to_csv()
     }
 
     /// 回答一条待决确认。返回 `false` 表示**没有这条待决**（已超时、已被答复、或服务已停）。
