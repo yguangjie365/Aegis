@@ -45,6 +45,27 @@ pub struct SoftwareListDto {
     pub reason: Option<String>,
 }
 
+/// 逐条传感器原始读数（F-11 报告的"全量传感器表"；聚合快照会折叠掉这些细节）。
+///
+/// 🔴 只给数据不给文案：类型译名归前端 i18n（文案单源）；`unit` 例外——它是 sidecar
+/// 随读数一并上报的**测量单位**（数据而非文案），透传可避免本仓重抄一份单位表。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SensorRowDto {
+    pub hardware: String,
+    pub name: String,
+    pub sensor_type: String,
+    pub value: f64,
+    pub unit: String,
+}
+
+/// F-11 传感器全量表上行（空数组 = 本路未读到，前端据此整节省略报告章节）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SensorTableDto {
+    pub rows: Vec<SensorRowDto>,
+}
+
 /// 页头条信息项（规格 §五 页头；快照状态随片2 追加字段）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,7 +77,7 @@ pub struct HeaderDto {
 }
 
 /// 卡片类别（前端据此选图标与标题）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CardKind {
     Cpu,
@@ -66,7 +87,7 @@ pub enum CardKind {
 }
 
 /// 占用大数字的来源（R-07 回退链的哪一级，前端据此出占用说明）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ValueSource {
     /// 一级：系统占用率（sysinfo）
@@ -78,7 +99,7 @@ pub enum ValueSource {
 }
 
 /// 温度徽章状态（R-09）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BadgeState {
     /// 有读数
@@ -89,7 +110,7 @@ pub enum BadgeState {
     NotApplicable,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BadgeLevel {
     Normal,
@@ -97,7 +118,7 @@ pub enum BadgeLevel {
     Critical,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TempBadgeDto {
     pub state: BadgeState,
@@ -105,8 +126,37 @@ pub struct TempBadgeDto {
     pub level: Option<BadgeLevel>,
 }
 
+/// 分段条分级（母本 `StatCardVm.SegLevel` 的等价物）。
+///
+/// 🔴 阈值与母本**逐值对齐**（`StatCardVm.cs:70`，用户 2026-09-04 裁决"占用也要分级，
+/// 7% 不应显红"）：`<60`绿/ `<85` 橙 / 其余红。**不要在前端另判**——同一份百分比
+/// 若在两处判级，迟早会漂成两种颜色。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SegLevel {
+    /// < 60%
+    Normal,
+    /// 60–84%
+    Warning,
+    /// ≥ 85%
+    Critical,
+}
+
+impl SegLevel {
+    /// 由进度条百分比判级；`None`（本项无数据）按 `Normal`——此时轨道为空，颜色无从体现。
+    #[must_use]
+    pub fn from_percent(percent: Option<f64>) -> Self {
+        match percent {
+            Some(p) if p >= 85.0 => Self::Critical,
+            Some(p) if p >= 60.0 => Self::Warning,
+            _ => Self::Normal,
+        }
+    }
+}
+
 /// 实时概览卡（F-01）。
-#[derive(Debug, Clone, Serialize)]
+// 🔴 需 `Deserialize`：F-01 四卡随 F-09 快照落盘（启动秒显），读快照侧必须能反序列化。
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatCardDto {
     pub kind: CardKind,
@@ -121,6 +171,8 @@ pub struct StatCardDto {
     pub value_source: Option<ValueSource>,
     /// 进度条百分比（与 `big_value` 同源，允许小数以免 0.4% 显示为 0）
     pub bar_percent: Option<f64>,
+    /// 进度条分级（🔴 由 Rust 判完，前端只按值取色；阈值见 `SegLevel::from_percent`）
+    pub seg_level: SegLevel,
     pub badge: TempBadgeDto,
     /// L-08 卡内一行降级原因（整卡降级时给出，卡不消失、卡高不变）
     pub degrade_reason: Option<String>,
@@ -412,7 +464,10 @@ mod tests {
             collected_at_ms: 1_728_000_000_000,
         };
         let json = serde_json::to_value(&detail).expect("HardwareDetailDto 应可序列化");
-        assert_eq!(json["collectedAtMs"], serde_json::Value::Number(serde_json::Number::from(1_728_000_000_000_i64)));
+        assert_eq!(
+            json["collectedAtMs"],
+            serde_json::Value::Number(serde_json::Number::from(1_728_000_000_000_i64))
+        );
         assert_eq!(json["cards"], serde_json::Value::Array(Vec::new()));
     }
 

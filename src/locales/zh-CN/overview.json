@@ -70,6 +70,7 @@
   },
   "detail": {
     "cpu": {
+      "title": "处理器",
       "model": "型号",
       "temperature": "温度",
       "cores": "核心 / 线程",
@@ -78,6 +79,7 @@
       "architecture": "架构"
     },
     "gpu": {
+      "title": "显卡",
       "model": "型号",
       "vendor": "厂商",
       "temperature": "温度",
@@ -87,12 +89,14 @@
       "driverVersion": "驱动版本"
     },
     "storage": {
+      "title": "存储",
       "model": "型号",
       "media": "介质",
       "capacity": "容量",
       "serial": "序列号"
     },
     "memory": {
+      "title": "内存",
       "totalCapacity": "总容量",
       "type": "类型",
       "frequency": "频率",
@@ -100,25 +104,30 @@
       "serial": "序列号"
     },
     "board": {
+      "title": "主板",
       "model": "型号",
       "manufacturer": "制造商"
     },
     "bios": {
+      "title": "BIOS",
       "version": "版本",
       "manufacturer": "制造商",
       "date": "日期"
     },
     "network": {
+      "title": "网卡",
       "model": "型号",
       "connectionName": "连接名称",
       "adapterType": "适配器类型",
       "linkSpeed": "链路速度"
     },
     "audio": {
+      "title": "声卡",
       "model": "型号",
       "manufacturer": "制造商"
     },
     "display": {
+      "title": "显示器",
       "model": "型号",
       "manufacturer": "制造商",
       "resolution": "分辨率",
@@ -190,5 +199,53 @@
     "totalApps": "共 {{count}} 个应用",
     "noData": "没有匹配的软件 · 清空搜索框可看全部",
     "emptyState": "未检测到已安装的桌面应用（需管理员权限读取注册表）"
+  },
+  "report": {
+    "button": "导出报告",
+    "exporting": "导出中…",
+    "hint": "将当前概览数据导出为 Markdown 文件（不含已安装软件清单）",
+    "busy": "数据采集中，请稍候再导出",
+    "noData": "暂无数据可导出（请等待首次采集完成）",
+    "saved": "报告已导出：{{path}}",
+    "failed": "导出失败：{{reason}}",
+    "fileName": "概览报告",
+    "title": "硬件信息报告",
+    "generatedAt": "生成时间：{{value}}",
+    "computer": "计算机：{{value}}",
+    "computerNone": "未知",
+    "noValue": "—",
+    "reasonPrefix": "> 说明：{{reason}}",
+    "section": {
+      "stats": "硬件概览",
+      "detail": "硬件详情",
+      "system": "系统概览",
+      "sensors": "传感器快照"
+    },
+    "colKey": "项目",
+    "colValue": "值",
+    "colHardware": "硬件",
+    "colSensor": "传感器",
+    "colType": "类型"
+  },
+  "sensor": {
+    "type": {
+      "temperature": "温度",
+      "load": "负载",
+      "fan": "风扇",
+      "voltage": "电压",
+      "clock": "频率",
+      "power": "功率",
+      "flow": "水流",
+      "control": "控制",
+      "level": "水位",
+      "frequency": "频率",
+      "throughput": "传输率",
+      "current": "电流",
+      "energy": "能量",
+      "noise": "噪音",
+      "data": "容量",
+      "smallData": "容量",
+      "factor": "系数"
+    }
   }
 }

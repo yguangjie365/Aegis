@@ -156,3 +156,19 @@ export interface SoftwareList {
   /** 空态原因（R-08：无数据必写为什么是空的） */
   reason: string | null;
 }
+
+/** F-11 逐条传感器原始读数（聚合快照折叠掉了，报告要全量表） */
+export interface SensorRow {
+  hardware: string;
+  name: string;
+  /** sidecar 原始类型串（Temperature / Load / Fan…）；译名归前端 i18n */
+  sensorType: string;
+  value: number;
+  /** sidecar 随读数上报的测量单位（数据而非文案，故后端透传） */
+  unit: string;
+}
+
+/** F-11 传感器全量表上行（空数组 = 本路未读到，报告整节省略该章节） */
+export interface SensorTable {
+  rows: SensorRow[];
+}

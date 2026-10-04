@@ -1,15 +1,15 @@
 //! 已安装软件清单（M-01 片4 / F-07，2026-10-03）。
 //!
-//! 复用结论（DP-1）：端点取数走 `winreg` 注册表扫描（NexBox `app_manager.rs` 同 API，
-//! 属③思路复用；母本实测覆盖 HKLM64/HKLM32/HKCU 三视图 + SystemComponent 剔除 + 名称+版本去重）。
+//! 复用结论（DP-1）：端点取数走 `winreg` 注册表扫描（`NexBox` `app_manager.rs` 同 API，
+//! 属③思路复用；母本实测覆盖 HKLM64/HKLM32/HKCU 三视图 + `SystemComponent` 剔除 + 名称+版本去重）。
 //!
 //! 🔴 三条口径纪律（R-16）：
-//! 1. **剔除**：无显示名条目、SystemComponent=1、更新/补丁/热修复/工具类条目；
+//! 1. **剔除**：无显示名条目、`SystemComponent`=1、更新/补丁/热修复/工具类条目；
 //! 2. **去重**：按"名称+版本"跨来源去重（同一程序在多个登记区出现只保留一条）；
-//! 3. **解码**：REG_SZ 多编码候选（UTF-16LE/UTF-8/GBK），打分选最合理文本。
+//! 3. **解码**：`REG_SZ` 多编码候选（UTF-16LE/UTF-8/GBK），打分选最合理文本。
 
 use std::collections::HashSet;
-use winreg::enums::*;
+use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};
 use winreg::RegKey;
 
 /// 已安装应用一行（F-07 表格列：名称/版本/发布商/安装日期/大小）。
@@ -47,10 +47,10 @@ fn score_text(s: &str) -> i32 {
 }
 
 /// 对注册表字符串的原始字节做智能解码：
-/// 标准 REG_SZ 为 UTF-16LE，但部分国产老软件写入的 DisplayName 实际是 UTF-8/GBK 字节
+/// 标准 `REG_SZ` 为 UTF-16LE，但部分国产老软件写入的 `DisplayName` 实际是 UTF-8/GBK 字节
 /// （或双重编码），直接按 UTF-16 读取会出现乱码。
 /// 分别按 UTF-16LE/UTF-8/GBK 解码后打分，取最合理的文本；含 NUL 分隔的
-/// REG_MULTI_SZ 只取第一段。返回 None 表示值为空。
+/// `REG_MULTI_SZ` 只取第一段。返回 None 表示值为空。
 fn read_reg_str_raw_decode(bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() {
         return None;
@@ -59,19 +59,18 @@ fn read_reg_str_raw_decode(bytes: &[u8]) -> Option<String> {
     // 候选：(得分, 解码错误数, 偏好序, 文本)
     let mut candidates: Vec<(i32, usize, usize, String)> = Vec::new();
 
-    // UTF-16LE（常规 REG_SZ 形态）
-    let mut utf16 = String::new();
-    let utf16_err;
-    if bytes.len() % 2 == 0 {
+    // UTF-16LE（常规 REG_SZ 形态）：奇数字节不可能是 UTF-16，错误数记为不可选
+    let (utf16, utf16_err) = if bytes.len() % 2 == 0 {
         let units: Vec<u16> = bytes
             .chunks_exact(2)
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect();
-        utf16 = String::from_utf16_lossy(&units);
-        utf16_err = utf16.chars().filter(|&c| c == '\u{FFFD}').count();
+        let text = String::from_utf16_lossy(&units);
+        let err = text.chars().filter(|&c| c == '\u{FFFD}').count();
+        (text, err)
     } else {
-        utf16_err = usize::MAX;
-    }
+        (String::new(), usize::MAX)
+    };
     candidates.push((score_text(&utf16), utf16_err, 2, utf16));
 
     // UTF-8
@@ -80,9 +79,13 @@ fn read_reg_str_raw_decode(bytes: &[u8]) -> Option<String> {
     candidates.push((score_text(&utf8_lossy), utf8_err, 0, utf8_lossy));
 
     // GBK（cp936，国产老软件常用）
-    let (gbk_text, _, gbk_err) = encoding_rs::GBK.decode(bytes);
-    let gbk_err = if gbk_err { 1 } else { 0 };
-    candidates.push((score_text(&gbk_text), gbk_err, 1, gbk_text.into_owned()));
+    let (gbk_text, _, gbk_replaced) = encoding_rs::GBK.decode(bytes);
+    candidates.push((
+        score_text(&gbk_text),
+        usize::from(gbk_replaced),
+        1,
+        gbk_text.into_owned(),
+    ));
 
     candidates.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
 
@@ -136,12 +139,16 @@ fn dedupe_key(app: &InstalledApp) -> String {
     format!(
         "n:{}|v:{}",
         app.name.trim().to_lowercase(),
-        app.display_version.as_deref().unwrap_or("").trim().to_lowercase()
+        app.display_version
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_lowercase()
     )
 }
 
 fn scan_uninstall_key(
-    root: RegKey,
+    root: &RegKey,
     subkey: &str,
     out: &mut Vec<InstalledApp>,
     seen: &mut HashSet<String>,
@@ -174,7 +181,7 @@ fn scan_uninstall_key(
             display_version: read_str(&key, "DisplayVersion"),
             publisher: read_str(&key, "Publisher"),
             install_date: read_str(&key, "InstallDate"),
-            estimated_size_bytes: read_dword(&key, "EstimatedSize").map(|v| (v as u64) * 1024), // KB → 字节
+            estimated_size_bytes: read_dword(&key, "EstimatedSize").map(|v| u64::from(v) * 1024), // KB → 字节
         };
 
         // 跨来源去重
@@ -195,7 +202,7 @@ pub fn list_installed_apps() -> Vec<InstalledApp> {
     let mut seen: HashSet<String> = HashSet::new();
 
     scan_uninstall_key(
-        RegKey::predef(HKEY_LOCAL_MACHINE),
+        &RegKey::predef(HKEY_LOCAL_MACHINE),
         UNINSTALL_KEY,
         &mut out,
         &mut seen,
@@ -203,19 +210,19 @@ pub fn list_installed_apps() -> Vec<InstalledApp> {
     // 64 位系统才存在 Wow6432Node 视图
     #[cfg(target_pointer_width = "64")]
     scan_uninstall_key(
-        RegKey::predef(HKEY_LOCAL_MACHINE),
+        &RegKey::predef(HKEY_LOCAL_MACHINE),
         UNINSTALL_KEY_32,
         &mut out,
         &mut seen,
     );
     scan_uninstall_key(
-        RegKey::predef(HKEY_CURRENT_USER),
+        &RegKey::predef(HKEY_CURRENT_USER),
         UNINSTALL_KEY,
         &mut out,
         &mut seen,
     );
 
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|app| app.name.to_lowercase());
     out
 }
 
@@ -275,5 +282,40 @@ mod tests {
         let kb = 1024u32;
         let bytes = (kb as u64) * 1024;
         assert_eq!(bytes, 1_048_576);
+    }
+
+    /// 真机冒烟（与 `processes.rs` 的同机用例同一先例）：锁 R-16 的剔除口径在**本机注册表**上真的生效，
+    /// 而不是只在构造出来的字符串上生效。
+    #[test]
+    fn real_registry_scan_yields_user_apps_without_patches() {
+        let apps = list_installed_apps();
+        if cfg!(not(windows)) {
+            // 非 Windows 无 Uninstall 视图可扫，返回空表是正确行为；空态原因由命令层给
+            assert!(apps.is_empty());
+            return;
+        }
+        // 🔴 Windows 上空表就是采集失败（本机必装有桌面应用），不得让它静默绿过去
+        assert!(
+            !apps.is_empty(),
+            "Windows 上扫不到任何已安装应用 = 采集失效"
+        );
+        assert!(
+            apps.iter()
+                .all(|app| !app.name.trim().is_empty() && !is_update_or_tool(&app.name)),
+            "R-16：清单里不得混入补丁/运行库/更新子项，也不得有空名"
+        );
+        let mut keys: Vec<String> = apps.iter().map(dedupe_key).collect();
+        keys.dedup();
+        assert_eq!(
+            keys.len(),
+            apps.len(),
+            "R-16：名称+版本跨视图去重后不得仍有重复"
+        );
+        // 三视图合并后按名称小写升序（前端表格行序稳定，L-08 不跳）
+        let names: Vec<String> = apps.iter().map(|app| app.name.to_lowercase()).collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        assert_eq!(names, sorted);
+        println!("本机已安装应用条目数 = {}", apps.len());
     }
 }

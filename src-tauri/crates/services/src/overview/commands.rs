@@ -16,7 +16,10 @@ use tauri::State;
 
 use contracts::CmdEnvelope;
 
-use super::dto::{HardwareDetailDto, LiveSampleDto, MonitorStatusDto, NetEndpointsDto, TopProcessesDto};
+use super::dto::{
+    HardwareDetailDto, LiveSampleDto, MonitorStatusDto, NetEndpointsDto, SensorRowDto,
+    SensorTableDto, StatCardDto, TopProcessesDto,
+};
 use super::hardware;
 use super::snapshot;
 use super::state::OverviewState;
@@ -80,9 +83,18 @@ pub async fn overview_live_sample(
 ) -> Result<LiveSampleResult, String> {
     check_envelope(&envelope)?;
     let inner = state.shared();
+    let sample = super::live::sample(&inner);
+
+    // 🔴 R-12：本命令是 2 秒节拍，**只做快变量**（页头/四卡/通道状态）。
+    // 这里曾为了 F-09 快照秒显顺手调了一次 `hardware::collect()` + `write_snapshot()`，
+    // 违反 `hardware/collect.rs:11` 的明文纪律（"不得在 2 秒节拍里调用"）——
+    // WMI 硬件枚举 + SMART 读取以秒计，每 2 秒同步跑一次会把 Tauri 异步运行时压住。
+    // 快照回写已改由前端 `useStaticInfo` 在**静态采集成功时**触发
+    // （`writeSnapshot(payload, cards)`，见 `use-overview-live.ts`），语义等价且不在节拍内。
+
     Ok(LiveSampleResult {
         correlation_id: envelope.correlation_id,
-        sample: super::live::sample(&inner),
+        sample,
     })
 }
 
@@ -140,7 +152,11 @@ pub async fn overview_monitor_status(
     })
 }
 
-/// 静态硬件详情上行（F-02；片2-e 注册命令时经 `spawn_blocking` 投递到阻塞线程池）。
+/// 静态上行：硬件详情 + 系统信息两面板（F-02/F-03；片2-e 注册命令时经 `spawn_blocking` 投递到阻塞线程池）。
+///
+/// 🔴 两类数据同装一个 [`HardwareDetailDto`]：F-09 快照的载体就是这个 DTO（规格 §F-09 明写快照含"系统信息"），
+/// F-11 报告的"硬件详情/系统概览"两节也取同一趟上行——拆两条命令会让快照与报告各自少一半。
+/// 前端按 `kind`（`os` / `userRegion` 为系统信息，其余为硬件）分流渲染。
 ///
 /// # Errors
 ///
@@ -148,15 +164,31 @@ pub async fn overview_monitor_status(
 #[tauri::command]
 pub async fn overview_static_info(envelope: CmdEnvelope) -> Result<HardwareDetailDto, String> {
     check_envelope(&envelope)?;
-    // 🔴 同步采集：由命令层在 spawn_blocking 中调用本函数，避免 COM 套间与异步运行时冲突
-    Ok(hardware::collect())
+    // 🔴 线程纪律（`hardware/collect.rs:10-13`）：本函数是**同步阻塞**的
+    // （每条 WQL 走一次 COM 连接，NVML 首调要加载 dll），async 上下文里直接调会阻塞
+    // Tauri 的异步运行时。必须经 `spawn_blocking` 投递到阻塞线程池。
+    // ⚠️ 此前这里只写了注释、实际是同步直调 —— `grep spawn_blocking` 在本域只命中注释。
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut detail = hardware::collect();
+        detail.cards.extend(super::system_info::panels());
+        Ok(detail)
+    })
+    .await
+    .map_err(|err| format!("静态信息采集任务异常终止: {err}"))?
 }
 
 /// 读取快照（F-09 快照秒显）。
 ///
 /// 缺失/损坏/超龄均返回 `None`，调用方走冷启动全量采集。
+///
+/// # Errors
+///
+/// 本命令不做入参校验、也不上报读取失败（R-14：快照问题一律退化为冷启动，不得让页面报错），
+/// 故恒返回 `Ok`。
 #[tauri::command]
-pub async fn overview_snapshot_read(_envelope: CmdEnvelope) -> Result<Option<snapshot::Snapshot>, String> {
+pub async fn overview_snapshot_read(
+    _envelope: CmdEnvelope,
+) -> Result<Option<snapshot::Snapshot>, String> {
     Ok(snapshot::read_snapshot())
 }
 
@@ -165,13 +197,17 @@ pub async fn overview_snapshot_read(_envelope: CmdEnvelope) -> Result<Option<sna
 /// # Errors
 ///
 /// 序列化或原子写失败时返回原因。
+///
+/// 🔴 `cards` 可缺省（前端首次回写时若四卡尚无数据）；缺省即写空数组，
+/// 下次冷启动四卡自然缺席而不是读到空壳。
 #[tauri::command]
 pub async fn overview_snapshot_write(
     envelope: CmdEnvelope,
     payload: HardwareDetailDto,
+    cards: Option<Vec<StatCardDto>>,
 ) -> Result<(), String> {
     check_envelope(&envelope)?;
-    snapshot::write_snapshot(&payload)
+    snapshot::write_snapshot(&payload, cards.as_deref().unwrap_or(&[]))
 }
 
 /// F-07 已安装软件清单（慢变量，不进 2 秒节拍）。
@@ -184,27 +220,84 @@ pub async fn overview_software_list(
     envelope: CmdEnvelope,
 ) -> Result<super::dto::SoftwareListDto, String> {
     check_envelope(&envelope)?;
-    let apps = super::software::list_installed_apps();
-    let total = apps.len();
-    let reason = if apps.is_empty() {
-        Some("未检测到已安装的桌面应用（需管理员权限读取注册表）".to_string())
-    } else {
-        None
-    };
-    Ok(super::dto::SoftwareListDto {
-        apps: apps
-            .into_iter()
-            .map(|app| super::dto::SoftwareRowDto {
-                name: app.name,
-                version: app.display_version,
-                publisher: app.publisher,
-                install_date: app.install_date,
-                size_bytes: app.estimated_size_bytes,
-            })
-            .collect(),
-        total,
-        reason,
+    // 🔴 同 `overview_static_info`：注册表枚举是同步阻塞 I/O，须投递到阻塞线程池
+    tauri::async_runtime::spawn_blocking(|| {
+        let apps = super::software::list_installed_apps();
+        let total = apps.len();
+        let reason = if apps.is_empty() {
+            Some("未检测到已安装的桌面应用（需管理员权限读取注册表）".to_string())
+        } else {
+            None
+        };
+        Ok(super::dto::SoftwareListDto {
+            apps: apps
+                .into_iter()
+                .map(|app| super::dto::SoftwareRowDto {
+                    name: app.name,
+                    version: app.display_version,
+                    publisher: app.publisher,
+                    install_date: app.install_date,
+                    size_bytes: app.estimated_size_bytes,
+                })
+                .collect(),
+            total,
+            reason,
+        })
     })
+    .await
+    .map_err(|err| format!("软件清单采集任务异常终止: {err}"))?
+}
+
+/// F-11 全量传感器逐条读数（报告的"传感器快照"节取数）。
+///
+/// # Errors
+///
+/// 仅入参级错误：`correlationId` 缺失或全空白。本路未读到就返回空数组，
+/// 由前端据此**整节省略**该章节（母本 `OverviewReportBuilder.cs` 同口径），不报错。
+#[tauri::command]
+pub async fn overview_sensor_table(
+    state: State<'_, OverviewState>,
+    envelope: CmdEnvelope,
+) -> Result<SensorTableDto, String> {
+    check_envelope(&envelope)?;
+    let rows = state
+        .shared()
+        .bridge()
+        .last_raw()
+        .map(|readings| {
+            readings
+                .iter()
+                .map(|reading| SensorRowDto {
+                    hardware: reading.hardware.clone(),
+                    name: reading.name.clone(),
+                    sensor_type: reading.sensor_type.clone(),
+                    value: reading.value,
+                    unit: reading.unit.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(SensorTableDto { rows })
+}
+
+/// F-11 写出报告文件（文本由前端组装，本侧只管落盘）。
+///
+/// 路径来自前端另存为对话框，用户取消时前端不会调到本命令（零副作用，F-11 预期结果）。
+///
+/// # Errors
+///
+/// 入参级错误（`correlationId` 空白、路径为空）或落盘失败原因。
+#[tauri::command]
+pub async fn overview_report_write(
+    envelope: CmdEnvelope,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    check_envelope(&envelope)?;
+    if path.trim().is_empty() {
+        return Err("报告保存路径为空".to_string());
+    }
+    super::report::write_report(std::path::Path::new(&path), &content)
 }
 
 #[cfg(test)]

@@ -11,7 +11,14 @@ import { DualProcessTables } from "@/ui/components/process-table";
 import { NetEndpointsPanel } from "@/ui/components/net-endpoints-panel";
 import { SoftwareListPanel } from "@/ui/components/software-list-panel";
 import { ChannelStatus } from "../components/channel-status";
-import { useManualRefresh, useOverviewLive, useTopProcesses, useNetEndpoints, useSoftwareList } from "../hooks/use-overview-live";
+import {
+  useManualRefresh,
+  useOverviewLive,
+  useTopProcesses,
+  useNetEndpoints,
+  useSoftwareList,
+} from "../hooks/use-overview-live";
+import { useExportReport } from "../hooks/use-export-report";
 import { formatUptime, joinHeader } from "../lib/format";
 
 // 本机概览页（M-01 片1+片2）：页头条 + 实时概览四卡 + 传感器通道状态行 + 硬件详情区 + 系统信息区。
@@ -66,6 +73,8 @@ export function OverviewPage() {
 
   // R-13：本拍在途（含后端闸门）时刷新按钮禁用并给原因，重复点击被吸收
   const busy = isFetching || (data?.inFlight ?? false);
+  // F-11：导出按钮**不禁用**——规格要求"点了没反应"必须改成明确提示，故按钮常可点、闸门在处理器里
+  const exportReport = useExportReport(data, busy);
 
   return (
     <Page>
@@ -75,6 +84,16 @@ export function OverviewPage() {
         actions={
           <HeadTools>
             <LiveDot live={live} />
+            <AppButton
+              variant="primary"
+              size="sm"
+              type="button"
+              disabled={exportReport.exporting}
+              title={t("report.hint")}
+              onClick={exportReport.onClick}
+            >
+              {t(exportReport.exporting ? "report.exporting" : "report.button")}
+            </AppButton>
             <AppButton
               variant="secondary"
               size="sm"

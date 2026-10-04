@@ -266,7 +266,7 @@ fn read_nvme_smart_raw(index: u32) -> Result<[u8; 512], String> {
         buf[20..24].copy_from_slice(&0u32.to_le_bytes()); // ProtocolDataRequestSubValue
         buf[24..28].copy_from_slice(&40u32.to_le_bytes()); // ProtocolDataOffset = sizeof(TStorageProtocolSpecificData)
         buf[28..32].copy_from_slice(&4096u32.to_le_bytes()); // ProtocolDataLength
-        // FixedProtocolReturnData(0) + Reserved[3](0) 已默认清零
+                                                             // FixedProtocolReturnData(0) + Reserved[3](0) 已默认清零
 
         let mut returned: u32 = 0;
         let mut ok = unsafe {
@@ -702,7 +702,11 @@ pub fn read_disk_smart(
                 };
             }
             Err(e) => {
-                log::warn!("[SMART] PhysicalDrive{} NVMe 读取失败，回退 ATA: {}", index, e);
+                log::warn!(
+                    "[SMART] PhysicalDrive{} NVMe 读取失败，回退 ATA: {}",
+                    index,
+                    e
+                );
                 // 继续尝试 ATA 路径（部分 NVMe 也支持 ATA 兼容命令）
             }
         }
@@ -717,13 +721,8 @@ pub fn read_disk_smart(
             let attrs = parse_attributes(&attrs_raw);
             let ths = parse_thresholds(&ths_raw);
             let is_threshold_correct = ths.iter().any(|t| t.threshold_value != 0);
-            let (status, life) = check_ata_status(
-                &attrs,
-                &ths,
-                is_ssd,
-                is_threshold_correct,
-                THRESHOLD_FF,
-            );
+            let (status, life) =
+                check_ata_status(&attrs, &ths, is_ssd, is_threshold_correct, THRESHOLD_FF);
             // HDD 无寿命属性，按状态映射健康度百分比（GOOD=100 / CAUTION=50 / BAD=0）
             let life_percent = life.map(|l| l.clamp(0, 100) as u8).or_else(|| {
                 if is_ssd {

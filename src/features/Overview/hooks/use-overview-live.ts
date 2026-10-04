@@ -7,12 +7,19 @@
 import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { REFRESH_INTERVAL_MS, usePageLiveness } from "@/lib/timing/use-tick";
-import { fetchLiveSample, fetchTopProcesses, fetchNetEndpoints, fetchSoftwareList } from "@/lib/tauri/overview";
+import {
+  fetchLiveSample,
+  fetchTopProcesses,
+  fetchNetEndpoints,
+  fetchSoftwareList,
+} from "@/lib/tauri/overview";
 
 export const OVERVIEW_LIVE_KEY = ["overview", "live"] as const;
 export const OVERVIEW_PROCESSES_KEY = ["overview", "processes"] as const;
 export const OVERVIEW_ENDPOINTS_KEY = ["overview", "endpoints"] as const;
 export const OVERVIEW_SOFTWARE_KEY = ["overview", "software"] as const;
+/** F-02/F-03 静态上行（慢变量）：详情区、快照回写与 F-11 导出报告共用这一份缓存 */
+export const OVERVIEW_STATIC_KEY = ["overview", "static"] as const;
 
 export function useOverviewLive() {
   const live = usePageLiveness();

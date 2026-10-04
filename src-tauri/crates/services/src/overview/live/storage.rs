@@ -3,7 +3,7 @@
 use crate::overview::dto::{clamp_percent, gib_text, DiskHealthRowDto};
 use crate::overview::state::StorageSummary;
 use infra::smart::{read_disk_smart, SmartInfo};
-use infra::wmi::{self, Row};
+use infra::wmi;
 use sysinfo::{DiskKind, Disks};
 
 /// 盘符/介质分类（R-05 信号链在本批可得的部分，见 `media_of`）。
@@ -172,19 +172,23 @@ pub fn collect_disk_health() -> Vec<DiskHealthRowDto> {
     let drives = match wmi::query(wql) {
         Ok(rows) => rows,
         Err(e) => {
-            log::warn!("[DISK_HEALTH] WMI 查询失败: {}", e);
+            log::warn!("[DISK_HEALTH] WMI 查询失败: {e}");
             return vec![empty_row(Some("WMI 查询失败（需管理员权限）".to_string()))];
         }
     };
 
     if drives.is_empty() {
-        return vec![empty_row(Some("未检测到存储设备（需管理员权限）".to_string()))];
+        return vec![empty_row(Some(
+            "未检测到存储设备（需管理员权限）".to_string(),
+        ))];
     }
 
     let mut rows: Vec<DiskHealthRowDto> = Vec::new();
     for drive in &drives {
         let index = drive.u32("Index").unwrap_or(0);
-        let model = drive.text("Model").unwrap_or_else(|| format!("PhysicalDrive{}", index));
+        let model = drive
+            .text("Model")
+            .unwrap_or_else(|| format!("PhysicalDrive{index}"));
         let media_type = drive.text("MediaType").unwrap_or_default();
         let pnp_id = drive.text("PNPDeviceID").unwrap_or_default();
 
@@ -209,12 +213,8 @@ pub fn collect_disk_health() -> Vec<DiskHealthRowDto> {
 /// 将 SMART 结果转为磁盘健康行
 fn to_disk_health_row(model: &str, smart: &SmartInfo) -> DiskHealthRowDto {
     // 统计 SMART 属性数量（用于判断是否有完整数据）
-    let smart_attribute_count = if smart.has_smart {
-        // 简化：有 SMART 即认为有完整属性（实际数量需解析原始缓冲，此处不暴露）
-        1
-    } else {
-        0
-    };
+    // 简化：有 SMART 即认为有完整属性（实际数量需解析原始缓冲，此处不暴露）
+    let smart_attribute_count = usize::from(smart.has_smart);
 
     DiskHealthRowDto {
         device_name: model.to_string(),
@@ -238,7 +238,7 @@ fn empty_row(reason: Option<String>) -> DiskHealthRowDto {
     }
 }
 
-/// 判定是否为 NVMe 盘（简化启发式： MediaType 含 "NVMe" 或型号关键词匹配）
+/// 判定是否为 `NVMe` 盘（简化启发式：`MediaType` 含 "NVMe" 或型号关键词匹配）
 fn is_nvme_drive(media_type: &str, model: &str) -> bool {
     media_type.contains("NVMe")
         || model.contains("NVMe")
@@ -247,7 +247,7 @@ fn is_nvme_drive(media_type: &str, model: &str) -> bool {
         || model.contains("Intel SSD 6") // Intel NVMe
 }
 
-/// 判定是否为 SSD（简化启发式： MediaType 含 "SSD" 或排除 HDD 关键词）
+/// 判定是否为 SSD（简化启发式：`MediaType` 含 "SSD" 或排除 HDD 关键词）
 fn is_ssd_drive(media_type: &str, model: &str) -> bool {
     if media_type.contains("SSD") || media_type.contains("Solid State") {
         return true;
@@ -259,4 +259,3 @@ fn is_ssd_drive(media_type: &str, model: &str) -> bool {
     // 型号关键词（常见 SSD 厂商）
     model.contains("SSD") || model.contains("Samsung SSD") || model.contains("Kingston")
 }
-

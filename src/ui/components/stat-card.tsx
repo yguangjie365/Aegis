@@ -80,12 +80,23 @@ const Degrade = styled.div`
   color: var(--aegis-warning);
 `;
 
+// 🔴 单源：R-07 三级回退的"顶位的是温度还是占用"判定，界面（本组件）与 F-11 导出报告共用。
+// 二者都必须走这里，否则会出现"界面上是 88℃、报告里写成 88%"这类凭空造数（R-08）。
+
+/** 占用说明的 i18n 键：温度顶位时改用温度文案，不再谎称"使用率"。 */
+export function statCaptionKey(card: StatCardData): string {
+  return card.valueSource === "temperature"
+    ? "card.caption.temperature"
+    : `card.caption.${card.kind}`;
+}
+
+/** 大数字的单位后缀（温度顶位为 ℃，其余为 %）。 */
+export function statValueUnit(card: StatCardData): string {
+  return card.valueSource === "temperature" ? "℃" : "%";
+}
+
 export function StatCard({ card }: { card: StatCardData }) {
   const { t } = useTranslation("overview");
-  // R-07 三级回退：温度顶位时大数字不是百分比——单位与说明都要跟着换，
-  // 否则会把 88℃ 显示成"88%"这种凭空造数（R-08 状态诚实红线）。
-  const isTemperature = card.valueSource === "temperature";
-  const captionKey = isTemperature ? "card.caption.temperature" : `card.caption.${card.kind}`;
   return (
     <Frame aria-label={t(`card.title.${card.kind}`)}>
       <Head>
@@ -97,9 +108,9 @@ export function StatCard({ card }: { card: StatCardData }) {
       <Model>{card.label}</Model>
       <BigValue>
         {card.bigValue === null ? "—" : card.bigValue}
-        {card.bigValue !== null ? <Unit>{isTemperature ? "℃" : "%"}</Unit> : null}
+        {card.bigValue !== null ? <Unit>{statValueUnit(card)}</Unit> : null}
       </BigValue>
-      <SegBar percent={card.barPercent} label={t(captionKey)} />
+      <SegBar percent={card.barPercent} label={t(statCaptionKey(card))} />
       <Detail>{card.detail}</Detail>
       {card.degradeReason ? <Degrade>{card.degradeReason}</Degrade> : null}
     </Frame>

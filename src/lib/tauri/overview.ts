@@ -14,6 +14,7 @@ import type {
   NetEndpoints,
   SnapshotDto,
   SoftwareList,
+  SensorTable,
   TopProcesses,
 } from "@/types/overview";
 
@@ -35,14 +36,9 @@ export async function fetchMonitorStatus(): Promise<MonitorStatus> {
   return invoke<MonitorStatus>("overview_monitor_status", OVERVIEW, "overviewMonitorStatus", null);
 }
 
-/** F-02 静态硬件详情（片2-b/c/d 产出，含系统信息两面板） */
+/** F-02 + F-03 静态上行：硬件详情卡 + 系统信息两面板（按 `kind` 分流；快照与报告同源） */
 export async function fetchStaticInfo(): Promise<HardwareDetailDto> {
-  return invoke<HardwareDetailDto>(
-    "overview_static_info",
-    OVERVIEW,
-    "overviewStaticInfo",
-    null
-  );
+  return invoke<HardwareDetailDto>("overview_static_info", OVERVIEW, "overviewStaticInfo", null);
 }
 
 /** F-09 读快照（缺失/损坏/超龄返回 null） */
@@ -51,26 +47,33 @@ export async function readSnapshot(): Promise<SnapshotDto | null> {
     "overview_snapshot_read",
     OVERVIEW,
     "overviewSnapshotRead",
-    null
+    null,
   );
 }
 
 /** F-09 写快照 */
 export async function writeSnapshot(payload: HardwareDetailDto): Promise<void> {
-  return invoke<void>(
-    "overview_snapshot_write",
-    OVERVIEW,
-    "overviewSnapshotWrite",
-    payload
-  );
+  return invoke<void>("overview_snapshot_write", OVERVIEW, "overviewSnapshotWrite", payload);
 }
 
 /** F-07 已安装软件清单（慢变量，不进 2 秒节拍） */
 export async function fetchSoftwareList(): Promise<SoftwareList> {
-  return invoke<SoftwareList>(
-    "overview_software_list",
-    OVERVIEW,
-    "overviewSoftwareList",
-    null
-  );
+  return invoke<SoftwareList>("overview_software_list", OVERVIEW, "overviewSoftwareList", null);
+}
+
+/** F-11 全量传感器逐条读数（报告"传感器快照"节；空数组 = 本路未读到，整节省略） */
+export async function fetchSensorTable(): Promise<SensorTable> {
+  return invoke<SensorTable>("overview_sensor_table", OVERVIEW, "overviewSensorTable", null);
+}
+
+/**
+ * F-11 写出报告文件（Markdown 文本由前端组装，后端只做原子落盘）。
+ *
+ * 🔴 只在用户于另存为对话框里选定路径后才被调用；用户取消 = 本函数不执行 = 零副作用。
+ */
+export async function writeReportFile(path: string, content: string): Promise<void> {
+  return invoke<void>("overview_report_write", OVERVIEW, "overviewReportWrite", {
+    path,
+    content,
+  });
 }

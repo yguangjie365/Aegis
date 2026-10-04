@@ -22,6 +22,7 @@ pub mod endpoints;
 pub mod hardware;
 pub mod live;
 pub mod processes;
+pub mod report;
 pub mod sensor_bridge;
 pub mod snapshot;
 pub mod software;

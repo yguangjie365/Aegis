@@ -39,9 +39,9 @@ pub fn run() {
             //    保留下方 music_api::* 全部 NexBox 原命令 + cmd_get_proxy_port（前端在用）。
 
             // ── B4 阶段一复刻（2026-10-03）：music-store.ts（NexBox 原样搬入）调用的命令 ──
-// 按 NexBox src-tauri/src/lib.rs 的注册口径分组：music_api::（平台 API）/ music::（本地曲库）
-// / smtc::（系统媒体会话）/ external_player::（外部播放器接管）。
-// 命令实现均为 B1/B2 已搬入的 NexBox 原件，此处仅补注册。
+            // 按 NexBox src-tauri/src/lib.rs 的注册口径分组：music_api::（平台 API）/ music::（本地曲库）
+            // / smtc::（系统媒体会话）/ external_player::（外部播放器接管）。
+            // 命令实现均为 B1/B2 已搬入的 NexBox 原件，此处仅补注册。
             services::music::music_api::audio_proxy::cmd_get_proxy_port,
             services::music::music_api::kugou_liked_hashes,
             services::music::music_api::kugou_lyric,
@@ -61,16 +61,15 @@ pub fn run() {
             services::music::music_api::music_playlist_detail,
             services::music::music_api::music_switch_provider,
             services::music::music::get_music_files,
-
             // ── 终检补注册（2026-10-03）：对齐 NexBox lib.rs 音乐侧全量口径 ──
-// 上列命令前端当前零引用（NexBox 侧亦仅供壳层/其它页面使用），
-// 但按「100% 复刻 = 能力不缺」口径一并注册，避免阶段二接入时再缺。
-//
-// 🔴 例外：`music_api::music_open_login_window`（mod.rs:945）已**移除注册**（2026-10-03）。
-//     它与宿主层 `music_login::music_open_login_window`（lib.rs:236）**同名**，而 Tauri
-//     对同名 command 的解析不确定 → 可能命中「只开窗、不轮询 cookie、不写凭据」的旧版，
-//     表现为「点了登录、窗口开了、但登录态永远不落库」的功能性失效。
-//     保留功能完整（轮询 + cookie 捕获 + `save_cookie` + emit 事件）的宿主版本，勿加回。
+            // 上列命令前端当前零引用（NexBox 侧亦仅供壳层/其它页面使用），
+            // 但按「100% 复刻 = 能力不缺」口径一并注册，避免阶段二接入时再缺。
+            //
+            // 🔴 例外：`music_api::music_open_login_window`（mod.rs:945）已**移除注册**（2026-10-03）。
+            //     它与宿主层 `music_login::music_open_login_window`（lib.rs:236）**同名**，而 Tauri
+            //     对同名 command 的解析不确定 → 可能命中「只开窗、不轮询 cookie、不写凭据」的旧版，
+            //     表现为「点了登录、窗口开了、但登录态永远不落库」的功能性失效。
+            //     保留功能完整（轮询 + cookie 捕获 + `save_cookie` + emit 事件）的宿主版本，勿加回。
             services::external_player::external_player_state,
             services::music::music_api::kugou_guess_like,
             services::music::music_api::kugou_login_cookie,
@@ -83,12 +82,11 @@ pub fn run() {
             services::music::music_api::music_qq_recommend_playlists,
             services::music::music_api::qq_login_cookie,
             services::media_keys::set_media_keys_enabled,
-
             // ── EQ 调音命令（2026-10-03 补注册）──
-// audio_eq.rs 随 NexBox 原件搬入（20 个 tauri 命令），但 lib.rs 未注册；
-// 对照 NexBox src-tauri/src/lib.rs:938-957 的注册段逐条补齐（含虚拟声卡
-// install/uninstall_virtual_audio_driver —— 涉及系统驱动变更，
-// AGENTS.md「特权操作一律经提权通道」对本模块暂不豁免，实机验证前不得执行）。
+            // audio_eq.rs 随 NexBox 原件搬入（20 个 tauri 命令），但 lib.rs 未注册；
+            // 对照 NexBox src-tauri/src/lib.rs:938-957 的注册段逐条补齐（含虚拟声卡
+            // install/uninstall_virtual_audio_driver —— 涉及系统驱动变更，
+            // AGENTS.md「特权操作一律经提权通道」对本模块暂不豁免，实机验证前不得执行）。
             services::music::audio_eq::check_virtual_audio_driver,
             services::music::audio_eq::install_virtual_audio_driver,
             services::music::audio_eq::uninstall_virtual_audio_driver,
@@ -109,14 +107,13 @@ pub fn run() {
             services::music::audio_eq::update_eq_preamp,
             services::music::audio_eq::update_eq_effects,
             services::music::audio_eq::get_eq_effects,
-
             // ── B5 补注册（2026-10-03）：按平台分派的 34 个命令 ──
-// 起因：B4 补注册时按 `invoke("xxx")` 直接字面量扫描，漏了 loadUserPlaylistsFor /
-// loginStatusFor 等函数内的**三元分派**串（如 `kugou ? "kugou_user_playlists" : ...`），
-// 导致这些命令后端已实现但未注册 → 运行时 command not found →
-// 界面表现：登录态显示正常（走 music_login_status 等已注册命令），
-// 但歌单/歌手/搜索/分页区空白（走 qq_user_playlists 等未注册命令）。
-// 全部命令实现均在 B1 搬入的 NexBox `music_api/mod.rs`（汽水 3 个在 `qishui.rs`）内，此处仅补注册。
+            // 起因：B4 补注册时按 `invoke("xxx")` 直接字面量扫描，漏了 loadUserPlaylistsFor /
+            // loginStatusFor 等函数内的**三元分派**串（如 `kugou ? "kugou_user_playlists" : ...`），
+            // 导致这些命令后端已实现但未注册 → 运行时 command not found →
+            // 界面表现：登录态显示正常（走 music_login_status 等已注册命令），
+            // 但歌单/歌手/搜索/分页区空白（走 qq_user_playlists 等未注册命令）。
+            // 全部命令实现均在 B1 搬入的 NexBox `music_api/mod.rs`（汽水 3 个在 `qishui.rs`）内，此处仅补注册。
             services::music::music_api::kugou_artist_search,
             services::music::music_api::kugou_artist_songs,
             services::music::music_api::kugou_like_toggle,
@@ -205,10 +202,13 @@ pub fn run() {
             services::overview::commands::overview_snapshot_write,
             // F-07 已安装软件清单（慢变量，不进 2 秒节拍）
             services::overview::commands::overview_software_list,
-
+            // F-11 导出硬件信息报告（传感器全量表上行 + 前端拼好的文本落盘）
+            services::overview::commands::overview_sensor_table,
+            services::overview::commands::overview_report_write,
             // ── B-G1 Steam 主线（2026-10-03）：NexBox steam.rs（2188 行）原样搬入 ──
             // 注册顺序与 NexBox src-tauri/src/lib.rs:1209-1227 逐行一致；19 个命令全注册
-            // 口径原为「能力不缺」，但 uninstall_steam_game 经用户裁决删除（卸载归客户端），实为 18 个。
+            // 口径原为「能力不缺」，但 uninstall_steam_game、install_steam_game 均经用户裁决
+            // 删除（安装/卸载都归 Steam 客户端），实为 17 个。
             services::steam::steam::get_steam_install_info,
             services::steam::steam::get_steam_users,
             services::steam::steam::get_steam_libraries,
@@ -221,14 +221,14 @@ pub fn run() {
             services::steam::steam::switch_steam_account,
             services::steam::steam::delete_steam_account,
             // 🔴 uninstall_steam_game 已按用户裁决（2026-10-03）删除 —— 卸载由 Steam 客户端管理
-            services::steam::steam::install_steam_game,
+            // 🔴 install_steam_game  已按用户裁决（2026-10-03）删除 —— 安装同样交由 Steam 客户端；
+            //    至此本模块对游戏只提供「展示 + 启动」，安装/卸载均不提供命令（实为 17 个）。
             services::steam::steam::format_file_size,
             services::steam::steam::get_steam_stats,
             services::steam::steam::get_library_disk_info,
             services::steam::steam::steam_debug,
             services::steam::steam::get_steam_user_avatars,
             services::steam::steam::get_steam_inventory,
-
             // ── Steam 在线库存（Aegis 新增 · 2026-10-03 用户裁决）──
             // NexBox 的 get_steam_inventory 纯本地、无 API Key 路径（source 只有
             // cache/none），故按 SystemToolkit 的 GetOwnedGames 补全在线能力。
@@ -238,7 +238,6 @@ pub fn run() {
             services::steam::inventory_online::steam_save_api_key,
             services::steam::inventory_online::get_steam_inventory_online,
             services::steam::inventory_online::steam_installed_appids,
-
             // 🔴 窗口命令例外（music_login.rs 头注）：WebviewWindow 属宿主类型无法下沉 services
             music_login::music_open_login_window
         ])
