@@ -1329,5 +1329,87 @@ pub fn transfer_history_clear(envelope: contracts::CmdEnvelope) -> usize {
     removed
 }
 
+/// 暂停/恢复的对外回执（F-FT-26 / R-14）。
+///
+/// 🔴 `accepted == false` **不是错误**，是"此刻不接受这个动作"——界面必须据此回一句
+/// "未被受理：任务当前状态为 {state}"（R-14 原文：不允许按钮"点了没反应"）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PauseOutcomeDto {
+    pub accepted: bool,
+    /// 任务当前状态（`active` / `completed` / … 或 `paused` / `pausedByPeer`）
+    pub state: String,
+}
+
+/// 暂停一个任务（F-FT-26）。
+#[must_use]
+#[tauri::command]
+pub fn transfer_pause_task(envelope: contracts::CmdEnvelope, id: String) -> PauseOutcomeDto {
+    let started = Instant::now();
+    let outcome = pause_impl(&id, true);
+    log_command(
+        "transferPauseTask",
+        if outcome.accepted {
+            ResultLabel::Success
+        } else {
+            ResultLabel::Rejected
+        },
+        &envelope.correlation_id,
+        started,
+        None,
+    );
+    outcome
+}
+
+/// 恢复一个任务（F-FT-26）。
+#[must_use]
+#[tauri::command]
+pub fn transfer_resume_task(envelope: contracts::CmdEnvelope, id: String) -> PauseOutcomeDto {
+    let started = Instant::now();
+    let outcome = pause_impl(&id, false);
+    log_command(
+        "transferResumeTask",
+        if outcome.accepted {
+            ResultLabel::Success
+        } else {
+            ResultLabel::Rejected
+        },
+        &envelope.correlation_id,
+        started,
+        None,
+    );
+    outcome
+}
+
+fn pause_impl(id: &str, pause: bool) -> PauseOutcomeDto {
+    let state = {
+        let guard = lock_state();
+        guard
+            .service
+            .as_ref()
+            .and_then(|service| service.pause_state_of(id))
+    };
+    let accepted = {
+        let guard = lock_state();
+        guard.service.as_ref().is_some_and(|service| {
+            if pause {
+                service.pause_task(id)
+            } else {
+                service.resume_task(id)
+            }
+        })
+    };
+    let label = match (state, accepted) {
+        (Some(super::pause::PauseState::LocalPaused), _) => "paused",
+        (Some(super::pause::PauseState::PeerPaused), _) => "pausedByPeer",
+        (Some(super::pause::PauseState::Run), _) => "active",
+        (None, _) => "gone",
+    };
+    PauseOutcomeDto {
+        accepted,
+        state: label.to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests;

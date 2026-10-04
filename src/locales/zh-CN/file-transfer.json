@@ -164,6 +164,9 @@
   "tasks": {
     "title": "传输任务",
     "cancelSelected": "取消所选任务",
+    "pauseTogglePause": "暂停",
+    "pauseToggleResume": "继续",
+    "pauseRejected": "⚠️ 未被受理：任务当前状态为 {{state}}",
     "pause": "暂停",
     "resume": "继续",
     "cancel": "取消",

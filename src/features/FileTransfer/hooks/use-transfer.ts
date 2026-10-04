@@ -22,6 +22,8 @@ import {
   fetchTransferStatus,
   listTransferHistory,
   readClipboard,
+  pauseTransferTask,
+  resumeTransferTask,
   sendText,
   listTransferPeers,
   listTransferTasks,
@@ -240,6 +242,24 @@ export function useSendText() {
       // 后端已经把台账与历史落好了，这里只负责让界面重新拉一次
       void queryClient.invalidateQueries({ queryKey: TRANSFER_TASKS_KEY });
       void queryClient.invalidateQueries({ queryKey: TRANSFER_HISTORY_KEY });
+    },
+  });
+}
+
+/**
+ * 暂停 / 恢复一个任务（F-FT-26）。
+ *
+ * 🔴 结果里 `accepted === false` 时**不是错误**：把 `state` 交给界面说
+ * "未被受理：任务当前状态为 …"（R-14：不许点了没反应）。
+ * 成功后刷新台账，让状态文案与按钮跟着变。
+ */
+export function useSetTaskPaused() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, pause }: { id: string; pause: boolean }) =>
+      pause ? pauseTransferTask(id) : resumeTransferTask(id),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: TRANSFER_TASKS_KEY });
     },
   });
 }

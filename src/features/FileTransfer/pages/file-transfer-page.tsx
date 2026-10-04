@@ -23,6 +23,7 @@ import {
   useTransferHistory,
   useSendText,
   useReadClipboard,
+  useSetTaskPaused,
 } from "../hooks/use-transfer";
 import type { TransferTaskState } from "@/types/transfer";
 import { asTransferError } from "@/lib/tauri/transfer";
@@ -409,6 +410,10 @@ export function FileTransferPage() {
   // 「取消所选任务」需要"选中一行"——与设备列表同口径（点行即选中）
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const cancelTask = useCancelTransferTask();
+  // F-FT-26：暂停/恢复。🔴 这里记的是**本端最近一次被受理的动作**——
+  // "已暂停（对端）"要等协议帧接上才能知道（现为待办，见变更记录）。
+  const setTaskPaused = useSetTaskPaused();
+  const [pausedLocally, setPausedLocally] = useState<Record<string, boolean>>({});
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   /** 取消"没取消到"时的如实提示（`cancelled: false` 不是错误，见钩子注释）。 */
   const cancelNotice = cancelTask.data === false ? t("tasks.cancelMissed") : null;
@@ -1153,6 +1158,34 @@ export function FileTransferPage() {
             >
               {t("tasks.cancelSelected")}
             </AppButton>
+            {/* 🔴 F-FT-26：暂停 ⇄ 继续，看的是**该任务**当前是否被本端暂停 */}
+            <AppButton
+              variant="secondary"
+              size="sm"
+              style={{ marginLeft: 8 }}
+              disabled={selectedTask === null || setTaskPaused.isPending}
+              onClick={() => {
+                if (selectedTask === null) return;
+                const paused = pausedLocally[selectedTask.id] === true;
+                setTaskPaused.mutate(
+                  { id: selectedTask.id, pause: !paused },
+                  {
+                    onSuccess: (outcome) => {
+                      // 🔴 R-14：未被受理要说清楚，不能点了没反应
+                      if (outcome.accepted) {
+                        setPausedLocally((prev) => ({ ...prev, [selectedTask.id]: !paused }));
+                      }
+                    },
+                  },
+                );
+              }}
+            >
+              {t(
+                selectedTask !== null && pausedLocally[selectedTask.id]
+                  ? "tasks.pauseToggleResume"
+                  : "tasks.pauseTogglePause",
+              )}
+            </AppButton>
           </Acts>
         </CardHead>
         {cancelTask.error !== null && (
@@ -1161,6 +1194,10 @@ export function FileTransferPage() {
           </Hint>
         )}
         {cancelNotice !== null && <Hint span>{cancelNotice}</Hint>}
+        {/* 🔴 R-14 原文的措辞：未被受理必须说明"任务当前状态" */}
+        {setTaskPaused.data !== undefined && setTaskPaused.data.accepted === false && (
+          <Hint span>{t("tasks.pauseRejected", { state: setTaskPaused.data.state })}</Hint>
+        )}
         <Board>
           {tasks.length === 0 ? (
             <Empty>

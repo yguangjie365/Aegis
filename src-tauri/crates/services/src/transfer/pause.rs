@@ -279,8 +279,9 @@ mod tests {
         let cancel = CancellationToken::new();
         assert!(gate.pause_local());
         let waker = std::sync::Arc::clone(&gate);
+        // 🔴 不睡：顺序无关紧要——先恢复则下面的等待立刻返回，先等待则被这次恢复叫醒。
+        //    （而且本仓 `clippy.toml` 明令禁用 `std::thread::sleep`。）
         let handle = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(200));
             assert!(waker.resume_local());
         });
         let exit = gate.wait_if_paused(Some(Duration::from_secs(5)), &cancel);
@@ -299,9 +300,9 @@ mod tests {
         assert!(gate.pause_local());
         let gate2 = std::sync::Arc::clone(&gate);
         let cancel2 = cancel.clone();
+        // 🔴 不睡：上限设为"不限"（None），故**任何**返回都只可能来自取消
+        //    ⇒ 无论取消发生在等待前还是等待中，断言都成立。
         let handle = std::thread::spawn(move || {
-            // 1 秒后取消（上限设为不限，证明**是取消叫醒了它**，不是超时）
-            std::thread::sleep(Duration::from_millis(400));
             cancel2.cancel();
             let _ = &gate2;
         });

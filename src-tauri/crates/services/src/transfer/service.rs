@@ -654,6 +654,7 @@ impl TransferService {
     /// 🔴 只清历史，**不动台账**：进行中的任务不受影响（规格原文）。
     /// 清空是用户明确要求的不可逆动作，故落盘失败**必须报出来**——
     /// 否则内存已清、盘上还在，下次启动历史会"复活"，而用户以为已经清干净了。
+    #[must_use]
     pub fn clear_history(&self) -> usize {
         let mut history = self.ctx.lock_history();
         let removed = history.clear();

@@ -278,6 +278,8 @@ pub fn run() {
             services::transfer::commands::transfer_confirm_receive,
             services::transfer::commands::transfer_tasks_list,
             services::transfer::commands::transfer_cancel_task,
+            services::transfer::commands::transfer_pause_task,
+            services::transfer::commands::transfer_resume_task,
             services::transfer::commands::transfer_history_list,
             services::transfer::commands::transfer_history_export,
             services::transfer::commands::transfer_history_clear

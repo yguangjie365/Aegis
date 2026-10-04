@@ -27,6 +27,7 @@ import type {
   TransferTask,
   TextOutcome,
   ExportReport,
+  PauseOutcome,
 } from "@/types/transfer";
 
 const TRANSFER: LogModule = "Transfer";
@@ -195,4 +196,19 @@ export async function sendText(peer: string, text: string): Promise<TextOutcome>
  */
 export async function readClipboard(): Promise<string> {
   return invoke<string>("transfer_read_clipboard", TRANSFER, "transferReadClipboard", null);
+}
+
+/**
+ * 暂停一个任务（F-FT-26）。
+ *
+ * 🔴 返回 `accepted: false` 时**不是失败**：那是"任务当前状态不接受这个动作"，
+ * 调用方应把 `state` 原样带进"未被受理：任务当前状态为 …"（R-14）。
+ */
+export async function pauseTransferTask(id: string): Promise<PauseOutcome> {
+  return invoke<PauseOutcome>("transfer_pause_task", TRANSFER, "transferPauseTask", { id });
+}
+
+/** 恢复一个任务（F-FT-26）。语义同 `pauseTransferTask`。 */
+export async function resumeTransferTask(id: string): Promise<PauseOutcome> {
+  return invoke<PauseOutcome>("transfer_resume_task", TRANSFER, "transferResumeTask", { id });
 }

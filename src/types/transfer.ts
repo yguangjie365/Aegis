@@ -186,6 +186,18 @@ export interface TransferHistoryEntry {
  */
 export type HistoryKind = "file" | "text";
 
+/**
+ * 暂停/恢复的回执（F-FT-26 / R-14）。
+ *
+ * 🔴 `accepted === false` **不是错误**，是"此刻不接受这个动作"——
+ * 界面必须据此说"未被受理：任务当前状态为 {state}"，不许点了没反应。
+ */
+export interface PauseOutcome {
+  accepted: boolean;
+  /** 任务当前状态：`active` | `completed` | … | `paused` | `pausedByPeer` | `gone` */
+  state: string;
+}
+
 /** `transfer_history_export` 的回执（F-FT-56：界面要说"已导出 {N} 条"）。 */
 export interface ExportReport {
   /** 实际写出的条数（按筛选后） */
