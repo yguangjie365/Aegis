@@ -60,23 +60,73 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// 找出含 `.join(` 且**不在注释里**的行。
+/// 判断一行的 `.join(...)` 是否违规。
 ///
-/// 口径是**保守**的"出现即违规"：文本扫描做不了接收者类型推断，
-/// 宁可要求一律走统一入口，也不放行一个"看起来是 Vec 的 join"。
+/// 口径（比"出现即违规"更准，且仍然抓得住真风险）：**只看参数是不是"安全字面量"**。
+/// * 参数是字符串字面量、且字面量里**不含分隔符与 `..`** → **不违规**
+///   （`.join("Received")` 无法越界；这正是 `settings.rs` 拼 `%LOCALAPPDATA%` 子目录的情形）
+/// * 其余一律违规：参数是变量/表达式（真正的"外部输入"风险），
+///   或字面量里带 `..` / `/` / `\`
+///
+/// 🔴 为什么不做"接收者类型推断"：文本扫描做不到。但**参数**是字面量还是变量，
+/// 文本上可判且恰好就是那条安全边界——外部输入必然是变量或表达式。
+/// 对常量拼接（如 `.join(SETTINGS_FILE_NAME)`）本守卫仍会报，届时请就地写成字面量
+/// 并用测试钉住它与常量的同值关系（见 `settings::tests::default_paths_follow_the_house_convention`）。
 fn offending_lines(source: &str) -> Vec<(usize, String)> {
     source
         .lines()
         .enumerate()
         .filter(|(_, line)| {
             let trimmed = line.trim_start();
-            !trimmed.starts_with("//") && !trimmed.starts_with("///") && line.contains(".join(")
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                return false;
+            }
+            has_unsafe_join(line)
         })
         .map(|(index, line)| (index + 1, line.trim().to_owned()))
         .collect()
 }
 
-/// 需要扫描的域内源文件（排除守卫自身与 [`ALLOWED`] 条目）。
+/// 该行是否存在"参数不是安全字面量"的 `.join(`。
+fn has_unsafe_join(line: &str) -> bool {
+    let marker = ".join(";
+    let mut rest = line;
+    while let Some(index) = rest.find(marker) {
+        let after = &rest[index + marker.len()..];
+        if !is_safe_literal_argument(after) {
+            return true;
+        }
+        rest = after;
+    }
+    false
+}
+
+/// 参数是否是"无法越界"的字符串字面量（不含分隔符、不含 `..`）。
+fn is_safe_literal_argument(after: &str) -> bool {
+    let trimmed = after.trim_start();
+    let inner = trimmed
+        .strip_prefix("r#\"")
+        .or_else(|| trimmed.strip_prefix("r\""))
+        .or_else(|| trimmed.strip_prefix('"'));
+    let Some(inner) = inner else {
+        return false; // 变量 / 表达式 / 函数调用 —— 一律按违规处理
+    };
+    let Some(end) = inner.find('"') else {
+        return false;
+    };
+    let value = &inner[..end];
+    !value.contains("..") && !value.contains('/') && !value.contains('\\')
+}
+
+/// 需要扫描的域内源文件（排除守卫自身、测试模块与 [`ALLOWED`] 条目）。
+///
+/// 🔴 **两种测试写法都要豁免**（本仓两种都在用）：
+/// 1. 独立文件 `tests.rs`（`#[cfg(test)] mod tests;` 指向它）—— 按文件名豁免
+/// 2. **内联** `#[cfg(test)] mod tests { … }` —— 按**截断**豁免：正文里 `#[cfg(test)]`
+///    之后的内容一律不扫
+///
+/// 理由同 [`TEST_MODULE_FILE`]：测试要自己拼期望路径（构造字面量，不是消费外部输入），
+/// 且这些代码只以 `#[cfg(test)]` 编入、生产构建里不存在。
 fn domain_sources() -> Vec<(String, String)> {
     let domain = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/transfer");
     assert!(
@@ -102,10 +152,13 @@ fn domain_sources() -> Vec<(String, String)> {
             {
                 return None;
             }
-            Some((
-                file.display().to_string(),
-                std::fs::read_to_string(&file).expect("读源文件"),
-            ))
+            let source = std::fs::read_to_string(&file).expect("读源文件");
+            // 内联测试模块之后的部分不扫
+            let scanned = match source.find("#[cfg(test)]") {
+                Some(index) => source[..index].to_owned(),
+                None => source,
+            };
+            Some((file.display().to_string(), scanned))
         })
         .collect()
 }
@@ -127,26 +180,51 @@ fn transfer_domain_must_not_join_paths_directly() {
 }
 
 /// 守卫自身的活性检查：**它必须能抓到违规**，否则"全绿"是假象。
+///
+/// 同时钉住判据的**两侧边界**：变量参数必须红、安全字面量必须放过。
 #[test]
-fn guard_detects_a_synthetic_violation() {
+fn guard_detects_variable_joins_and_allows_safe_literals() {
+    // ① 变量参数（真正的外部输入风险）→ 必须红
     let bad = "
 fn f(root: &Path, external: &str) -> PathBuf {
     root.join(external)
 }
 ";
     let hits = offending_lines(bad);
-    assert_eq!(hits.len(), 1, "守卫必须能识别 join 调用");
-    assert!(hits[0].1.contains(".join("));
+    assert_eq!(hits.len(), 1, "变量参数必须被抓到");
 
+    // ② 安全字面量 → 必须放过（否则 settings.rs 拼 %LOCALAPPDATA% 子目录会被误报）
+    let fine = r#"
+fn g() -> PathBuf {
+    root.join("aegis").join("transfer").join("settings.json")
+}
+"#;
+    assert!(
+        offending_lines(fine).is_empty(),
+        "不含分隔符与 .. 的字面量不该误报"
+    );
+
+    // ③ 带穿越意图的字面量 → 仍然必须红
+    let sneaky = r#"
+fn h() -> PathBuf {
+    root.join("../escape")
+}
+"#;
+    assert_eq!(offending_lines(sneaky).len(), 1, "带 .. 的字面量必须红");
+    let absolute = r#"
+fn i() -> PathBuf {
+    root.join("C:/Windows")
+}
+"#;
+    assert_eq!(offending_lines(absolute).len(), 1, "带分隔符的字面量必须红");
+
+    // ④ 注释里的示例不得误报
     let commented = "
 // 说明：不要这样写 —— root.join(external)
 /// 文档里的示例同样不算
-fn g() {}
+fn j() {}
 ";
-    assert!(
-        offending_lines(commented).is_empty(),
-        "注释里的示例不得误报"
-    );
+    assert_eq!(offending_lines(commented), [], "注释里的示例不得误报");
 }
 
 /// 🔴 依赖方向守卫：`infra` 不得反向依赖 `services`（02 架构分册 AD-*）。

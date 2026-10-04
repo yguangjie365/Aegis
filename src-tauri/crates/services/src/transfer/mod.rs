@@ -34,6 +34,7 @@ pub mod chunk;
 pub mod conflict;
 pub mod protocol;
 pub mod reasons;
+pub mod settings;
 pub mod sink;
 pub mod text;
 

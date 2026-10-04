@@ -27,10 +27,13 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use super::reasons;
 
 /// 同名冲突策略（F-FT-23；四值，两条通道共用）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ConflictPolicy {
     /// 自动改名保存（**出厂默认**；后缀 ` (n)`，原文件保持不变）
     #[default]
