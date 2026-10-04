@@ -36,6 +36,7 @@ pub mod protocol;
 pub mod reasons;
 pub mod settings;
 pub mod sink;
+pub mod source;
 pub mod text;
 
 /// 架构守卫（仅测试期编译）：禁止本域直接 `Path::join` 消费外部输入。
