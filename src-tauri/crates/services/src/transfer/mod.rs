@@ -25,10 +25,13 @@
 //! （`clippy.toml` 禁用清单），等待一律 channel + 限时。
 //!
 //! 🔴 路径越界守卫的落点**不在本模块**：`02-专题设计/02-安全与特权通道.md:94` 与
-//! `infra/src/lib.rs:5` 均把 `infra::safe::join_under_root` 定为「外部路径拼接的**唯一入口**」
-//! （属 W0-09 范围，当前 `待认领`、尚未实现）。本域消费该入口，**不得另写一份**——
-//! 已按「跨领地先上报」登记待裁决，落地前不写路径逻辑。
+//! `infra/src/lib.rs:5` 均把 `infra::safe::join_under_root` 定为「外部路径拼接的**唯一入口**」。
+//! 用户 2026-10-04 裁决（选项 A）：由 dsh 认领 W0-09 的路径守卫子集并在 `infra/src/safe.rs` 落地，
+//! 本域**消费**该入口，**不得另写一份**。
 
+pub mod admission;
+pub mod chunk;
 pub mod conflict;
+pub mod protocol;
 pub mod reasons;
 pub mod text;
