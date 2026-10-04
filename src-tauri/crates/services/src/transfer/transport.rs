@@ -1,0 +1,532 @@
+//! 帧收发与会话编排（F-FT-13/19/21/29；阻塞 IO + 取消令牌）。
+//!
+//! ## 为什么是阻塞 IO 而不是 async
+//!
+//! 本工程要求"禁止阻塞 tokio 运行时"（`03-开发规范/01-编码与命名规范.md` §3.1），
+//! 而那条规则**自己给了出口**：
+//!
+//! > `async fn` 内直接 `std::fs::*`… | 一次性/短任务：`spawn_blocking`；
+//! > **长任务：放 `crates/worker` 独立进程/独立线程**
+//!
+//! 且"长任务"清单里**点名包含"大文件传输"**。本通道同时满足：分块读写是阻塞文件 IO、
+//! SHA-256 是 CPU 阻塞、并发上限只有发送 3 + 接收 8（至多 11 个线程，可忽略）。
+//! 故采**每连接一个专用线程 + 阻塞 socket**：既避开阻塞运行时的红线，
+//! 又不必把已经测得比较透的 `source`/`sink`（同步）改写成 async。
+//!
+//! 规范真正强制的是**取消令牌贯通**，本模块照办：[`CancellationToken`] 在每个可能
+//! 长阻塞的位置被检查，取消时**主动发 `Cancel` 告知对端**（不让对端干等）。
+//!
+//! ## 中断与"要么完整、要么不存在"
+//!
+//! * 摘要不符 / 对端跳过 → `sink::finish` 自己会删掉未完成文件（F-FT-20）
+//! * **取消 / 断连 → 未完成文件保留**（这正是 R-21「7 天清扫未完成文件」存在的前提：
+//!   中断后 `.part` 留着，下次可续传）。要彻底放弃请显式调 `sink::discard`
+//!
+//! ## 本模块不做的事
+//!
+//! * **不写日志**：本模块是纯协议机制，只返回**可区分的**结果/错误；
+//!   八字段 JSONL 由命令层按结果落（"禁止静默失败"的落点在调用方，不是这里）。
+//!   🔴 调用方**必须**对每个 `Err` 与每个非成功 `Outcome` 记一条。
+//! * **不做准入裁决**：接收侧的裁决由调用方以 `admit` 闭包注入
+//!   （白名单/配对/并发/磁盘都在它里面，见 `admission::evaluate`）。
+//! * **不做暂停闸门**（F-FT-26 接收侧发起 + F-FT-27 超时自动取消）：本轮只实现
+//!   **发送侧遵守**对端发来的 `Pause`/`Resume`；接收侧发起暂停需会话状态机，留下批。
+
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use tokio_util::sync::CancellationToken;
+
+use super::admission::Admission;
+use super::conflict::ConflictPolicy;
+use super::protocol::{self, TransferMessage};
+use super::sink::{now_unix_ms, FinishOutcome, ReceiveSink, SinkError};
+use super::source::{SendSource, SourceError};
+
+/// 单次 `read` 的超时（不是"整帧"的超时）。
+///
+/// 🔴 没有它，一个"连上就不发数据的对端"会**永久占住一个线程**；
+/// 有了它，死对端最多占用 [`IO_TIMEOUT`]。
+/// 取值宽松是因为它约束的是"两次读到数据之间的间隔"，慢速局域网下 2 MiB 分块也远用不到 30 秒。
+pub const IO_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// 一次会话的失败原因。
+///
+/// 🔴 各变体**可区分**是为了让命令层能落出精确的八字段日志与原因码，
+/// 而不是只知道"传输失败"。
+#[derive(Debug)]
+pub enum TransportError {
+    Io(std::io::Error),
+    /// 单次读超时（对端长时间不发数据）
+    TimedOut,
+    /// 帧层错误（魔数/版本/长度/头解析）
+    Frame(protocol::FrameError),
+    /// 落盘错误
+    Sink(SinkError),
+    /// 读盘/摘要错误
+    Source(SourceError),
+    /// 对端在握手里拒收
+    Rejected {
+        reason_code: String,
+    },
+    /// 对端报告的终态失败（收尾回执 `ok=false`）
+    RemoteFailed {
+        reason_code: Option<String>,
+    },
+    /// 对端在当前阶段发了不该发的消息，或**自相矛盾**（如两次声明的摘要不一致）
+    Unexpected(&'static str),
+    /// 收到对端的取消
+    Cancelled {
+        reason_code: String,
+    },
+    /// 本机取消令牌被触发
+    Aborted,
+    /// 会话未结束时对端关闭了连接
+    PeerClosed,
+}
+
+impl std::fmt::Display for TransportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(error) => write!(f, "网络 IO 失败：{error}"),
+            Self::TimedOut => f.write_str("对端长时间无数据（读超时）"),
+            Self::Frame(error) => write!(f, "帧解析失败：{error}"),
+            Self::Sink(error) => write!(f, "落盘失败：{error}"),
+            Self::Source(error) => write!(f, "读盘失败：{error}"),
+            Self::Rejected { reason_code } => {
+                write!(f, "对端拒收（{reason_code}）")
+            }
+            Self::RemoteFailed { reason_code } => match reason_code {
+                Some(code) => write!(f, "对端报告失败（{code}）"),
+                None => f.write_str("对端报告失败（未给原因码）"),
+            },
+            Self::Unexpected(what) => write!(f, "对端违反会话顺序：{what}"),
+            Self::Cancelled { reason_code } => write!(f, "对端取消（{reason_code}）"),
+            Self::Aborted => f.write_str("本机取消"),
+            Self::PeerClosed => f.write_str("对端在会话结束前关闭了连接"),
+        }
+    }
+}
+
+impl std::error::Error for TransportError {}
+
+impl From<std::io::Error> for TransportError {
+    fn from(error: std::io::Error) -> Self {
+        if error.kind() == std::io::ErrorKind::WouldBlock
+            || error.kind() == std::io::ErrorKind::TimedOut
+        {
+            Self::TimedOut
+        } else {
+            Self::Io(error)
+        }
+    }
+}
+
+impl From<protocol::FrameError> for TransportError {
+    fn from(error: protocol::FrameError) -> Self {
+        Self::Frame(error)
+    }
+}
+
+impl From<SinkError> for TransportError {
+    fn from(error: SinkError) -> Self {
+        Self::Sink(error)
+    }
+}
+
+impl From<SourceError> for TransportError {
+    fn from(error: SourceError) -> Self {
+        Self::Source(error)
+    }
+}
+
+/// 发送侧结论。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SendOutcome {
+    /// 对端已完整收下并通过校验
+    Delivered,
+    /// 对端按冲突策略跳过（终态是「已跳过」而非「已完成」）
+    Skipped,
+    /// 对端收尾时报摘要不符
+    HashMismatch,
+}
+
+/// 接收侧结论。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReceiveOutcome {
+    /// 已入位（含因撞名改名）
+    Committed { path: PathBuf, renamed: bool },
+    /// 按策略跳过（未写入新文件）
+    Skipped,
+    /// 摘要不符，损坏的未完成文件已删除
+    HashMismatch,
+    /// 已明确拒收（原因码见 `reason_code`），未创建任何文件
+    Rejected { reason_code: String },
+}
+
+/// 给流设读超时（对 `TcpStream` 生效；其它 `Read` 实现忽略失败）。
+///
+/// # Errors
+/// 设置失败时返回底层错误——不静默忽略，否则"防死对端"的保证就成了空话。
+pub fn configure_timeout(stream: &TcpStream, timeout: Duration) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+    Ok(())
+}
+
+/// 写一帧（`header` 与 `body` 连写，避免只写出一半）。
+///
+/// # Errors
+/// 编码失败或底层写失败时返回 [`TransportError`]。
+pub fn write_frame<W: Write>(
+    writer: &mut W,
+    message: &TransferMessage,
+    body: &[u8],
+) -> Result<(), TransportError> {
+    let frame = protocol::encode_frame(message, body)?;
+    writer.write_all(&frame)?;
+    // 立刻刷出：否则对端可能长时间收不到握手（TCP 会攒包）
+    writer.flush()?;
+    Ok(())
+}
+
+/// 帧读取器：内部持缓冲，处理"一次读到的字节不到一帧"的情况。
+#[derive(Debug)]
+pub struct FrameReader<R: Read> {
+    inner: R,
+    buffer: Vec<u8>,
+}
+
+impl<R: Read> FrameReader<R> {
+    pub fn new(inner: R) -> Self {
+        Self {
+            inner,
+            buffer: Vec::with_capacity(protocol::PREFIX_LEN + 512),
+        }
+    }
+
+    /// 读满一帧；返回消息与 body（body 已从缓冲中摘除）。
+    ///
+    /// # Errors
+    /// 帧错误、IO 错误、读超时、或会话未结束即遇 EOF 时返回 [`TransportError`]。
+    pub fn read_frame(&mut self) -> Result<(TransferMessage, Vec<u8>), TransportError> {
+        loop {
+            match protocol::parse_head(&self.buffer)? {
+                Some((head, body_offset)) => {
+                    let need = body_offset + head.body_len as usize;
+                    self.fill_to(need)?;
+                    let body = self.buffer[body_offset..need].to_vec();
+                    self.buffer.drain(..need);
+                    return Ok((head.message, body));
+                }
+                None => self.fill_more()?,
+            }
+        }
+    }
+
+    /// 再读一块；EOF 即 [`TransportError::PeerClosed`]。
+    ///
+    /// 🔴 **没有"读到 0 字节就正常结束"这条路**：帧边界上遇到 EOF 一定是会话被截断，
+    /// 而不是"对端说完了"——协议靠 `Complete`/`Cancel` 显式收尾，不靠关闭连接。
+    fn fill_more(&mut self) -> Result<(), TransportError> {
+        let mut chunk = [0_u8; 16 * 1024];
+        let read = self.inner.read(&mut chunk)?;
+        if read == 0 {
+            return Err(TransportError::PeerClosed);
+        }
+        self.buffer.extend_from_slice(&chunk[..read]);
+        Ok(())
+    }
+
+    /// 读到至少 `need` 字节。
+    fn fill_to(&mut self, need: usize) -> Result<(), TransportError> {
+        while self.buffer.len() < need {
+            self.fill_more()?;
+        }
+        Ok(())
+    }
+}
+
+/// 检查取消令牌；被触发即向对端发一条 `Cancel` 再返回。
+///
+/// 🔴 取消时**主动告知对端**：否则对端会一直等在那里直到它自己的读超时。
+fn check_cancel<W: Write>(
+    cancel: &CancellationToken,
+    writer: &mut W,
+    task_id: &str,
+    reason_code: &str,
+) -> Result<(), TransportError> {
+    if cancel.is_cancelled() {
+        let _ = write_frame(
+            writer,
+            &TransferMessage::Cancel {
+                task_id: task_id.to_owned(),
+                reason_code: reason_code.to_owned(),
+            },
+            &[],
+        );
+        return Err(TransportError::Aborted);
+    }
+    Ok(())
+}
+
+/// 发送侧一次完整会话：握手 → 发块 → 收尾。
+///
+/// `file_hash` 必须是 [`super::source::hash_file`] 的结果（握手要用它）。
+/// `admit` 不参与发送侧（准入是接收方的职责）。
+///
+/// # Errors
+/// 见 [`TransportError`]。对端明确拒收返回 [`TransportError::Rejected`]。
+#[allow(clippy::too_many_arguments)]
+pub fn send_file(
+    stream: &TcpStream,
+    source: &mut SendSource,
+    file_hash: &str,
+    task_id: &str,
+    file_modified_at_ms: Option<i64>,
+    pair_code: Option<&str>,
+    cancel: &CancellationToken,
+) -> Result<SendOutcome, TransportError> {
+    let mut writer = stream;
+    let mut reader = FrameReader::new(stream);
+
+    write_frame(
+        &mut writer,
+        &TransferMessage::Handshake {
+            task_id: task_id.to_owned(),
+            file_name: source.file_name().to_owned(),
+            file_size: source.file_size(),
+            file_hash: file_hash.to_owned(),
+            chunk_size: source.chunk_size(),
+            file_modified_at_ms,
+            pair_code: pair_code.map(str::to_owned),
+        },
+        &[],
+    )?;
+
+    // ── 握手回执：拿到续传起点与最终块大小 ──
+    let (message, _) = reader.read_frame()?;
+    let (resume_from, chunk_size) = match message {
+        TransferMessage::HandshakeAck {
+            accepted,
+            reason_code,
+            resume_from,
+            chunk_size,
+            ..
+        } => {
+            if !accepted {
+                return Err(TransportError::Rejected {
+                    reason_code: reason_code.unwrap_or_else(|| "UNKNOWN".to_owned()),
+                });
+            }
+            (resume_from.unwrap_or(0), chunk_size)
+        }
+        TransferMessage::Cancel { reason_code, .. } => {
+            return Err(TransportError::Cancelled { reason_code })
+        }
+        TransferMessage::Error { reason_code, .. } => {
+            return Err(TransportError::RemoteFailed {
+                reason_code: Some(reason_code),
+            })
+        }
+        _ => return Err(TransportError::Unexpected("握手时期待 HandshakeAck")),
+    };
+    // 对端可以指定更小的块（F-FT-28）；本模块只接受"不小于 1"的值，其余交由上层复审
+    if let Some(size) = chunk_size {
+        if size > 0 && size != source.chunk_size() {
+            // 不擅自改变块大小（source 已在 open 时钉死），只把差异如实报出
+            return Err(TransportError::Unexpected("对端要求的分块大小与本端不一致"));
+        }
+    }
+    source.seek_to(resume_from)?;
+
+    // ── 发块 ──
+    loop {
+        check_cancel(cancel, &mut writer, task_id, super::reasons::USER_CANCEL)?;
+        match source.next_chunk()? {
+            Some(chunk) => {
+                write_frame(
+                    &mut writer,
+                    &TransferMessage::Chunk {
+                        task_id: task_id.to_owned(),
+                        index: chunk.index,
+                        offset: chunk.offset,
+                    },
+                    &chunk.bytes,
+                )?;
+            }
+            None => break,
+        }
+    }
+
+    // 发送期间文件被改动 → 如实报错（不发"半新半旧"的内容）
+    source.verify_unchanged()?;
+
+    // ── 收尾 ──
+    write_frame(
+        &mut writer,
+        &TransferMessage::Complete {
+            task_id: task_id.to_owned(),
+            file_hash: file_hash.to_owned(),
+        },
+        &[],
+    )?;
+    let (message, _) = reader.read_frame()?;
+    match message {
+        TransferMessage::CompleteAck {
+            ok, reason_code, ..
+        } => {
+            if ok {
+                Ok(SendOutcome::Delivered)
+            } else {
+                match reason_code.as_deref() {
+                    Some(super::reasons::HASH_MISMATCH) => Ok(SendOutcome::HashMismatch),
+                    Some(super::reasons::CONFLICT_SKIP) => Ok(SendOutcome::Skipped),
+                    _ => Err(TransportError::RemoteFailed { reason_code }),
+                }
+            }
+        }
+        TransferMessage::Cancel { reason_code, .. } => {
+            Err(TransportError::Cancelled { reason_code })
+        }
+        _ => Err(TransportError::Unexpected("收尾时期待 CompleteAck")),
+    }
+}
+
+/// 接收侧一次完整会话：握手 → 准入 → 收块 → 校验入位。
+///
+/// `admit` 收到 `(file_size, file_hash)` 后返回 [`Admission`]——
+/// 白名单、配对、并发、磁盘预检都在它里面（见 `admission::evaluate`）。
+///
+/// # Errors
+/// 见 [`TransportError`]。对端取消/断连返回 [`TransportError::Cancelled`] / `PeerClosed`，
+/// **此时未完成文件保留**（可续传）。
+#[allow(clippy::too_many_arguments)]
+pub fn receive_file(
+    stream: &TcpStream,
+    root: &Path,
+    peer_token: &str,
+    policy: ConflictPolicy,
+    admit: impl FnOnce(u64, &str) -> Admission,
+    cancel: &CancellationToken,
+) -> Result<ReceiveOutcome, TransportError> {
+    let mut writer = stream;
+    let mut reader = FrameReader::new(stream);
+
+    // ── 握手 ──
+    let (message, _) = reader.read_frame()?;
+    let (task_id, file_name, file_size, declared_hash, _peer_chunk_size) = match message {
+        TransferMessage::Handshake {
+            task_id,
+            file_name,
+            file_size,
+            file_hash,
+            chunk_size,
+            ..
+        } => (task_id, file_name, file_size, file_hash, chunk_size),
+        TransferMessage::Cancel { reason_code, .. } => {
+            return Err(TransportError::Cancelled { reason_code })
+        }
+        _ => return Err(TransportError::Unexpected("首帧必须是 Handshake")),
+    };
+
+    // ── 准入裁决（裁决点唯一：admission::evaluate） ──
+    if let Admission::Rejected { gate, reason } = admit(file_size, &declared_hash) {
+        write_frame(
+            &mut writer,
+            &TransferMessage::HandshakeAck {
+                task_id: task_id.clone(),
+                accepted: false,
+                reason_code: Some(reason.to_owned()),
+                resume_from: None,
+                chunk_size: None,
+            },
+            &[],
+        )?;
+        // 🔴 拒收即不建任何文件（R-13 的顺序：闸门在"建未完成文件"之前）
+        return Ok(ReceiveOutcome::Rejected {
+            reason_code: format!("{}:{reason}", gate.as_str()),
+        });
+    }
+
+    // ── 打开落盘器（续传起点即未完成文件的真实长度） ──
+    let mut sink = ReceiveSink::open(root, &file_name, peer_token, file_size)?;
+    let resume_from = sink.received();
+    write_frame(
+        &mut writer,
+        &TransferMessage::HandshakeAck {
+            task_id: task_id.clone(),
+            accepted: true,
+            reason_code: None,
+            resume_from: Some(resume_from),
+            chunk_size: None,
+        },
+        &[],
+    )?;
+
+    // ── 收块 ──
+    loop {
+        check_cancel(cancel, &mut writer, &task_id, super::reasons::USER_CANCEL)?;
+        let (message, body) = reader.read_frame()?;
+        match message {
+            TransferMessage::Chunk { offset, .. } => {
+                sink.append(offset, &body)?;
+            }
+            TransferMessage::Complete { file_hash, .. } => {
+                // 🔴 两次声明的摘要必须一致：不一致 = 对端文件中途被改动
+                // （本工程发送侧自己会 `verify_unchanged`，这里是**纵深防御**，
+                // 拦住不检查的对端。理由由 `Unexpected` 承载，不新造原因码——
+                // `reasons` 是 16 码冻结契约。）
+                if file_hash != declared_hash {
+                    return Err(TransportError::Unexpected(
+                        "Complete 声明的摘要与握手不一致（对端文件中途被改动？）",
+                    ));
+                }
+                let outcome = sink.finish(&file_hash, policy, None, now_unix_ms())?;
+                let (ok, reason_code) = match &outcome {
+                    FinishOutcome::Committed { .. } => (true, None),
+                    FinishOutcome::Skipped => {
+                        (false, Some(super::reasons::CONFLICT_SKIP.to_owned()))
+                    }
+                    FinishOutcome::HashMismatch => {
+                        (false, Some(super::reasons::HASH_MISMATCH.to_owned()))
+                    }
+                };
+                write_frame(
+                    &mut writer,
+                    &TransferMessage::CompleteAck {
+                        task_id: task_id.clone(),
+                        ok,
+                        reason_code,
+                    },
+                    &[],
+                )?;
+                return Ok(match outcome {
+                    FinishOutcome::Committed { path, renamed } => {
+                        ReceiveOutcome::Committed { path, renamed }
+                    }
+                    FinishOutcome::Skipped => ReceiveOutcome::Skipped,
+                    FinishOutcome::HashMismatch => ReceiveOutcome::HashMismatch,
+                });
+            }
+            TransferMessage::Cancel { reason_code, .. } => {
+                // 🔴 不删未完成文件：中断留下的 .part 正是续传的前提（R-21 亦然）
+                return Err(TransportError::Cancelled { reason_code });
+            }
+            TransferMessage::Pause { .. } | TransferMessage::Resume { .. } => {
+                // 对端暂停/恢复不影响接收侧（本来就在等它发数据）；
+                // 接收侧**发起**暂停属会话状态机，见模块头"本模块不做的事"
+            }
+            _ => {
+                return Err(TransportError::Unexpected(
+                    "收块时期待 Chunk/Complete/Cancel",
+                ))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

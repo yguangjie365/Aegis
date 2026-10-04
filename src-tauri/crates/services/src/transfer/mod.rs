@@ -39,6 +39,7 @@ pub mod settings;
 pub mod sink;
 pub mod source;
 pub mod text;
+pub mod transport;
 
 /// 架构守卫（仅测试期编译）：禁止本域直接 `Path::join` 消费外部输入。
 /// 规格 02 专题 §5.1 的"依赖审计断言"路线——见该文件头的取舍说明。

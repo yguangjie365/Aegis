@@ -27,6 +27,14 @@ axum = "0.7"
 reqwest = { version = "0.12", features = ["stream", "json", "blocking", "cookies"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["net", "sync"] }
+# M-05 片1 文件互传（2026-10-04）：长任务的**取消令牌**。
+# 🔴 本依赖不是我挑的：`03-开发规范/01-编码与命名规范.md` §3.1 明写长任务
+# （清单里点名"大文件传输"）"必须接受 `&CancellationToken`
+# （`tokio_util::sync::CancellationToken`，即上一代 CancellationToken 的新栈等价物）"。
+# 版本区间取 NexBox 基线（`tokio-util = "0.7"`，其 lock 实测 0.7.18）；
+# 🔴 **不开 `io` feature**——`CancellationToken` 在默认 features 下即可用，
+# 按需开 feature 是分册 §3.1 对 `tokio features=["full"]` 的明确要求。
+tokio-util = "0.7"
 # MU-4.6/4.7 网易云 API 加密依赖
 md-5 = "0.10"
 aes = "0.8"
