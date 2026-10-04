@@ -1022,8 +1022,9 @@ pub struct TransferHistoryEntryDto {
     pub file_size: u64,
     /// 文本条目的字符数（F-FT-35：大小列显示"共 N 字"；文件条目恒为 0）
     pub chars: u64,
-    /// 本次传输耗时毫秒（F-FT-54：快照含"耗时与速度信息"）
-    pub duration_ms: u64,
+    /// 本次传输耗时毫秒（F-FT-54：快照含"耗时与速度信息"）；
+    /// `null` = **不知道**（老记录或任务已不在台账）⇒ 界面显示"—"，**不要拿 0 冒充**
+    pub duration_ms: Option<u64>,
     /// 平均速度（字节/秒）；`null` = 判不出来（未传成 / 样本不足）⇒ 界面显示"—"
     pub avg_speed_bps: Option<u64>,
     /// `completed` | `skipped` | `failed` | `cancelled`

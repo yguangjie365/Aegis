@@ -14,7 +14,7 @@ fn entry(id: &str, file_name: &str, state: TaskState, reason: Option<&str>) -> H
         file_name: file_name.to_owned(),
         file_size: 3112,
         chars: 0,
-        duration_ms: 0,
+        duration_ms: Some(0),
         avg_speed_bps: None,
         state,
         reason_code: reason.map(str::to_owned),
@@ -53,7 +53,10 @@ fn an_old_history_file_without_duration_still_loads() {
     std::fs::write(&path, old_json.as_bytes()).unwrap();
     let loaded = History::load(&path).expect("老格式必须能读出来");
     let only = loaded.entries().front().expect("有一条");
-    assert_eq!(only.duration_ms, 0);
+    assert_eq!(
+        only.duration_ms, None,
+        "老记录没有耗时 ⇒ 必须是「不知道」（None），不能拿 0 冒充「瞬间完成」"
+    );
     assert_eq!(only.avg_speed_bps, None);
     let _ = std::fs::remove_dir_all(&dir);
 }

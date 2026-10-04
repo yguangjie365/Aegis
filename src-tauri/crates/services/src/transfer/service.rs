@@ -216,15 +216,18 @@ impl ServiceContext {
     ///   于是 [`super::history::average_speed_bps`] 会给出 `None`，
     ///   历史里就不会替一个"没传成功"的任务报平均速度（那是把没发生的事说成发生了）。
     ///
-    /// 任务已不在台账时退回 `(0, None)`：宁可不报，也不编。
-    fn history_facts(&self, id: &str) -> (u64, Option<u64>) {
+    /// 任务已不在台账时退回 `(None, None)`：**不知道就说不知道**，不编一个 0。
+    ///
+    /// 🔴 返回的耗时是 `Option`：`None` = 未知（老记录 / 任务已不在台账），
+    /// 界面显示"—"。用 0 表示未知会让"没测到"与"真的瞬间完成"长得一样（真机目验撞到过）。
+    fn history_facts(&self, id: &str) -> (Option<u64>, Option<u64>) {
         let Some(task) = self.lock_tasks().get(id).cloned() else {
-            return (0, None);
+            return (None, None);
         };
         let finished = task.finished_at_ms.unwrap_or_else(super::sink::now_unix_ms);
         let duration_ms = u64::try_from(finished.saturating_sub(task.started_at_ms)).unwrap_or(0);
         let speed = super::history::average_speed_bps(task.transferred, duration_ms);
-        (duration_ms, speed)
+        (Some(duration_ms), speed)
     }
 
     fn lock_pauses(
