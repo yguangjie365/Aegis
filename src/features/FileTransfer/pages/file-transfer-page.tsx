@@ -18,6 +18,7 @@ import {
   useTransferSettings,
   useTransferStatus,
   useTransferTasks,
+  useCancelTransferTask,
 } from "../hooks/use-transfer";
 import { asTransferError } from "@/lib/tauri/transfer";
 import type { KnownPeer, TransferPeer, TransferSettings } from "@/types/transfer";
@@ -400,6 +401,12 @@ export function FileTransferPage() {
   // 任务台账（F-FT-25/30）：只读快照。后端服务未跑时返回空表 ⇒ 界面显示空态而非失败态。
   const tasksQuery = useTransferTasks();
   const tasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
+  // 「取消所选任务」需要"选中一行"——与设备列表同口径（点行即选中）
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const cancelTask = useCancelTransferTask();
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+  /** 取消"没取消到"时的如实提示（`cancelled: false` 不是错误，见钩子注释）。 */
+  const cancelNotice = cancelTask.data === false ? t("tasks.cancelMissed") : null;
 
   // ── 目标选择与发送（F-FT-11/12；R-7：目标不许猜测） ──
   // 按钮路径用"所选行"、拖放路径用"落点命中哪一行"——两条路径都不猜。
@@ -1052,11 +1059,26 @@ export function FileTransferPage() {
         <CardHead>
           <CardTitle>{t("tasks.title")}</CardTitle>
           <Acts>
-            <AppButton variant="secondary" size="sm">
+            {/* 🔴 没选任务就禁用，而不是点了没反应（禁止静默失败） */}
+            <AppButton
+              variant="secondary"
+              size="sm"
+              disabled={selectedTask === null || cancelTask.isPending}
+              onClick={() => {
+                if (selectedTask === null) return;
+                cancelTask.mutate(selectedTask.id);
+              }}
+            >
               {t("tasks.cancelSelected")}
             </AppButton>
           </Acts>
         </CardHead>
+        {cancelTask.error !== null && (
+          <Hint span>
+            {t("send.failed", { reason: asTransferError(cancelTask.error).message })}
+          </Hint>
+        )}
+        {cancelNotice !== null && <Hint span>{cancelNotice}</Hint>}
         <Board>
           {tasks.length === 0 ? (
             <Empty>
@@ -1065,7 +1087,17 @@ export function FileTransferPage() {
             </Empty>
           ) : (
             tasks.map((task) => (
-              <EditRow key={task.id}>
+              <EditRow
+                key={task.id}
+                onClick={() => setSelectedTaskId(task.id)}
+                style={{
+                  cursor: "pointer",
+                  outline:
+                    selectedTaskId === task.id
+                      ? "1px solid var(--aegis-border-strong, rgba(127,127,127,0.5))"
+                      : undefined,
+                }}
+              >
                 {/* 方向：发送 ↑ / 接收 ↓（F-FT-30 两种方向共用一张表） */}
                 <span style={{ width: 14, textAlign: "center" }}>
                   {task.direction === "send" ? "↑" : "↓"}

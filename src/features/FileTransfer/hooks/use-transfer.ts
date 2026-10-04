@@ -16,6 +16,7 @@ import { BackendUnavailableError } from "@/lib/tauri/invoke";
 import { REFRESH_INTERVAL_MS, usePageLiveness } from "@/lib/timing/use-tick";
 import {
   asTransferError,
+  cancelTransferTask,
   fetchTransferStatus,
   listTransferPeers,
   listTransferTasks,
@@ -152,8 +153,24 @@ export function useTransferTasks() {
   });
 }
 
-/** 手动刷新设备列表（F-FT-08：**立即重列当前快照**，不触发任何主动探测）。 */
-export function useRefreshTransferPeers() {
+/**
+ * 取消一个进行中的任务（F-FT-26）。
+ *
+ * 🔴 **`false` 不是错误**：它表示该任务已收尾或不存在（多半是"刚跑完，你点慢了一步"）。
+ * 故这里不抛错，只把事实回给调用方——由调用方如实提示并刷新列表。
+ */
+export function useCancelTransferTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => cancelTransferTask(id),
+    onSettled: () => {
+      // 无论取消到没取消到都重取：取消成功要让状态变，点慢了要让界面看到真实状态
+      void queryClient.invalidateQueries({ queryKey: TRANSFER_TASKS_KEY });
+    },
+  });
+}
+
+/** 手动刷新设备列表（F-FT-08：**立即重列当前快照**，不触发任何主动探测）。 */ export function useRefreshTransferPeers() {
   const queryClient = useQueryClient();
   return () => void queryClient.invalidateQueries({ queryKey: TRANSFER_PEERS_KEY });
 }

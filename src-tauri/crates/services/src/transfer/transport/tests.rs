@@ -277,6 +277,10 @@ fn rejected_handshake_creates_no_file_and_tells_the_sender_why() {
 }
 
 /// 断连后续传：第一条连接传一半就断，第二条连接从真实进度接上，最终仍校验通过。
+// 🔴 允许超长：这是一条**单一场景的端到端**（断连 → 续传 → 校验），
+// 拆成多个辅助函数会让"这个场景到底做了什么"散落四处，反而更难读。
+// 本批仅因给 send_file 多传一个进度回调参数而从 100 行越到 102 行。
+#[allow(clippy::too_many_lines)]
 #[test]
 fn interrupted_transfer_resumes_on_a_second_connection() {
     let dir = temp_dir("resume");

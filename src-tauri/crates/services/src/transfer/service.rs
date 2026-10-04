@@ -822,22 +822,9 @@ fn handle_connection(
     // 进度已在过程中按 100ms 合并上报；此处只收尾，并让最后一帧不被节流吞掉。
     progress.force_next();
     if let Some(id) = task_id_slot.borrow_mut().take() {
-        let (state, reason) = match &outcome {
-            Ok(ReceiveOutcome::Committed { .. }) => (TaskState::Completed, None),
-            Ok(ReceiveOutcome::Skipped) => (TaskState::Skipped, Some(reasons::CONFLICT_SKIP)),
-            Ok(ReceiveOutcome::HashMismatch) => (TaskState::Failed, Some(reasons::HASH_MISMATCH)),
-            Ok(ReceiveOutcome::Rejected { reason_code }) => {
-                // 对端明确拒收：原因码**取对端回传的那个**（R-16"以对端回传的原因码为准"）
-                (TaskState::Cancelled, Some(reason_code.as_str()))
-            }
-            // 取消：原因码优先取承载它的那个（Cancelled 变体自带 reason_code）
-            Err(TransportError::Cancelled { reason_code }) => {
-                (TaskState::Cancelled, Some(reason_code.as_str()))
-            }
-            Err(_) => (TaskState::Failed, Some(reasons::PEER_DISCONNECTED)),
-        };
+        let (state, reason) = receive_terminal_state(&outcome);
         ctx.lock_tasks()
-            .finish(&id, state, reason, super::sink::now_unix_ms());
+            .finish(&id, state, reason.as_deref(), super::sink::now_unix_ms());
         // 收尾即移除令牌：不移除这张表会随会话无限增长
         ctx.forget_cancel(&id);
     }
@@ -991,6 +978,38 @@ pub fn send_to(
         on_progress,
     )
     .map_err(SendFailure::Transport)
+}
+
+/// 接收结果 → 台账终态（F-FT-30 五态；🔴 R-16：写进去就不再改）。
+///
+/// 抽成**纯函数**有两个好处：`handle_connection` 不再过长（clippy `too_many_lines`），
+/// 且这条映射表可以被单测穷举——它是"界面最终看到什么"的**唯一决定处**。
+///
+/// 🔴 对端明确说的话一律**原样回传**（R-16："以对端回传的原因码为准"）：
+/// `Rejected` 与 `Cancelled` 都带自己的 `reason_code`，不要替换成我们自己的措辞。
+#[must_use]
+fn receive_terminal_state(
+    outcome: &Result<ReceiveOutcome, TransportError>,
+) -> (TaskState, Option<String>) {
+    match outcome {
+        Ok(ReceiveOutcome::Committed { .. }) => (TaskState::Completed, None),
+        Ok(ReceiveOutcome::Skipped) => {
+            (TaskState::Skipped, Some(reasons::CONFLICT_SKIP.to_owned()))
+        }
+        Ok(ReceiveOutcome::HashMismatch) => {
+            (TaskState::Failed, Some(reasons::HASH_MISMATCH.to_owned()))
+        }
+        // 对端明确说的话一律原样回传（R-16）：拒收与取消都带着自己的原因码。
+        // 两个臂体相同，合并成一个 or-pattern（Ok/Err 绑定同名同类型，可以合并）。
+        Ok(ReceiveOutcome::Rejected { reason_code })
+        | Err(TransportError::Cancelled { reason_code }) => {
+            (TaskState::Cancelled, Some(reason_code.clone()))
+        }
+        Err(_) => (
+            TaskState::Failed,
+            Some(reasons::PEER_DISCONNECTED.to_owned()),
+        ),
+    }
 }
 
 /// 让调用方知道"是否需要在启动后把令牌写回设置"。

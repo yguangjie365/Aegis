@@ -159,6 +159,7 @@
     "cancel": "取消",
     "emptyTitle": "暂无传输任务",
     "emptyHint": "选择设备后发送文件即可创建任务",
+    "cancelMissed": "该任务已结束（或服务未在运行），无需取消。",
     "state": {
       "active": "进行中",
       "completed": "完成",
