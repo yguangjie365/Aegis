@@ -43,6 +43,7 @@ use super::transport::TransportError;
 
 /// 启动期失败码（🔴 **不属** `reasons` 的 16 码冻结表——那张表说的是"一次传输"的失败）。
 pub const CODE_START_INVALID_PORT: &str = "START_INVALID_PORT";
+pub const CODE_START_RECEIVE_DIR_FAILED: &str = "START_RECEIVE_DIR_FAILED";
 pub const CODE_START_TRANSFER_FAILED: &str = "START_TRANSFER_FAILED";
 pub const CODE_START_DISCOVERY_FAILED: &str = "START_DISCOVERY_FAILED";
 /// 命令层自身的用法错误（未启动就发送、载荷缺字段等）。
@@ -280,6 +281,9 @@ fn start_impl() -> Result<TransferStatusDto, TransferErrorDto> {
     let service = TransferService::start(outcome.settings, &machine_name).map_err(|failure| {
         let (code, message) = match &failure {
             StartFailure::InvalidPort { .. } => (CODE_START_INVALID_PORT, failure.to_string()),
+            StartFailure::ReceiveDirectory { .. } => {
+                (CODE_START_RECEIVE_DIR_FAILED, failure.to_string())
+            }
             StartFailure::Transfer { .. } => (CODE_START_TRANSFER_FAILED, failure.to_string()),
             StartFailure::Discovery { .. } => (CODE_START_DISCOVERY_FAILED, failure.to_string()),
         };

@@ -48,6 +48,55 @@ fn settings_for(recv_dir: &Path, transfer_port: u16, discovery_port: u16) -> Tra
 
 // ── 生命周期与 R-28 的阶段化归因 ────────────────────────────────────────
 
+/// 🔴 回归闸（2026-10-04 修的漏洞）：启动服务**必须**把接收目录建出来。
+///
+/// 此前从不创建它，而落盘侧的 `infra::safe::join_under_root` 要求根真实存在
+/// （要 `canonicalize`）⇒ 首次运行时**每一次接收都以 `RootUnusable` 失败**，功能整个不可用。
+#[test]
+fn start_creates_the_receive_directory() {
+    let dir = temp_dir("mkdir");
+    // 刻意用两层不存在的路径：只建一层不算修好
+    let nested = dir.join("Downloaded").join("Received");
+    assert!(!nested.exists());
+    let port = free_port();
+    let discovery = free_udp_port();
+
+    let service = TransferService::start(settings_for(&nested, port, discovery), "测试机")
+        .expect("应启动成功");
+    assert!(nested.is_dir(), "接收目录必须被创建出来");
+    assert_eq!(service.receive_root(), nested);
+    let _ = service.stop();
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// 接收目录建不出来时，归因必须指向**目录**而不是端口（否则用户去查错的地方）。
+#[test]
+fn unbuildable_receive_directory_is_attributed_to_the_directory_not_the_port() {
+    let dir = temp_dir("mkfail");
+    // 让"目录"落在**一个文件**下面：create_dir_all 必然失败
+    let blocker = dir.join("blocker");
+    fs::write(&blocker, b"x").unwrap();
+    let impossible = blocker.join("Received");
+    let port = free_port();
+    let discovery = free_udp_port();
+
+    match TransferService::start(settings_for(&impossible, port, discovery), "测试机") {
+        Err(StartFailure::ReceiveDirectory { path, .. }) => assert_eq!(path, impossible),
+        other => panic!("应归因到接收目录，实得 {other:?}"),
+    }
+    // 专属措辞里要有"接收目录"，不能是端口语
+    let text = StartFailure::ReceiveDirectory {
+        path: impossible.clone(),
+        cause: io::Error::new(io::ErrorKind::NotADirectory, "x"),
+    }
+    .to_string();
+    assert!(text.contains("接收目录不可用"), "实得 {text}");
+    assert!(!text.contains("端口"), "不得提到端口：{text}");
+    // 🔴 目录建不出来时**不该占端口**（第 2 步就失败，第 3 步还没走）
+    TcpListener::bind(("127.0.0.1", port)).expect("端口不该被占用");
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn invalid_ports_fail_before_any_listener_is_opened() {
     let dir = temp_dir("badports");

@@ -71,9 +71,14 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 pub enum StartFailure {
     /// 第 1 步就失败：端口非法（F-FT-02 原文"先做端口合法性校验"）——**未起任何监听**
     InvalidPort { problems: Vec<PortProblem> },
-    /// 第 2 步失败：传输服务起不来（TCP 端口被占用等）
+    /// 第 2 步失败：**接收目录建不出来**（路径不可写 / 网络路径未就绪）。
+    ///
+    /// 🔴 独立成一种失败（而不是并进 `Transfer`）：否则界面会显示"TCP 端口可能被占用"，
+    /// 而真实原因是目录不可写——**归因错了比不归因更糟**（用户会去查端口）。
+    ReceiveDirectory { path: PathBuf, cause: io::Error },
+    /// 第 3 步失败：传输服务起不来（TCP 端口被占用等）
     Transfer { port: u16, cause: io::Error },
-    /// 第 3 步失败：发现服务起不来。此时传输服务**已回滚**
+    /// 第 4 步失败：发现服务起不来。此时传输服务**已回滚**
     Discovery {
         port: u16,
         cause: io::Error,
@@ -89,6 +94,11 @@ impl std::fmt::Display for StartFailure {
                 let list: Vec<String> = problems.iter().map(ToString::to_string).collect();
                 write!(f, "端口设置非法，未启动任何监听：{}", list.join("；"))
             }
+            Self::ReceiveDirectory { path, cause } => write!(
+                f,
+                "接收目录不可用：{}（{cause}）——请改到可写目录后重试",
+                path.display()
+            ),
             Self::Transfer { port, cause } => {
                 write!(f, "传输服务启动失败（TCP {port} 可能被占用）：{cause}")
             }
@@ -246,7 +256,22 @@ impl TransferService {
             return Err(StartFailure::InvalidPort { problems });
         }
 
-        // ── 第 2 步：传输服务（TCP） ──
+        // ── 第 2 步：接收目录必须**现在就建出来** ──
+        // 🔴 这是 2026-10-04 补的漏洞修复：此前从不创建它，而落盘侧的
+        // `infra::safe::join_under_root` 要求根**真实存在**（要 canonicalize），
+        // 于是首次运行时**每一次接收都会以 RootUnusable 失败**——功能整个不可用。
+        let receive_root = settings
+            .receive_directory
+            .as_deref()
+            .map_or_else(settings::default_receive_directory, PathBuf::from);
+        if let Err(cause) = std::fs::create_dir_all(&receive_root) {
+            return Err(StartFailure::ReceiveDirectory {
+                path: receive_root,
+                cause,
+            });
+        }
+
+        // ── 第 3 步：传输服务（TCP） ──
         let listener = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], settings.transfer_port)))
             .map_err(|cause| StartFailure::Transfer {
                 port: settings.transfer_port,
@@ -259,7 +284,7 @@ impl TransferService {
                 cause,
             })?;
 
-        // ── 第 3 步：发现服务（UDP）——失败必须回滚第 2 步 ──
+        // ── 第 4 步：发现服务（UDP）——失败必须回滚第 3 步 ──
         let discovery_socket =
             match UdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], settings.discovery_port))) {
                 Ok(socket) => socket,
@@ -495,14 +520,32 @@ fn handle_connection(
     ctx.active_receives.fetch_add(1, Ordering::SeqCst);
     let _guard = ActiveReceiveGuard(&ctx.active_receives);
 
-    // 磁盘预检（R-12）：剩余空间在**建未完成文件之前**判
-    let disk = probe_disk(&ctx.receive_root);
+    // 磁盘预检（R-12）：🔴 必须在**拿到握手事实之后**判——R-12 的口径是
+    // "完整文件大小 + 128 MB 安全余量"，握手之前根本不知道要留多少空间。
+    // 探测与判档都在闭包里做，`disk` 只作入参传给准入闸门。
     transport::receive_file(
         stream,
         &ctx.receive_root,
         &peer_token,
         ctx.settings.conflict_policy,
-        |facts| ctx.admit(peer.ip(), facts, disk),
+        |facts| {
+            let available = infra::fs::available_bytes(&ctx.receive_root).ok();
+            let disk = admission::classify_disk_space(available, facts.file_size);
+            let verdict = ctx.admit(peer.ip(), facts, disk);
+            // 🔴 R-12 明写"无法判定则放行**但记录**"——这句话的落点就是这里。
+            // 之前 `probe_disk` 恒返回 Unknown 且无人记录，等于放行而不留痕。
+            if let Admission::Admitted { disk_unknown: true } = verdict {
+                tracing::warn!(
+                    module = contracts::LOG_MODULE_TRANSFER,
+                    action = "transferReceiveAdmit",
+                    result = "Success",
+                    exception = "disk-space-unknown",
+                    file_size = facts.file_size,
+                    "磁盘剩余空间无法判定，按 R-12 放行（disk_unknown）"
+                );
+            }
+            verdict
+        },
         cancel,
     )
 }
@@ -529,29 +572,6 @@ pub fn peer_token_for(ip: IpAddr) -> String {
         }
     }
 }
-
-/// 磁盘预检（R-12：按"完整文件大小 + 128 MB 安全余量"判；此处只取"能否判定 + 剩余"）。
-///
-/// 🟠 本函数返回**结论未知**时按 R-12 放行但记录（`disk_unknown`）——
-/// 真实的空间比较在 `admission::evaluate` 的第 6 关里按 `file_size` 完成，
-/// 故这里只需要给出"够/不够/不知道"。
-fn probe_disk(root: &Path) -> DiskSpace {
-    let Some(parent) = root.parent() else {
-        return DiskSpace::Unknown;
-    };
-    match fs_available_bytes(parent) {
-        Some(_available) => DiskSpace::Sufficient,
-        None => DiskSpace::Unknown,
-    }
-}
-
-/// 取卷剩余空间。🟠 **本批未接 Windows 卷查询**（需 `GetDiskFreeSpaceExW`，属 FFI，归 `infra`），
-/// 故恒返回 `None` ⇒ 预检结论是"无法判定 - 放行并记录"（R-12 允许）。
-/// 接线后本函数改为调 `infra` 的卷查询即可，**本模块其它逻辑不变**。
-fn fs_available_bytes(_path: &Path) -> Option<u64> {
-    None
-}
-
 /// 发现循环：定时宣告 + 监听别家宣告 + 清扫离线。
 // 同 `accept_loop`：按值接收套接字是刻意的所有权交接（线程活多久它就活多久）。
 #[allow(clippy::needless_pass_by_value)]

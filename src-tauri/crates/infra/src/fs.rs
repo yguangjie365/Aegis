@@ -52,6 +52,63 @@ fn write_and_flush(staging: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// 文件句柄的 `sync_all` 已保证内容落盘，rename 在同卷上是事务性的。
 fn sync_dir_best_effort(_dir: &Path) {}
 
+/// 取 `path` 所在**卷**对本次调用者可用的字节数（配额语义，不是整卷剩余）。
+///
+/// 规格依据：R-12「磁盘检查按『完整文件大小 + 128 MB 安全余量』」——那笔加法与判档
+/// 属**域逻辑**（`services::transfer::admission::classify_disk_space`），本函数只负责问出这个数。
+///
+/// 🔴 FFI 归 `infra`（02 册 KN-04），故这是"查卷可用空间"的唯一入口。
+/// Windows 下走 `GetDiskFreeSpaceExW`；该符号所在的 feature 本 crate 早已开启（SMART 用同一项）。
+///
+/// # Errors
+/// 路径不存在、卷未就绪、或底层调用失败时返回 `io::Error`——
+/// 🔴 调用方**不得**把它当成 0（那是"空间不足"，会把"查不到"误报成"不够"），
+/// 而应按 R-12 判为"无法判定 → 放行但记录"。
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub fn available_bytes(path: &Path) -> std::io::Result<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut free_to_caller: u64 = 0;
+    let mut total_bytes: u64 = 0;
+    let mut total_free: u64 = 0;
+
+    // SAFETY: `wide` 是以 NUL 结尾的合法 UTF-16 缓冲，在其生命周期内有效；
+    // 三个出参都是本函数栈上的 `u64`，Win32 只会写入它们。
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut free_to_caller,
+            &mut total_bytes,
+            &mut total_free,
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // 只回"调用者额度"：`total_free` 在配额场景下可能更大，用哪个由域逻辑决定
+    let _ = (total_bytes, total_free);
+    Ok(free_to_caller)
+}
+
+/// 非 Windows 平台的占位：本工程只发布 Windows（规格 §一 平台约束）。
+///
+/// # Errors
+/// 恒返回 `Unsupported`——不给"静默当成功"的机会。
+#[cfg(not(windows))]
+pub fn available_bytes(_path: &Path) -> std::io::Result<u64> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "available_bytes 目前仅实现 Windows",
+    ))
+}
+
 /// 把文件的**修改时间**设为 `unix_ms`（Unix 毫秒）。
 ///
 /// 规格依据：F-FT-24「接收完成后把文件的修改时间还原为对端声明的原始时间」。

@@ -29,15 +29,44 @@ pub const MAX_SEND_CONCURRENCY: u32 = 3;
 /// 接收并发上限（F-FT-28；母本 `MaxConcurrentReceives` 默认 8）。
 pub const MAX_RECEIVE_CONCURRENCY: u32 = 8;
 
+/// 磁盘预检的**安全余量**（R-12 原文："磁盘检查按『完整文件大小 + 128 MB 安全余量』"）。
+///
+/// 🔴 这个常量此前**只出现在 `DiskSpace::Sufficient` 的文档里、代码中并不存在**，
+/// 也没有任何地方真的做过这个加法（2026-10-04 补）。
+pub const DISK_SAFETY_MARGIN_BYTES: u64 = 128 * 1024 * 1024;
+
 /// 磁盘预检结论（F-FT-22 / R-12）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiskSpace {
-    /// 剩余空间够（含 128 MB 安全余量）
+    /// 剩余空间够（含 [`DISK_SAFETY_MARGIN_BYTES`] 安全余量）
     Sufficient,
     /// 不够 → 拒收 `INSUFFICIENT_DISK`
     Insufficient,
     /// **无法判定**（网络路径 / 卷未就绪）→ 🔴 **放行但记录**（R-12 明示的保守取舍）
     Unknown,
+}
+
+/// 按 R-12 的口径把"可用字节数"判成一档。
+///
+/// `available` 为 `None` 表示**查不到**（网络路径、卷未就绪、调用失败）→ [`DiskSpace::Unknown`]，
+/// 由调用方放行**但必须记录**（`Admission::Admitted { disk_unknown: true }`）。
+///
+/// 🔴 判据是 `available >= file_size + 128 MiB`，**不是** `available >= file_size`：
+/// 余量是给"传输过程中磁盘被别的程序占用"留的缓冲，省掉它会让传输在最后一块失败——
+/// 那正是 R-12 想避免的"传到一半才发现"。
+#[must_use]
+pub fn classify_disk_space(available: Option<u64>, file_size: u64) -> DiskSpace {
+    match available {
+        None => DiskSpace::Unknown,
+        Some(available) => {
+            let required = file_size.saturating_add(DISK_SAFETY_MARGIN_BYTES);
+            if available >= required {
+                DiskSpace::Sufficient
+            } else {
+                DiskSpace::Insufficient
+            }
+        }
+    }
 }
 
 /// 闸门标识（用于把"卡在哪一关"如实回报，而不是笼统说"被拒"）。
@@ -291,6 +320,43 @@ mod tests {
         assert!(evaluate(&req).is_admitted(), "上限前一个仍可受理");
         req.active_receives = MAX_RECEIVE_CONCURRENCY;
         assert!(!evaluate(&req).is_admitted(), "达到上限即拒");
+    }
+
+    /// 🔴 R-12 的余量口径：判据是 `可用 >= 文件大小 + 128 MiB`，**不是** `可用 >= 文件大小`。
+    /// 省掉余量会让传输在最后一块失败——正是 R-12 想避免的"传到一半才发现"。
+    #[test]
+    fn disk_classification_applies_the_128mb_margin() {
+        let size = 1_000_000_u64;
+        // 刚好够（边界含等号）
+        assert_eq!(
+            classify_disk_space(Some(size + DISK_SAFETY_MARGIN_BYTES), size),
+            DiskSpace::Sufficient
+        );
+        // 差 1 字节就不够——证明余量真的参与了比较，而不是"可用 > 大小"就放行
+        assert_eq!(
+            classify_disk_space(Some(size + DISK_SAFETY_MARGIN_BYTES - 1), size),
+            DiskSpace::Insufficient
+        );
+        // 光够文件本身、但没留余量 => 不够
+        assert_eq!(
+            classify_disk_space(Some(size), size),
+            DiskSpace::Insufficient
+        );
+        // 查不到 => 无法判定（由调用方放行并记录）
+        assert_eq!(classify_disk_space(None, size), DiskSpace::Unknown);
+        // 余量常量必须真的是 128 MiB
+        assert_eq!(DISK_SAFETY_MARGIN_BYTES, 128 * 1024 * 1024);
+        // 极大文件不得溢出（`saturating_add` 饱和到 u64::MAX）：
+        // 此时"可用 0"必须判不够，而不是因溢出回绕成"够"
+        assert_eq!(
+            classify_disk_space(Some(0), u64::MAX),
+            DiskSpace::Insufficient
+        );
+        assert_eq!(
+            classify_disk_space(Some(u64::MAX), u64::MAX),
+            DiskSpace::Sufficient,
+            "饱和后 MAX >= MAX 成立，属可接受的退化结论（该场景本身不可达）"
+        );
     }
 
     #[test]

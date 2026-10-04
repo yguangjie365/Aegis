@@ -95,6 +95,7 @@ export interface SendFilePayload {
 
 /** 启动期失败码（🔴 **不属** `reasons` 的 16 码冻结表——那张表说的是"一次传输"的失败）。 */
 export const START_INVALID_PORT = "START_INVALID_PORT";
+export const START_RECEIVE_DIR_FAILED = "START_RECEIVE_DIR_FAILED";
 export const START_TRANSFER_FAILED = "START_TRANSFER_FAILED";
 export const START_DISCOVERY_FAILED = "START_DISCOVERY_FAILED";
 export const SERVICE_NOT_RUNNING = "SERVICE_NOT_RUNNING";
