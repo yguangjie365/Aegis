@@ -1030,7 +1030,21 @@ pub fn transfer_history_list(envelope: contracts::CmdEnvelope) -> Vec<TransferHi
     list
 }
 
-/// 导出历史为 CSV 到 `path`（F-FT-58）。
+/// 导出历史的对外回执（F-FT-56：界面要能说"✅ 已导出 {N} 条历史：{路径}"）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportReportDto {
+    /// 实际写出的条数（**按筛选后**，见下）
+    pub count: usize,
+    pub path: String,
+}
+
+/// 导出历史为 CSV 到 `path`（F-FT-56「所见即所得」）。
+///
+/// `ids` 为 `Some` 时**只导出这些条目**（界面传当前筛选后的行），
+/// `None` 表示全量。🔴 用 id 列表而不是让后端重做一遍筛选：
+/// 前端已经有筛选结果了，把**同一份**结果交给导出，才不会出现
+/// "屏幕上 3 条、导出 7 条"这种两头对不上的情况。
 ///
 /// 🔴 写盘放在**后端**（[`infra::fs::atomic_write`]）：这样不必为了导出再引入前端 fs 插件，
 /// 也顺带拿到原子写——半截 CSV 比没有 CSV 更糟。
@@ -1041,12 +1055,13 @@ pub fn transfer_history_list(envelope: contracts::CmdEnvelope) -> Vec<TransferHi
 pub fn transfer_history_export(
     envelope: contracts::CmdEnvelope,
     path: String,
-) -> Result<(), TransferErrorDto> {
+    ids: Option<Vec<String>>,
+) -> Result<ExportReportDto, TransferErrorDto> {
     let started = Instant::now();
-    let csv = {
+    let (csv, count) = {
         let state = lock_state();
         match state.service.as_ref() {
-            Some(service) => service.history_csv(),
+            Some(service) => service.history_csv_selected(ids.as_deref()),
             None => {
                 return Err(TransferErrorDto::new(
                     CODE_NOT_RUNNING,
@@ -1057,9 +1072,13 @@ pub fn transfer_history_export(
     };
     let target = std::path::PathBuf::from(&path);
     let result = infra::fs::atomic_write(&target, csv.as_bytes())
+        .map(|()| ExportReportDto {
+            count,
+            path: target.display().to_string(),
+        })
         .map_err(|error| TransferErrorDto::new(CODE_SETTINGS_IO, format!("导出失败：{error}")));
     let (label, exception) = match &result {
-        Ok(()) => (ResultLabel::Success, None),
+        Ok(_) => (ResultLabel::Success, None),
         Err(error) => (ResultLabel::Failed, Some(error.code.as_str())),
     };
     log_command(

@@ -186,6 +186,13 @@ export interface TransferHistoryEntry {
  */
 export type HistoryKind = "file" | "text";
 
+/** `transfer_history_export` 的回执（F-FT-56：界面要说"已导出 {N} 条"）。 */
+export interface ExportReport {
+  /** 实际写出的条数（按筛选后） */
+  count: number;
+  path: string;
+}
+
 /**
  * 文本发送的结论（F-FT-34）。
  *

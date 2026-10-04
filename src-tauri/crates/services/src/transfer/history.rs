@@ -216,10 +216,30 @@ impl History {
     /// 导出 CSV（含 BOM 与 CRLF，见模块头"CSV 的四个细节"；**新的在前**，F-FT-58）。
     #[must_use]
     pub fn to_csv(&self) -> String {
+        self.to_csv_selected(None).0
+    }
+
+    /// 导出 CSV，可选**只导出 `ids` 里的条目**（F-FT-56「所见即所得」）。
+    ///
+    /// 返回 `(CSV 文本, 实际写出的条数)`；`ids = None` = 全量。
+    ///
+    /// 🔴 选中集为**空**时，写出的是"只有表头"的 CSV、条数为 0 —— 这比"什么都不写"更诚实：
+    /// 调用方能如实说"已导出 0 条"，而不是给用户一个看起来成功、打开却空白的文件。
+    #[must_use]
+    pub fn to_csv_selected(&self, ids: Option<&[String]>) -> (String, usize) {
+        let wanted: Option<std::collections::HashSet<&str>> =
+            ids.map(|list| list.iter().map(String::as_str).collect());
         let mut out = String::from("\u{feff}");
         out.push_str(CSV_HEADER);
         out.push_str("\r\n");
+        let mut count = 0usize;
         for entry in self.newest_first() {
+            if let Some(set) = &wanted {
+                if !set.contains(entry.id.as_str()) {
+                    continue;
+                }
+            }
+            count += 1;
             let cells = [
                 format_time(entry.finished_at_ms),
                 entry.direction_label().to_owned(),
@@ -234,7 +254,7 @@ impl History {
             out.push_str(&line.join(","));
             out.push_str("\r\n");
         }
-        out
+        (out, count)
     }
 
     /// 读盘。文件不存在 ⇒ 空历史（**不是错误**：首次运行就是这样）。

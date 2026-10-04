@@ -208,7 +208,8 @@ export function useExportTransferHistory() {
         filters: [{ name: "CSV", extensions: ["csv"] }],
       });
       if (target === null) return "cancelled";
-      await exportTransferHistory(target);
+      // 🟠 目前传 null = 全量；按筛选导出（F-FT-56 的「所见即所得」）待接线
+      await exportTransferHistory(target, null);
       return "exported";
     },
   });

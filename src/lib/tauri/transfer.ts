@@ -26,6 +26,7 @@ import type {
   TransferStatus,
   TransferTask,
   TextOutcome,
+  ExportReport,
 } from "@/types/transfer";
 
 const TRANSFER: LogModule = "Transfer";
@@ -158,13 +159,22 @@ export async function listTransferHistory(): Promise<TransferHistoryEntry[]> {
 }
 
 /**
- * 导出历史为 CSV 到 `path`（F-FT-58）。
+ * 导出历史为 CSV 到 `path`（F-FT-56「所见即所得」）。
+ *
+ * 🔴 `ids` 传**当前筛选后那些行**的 id（`null` = 全量）。导出与屏幕所见必须一致——
+ * 界面上 3 条、导出的文件里 7 条，用户只会觉得被糊弄了。
  *
  * 🔴 **写盘由后端完成**（原子写）：这样不必为导出引入前端 fs 插件。
- * 调用方只需用保存对话框拿到路径即可。
+ * 返回值里的 `count` 是**实际写出的条数**，界面据此说"已导出 {N} 条"。
  */
-export async function exportTransferHistory(path: string): Promise<void> {
-  await invoke<void>("transfer_history_export", TRANSFER, "transferHistoryExport", { path });
+export async function exportTransferHistory(
+  path: string,
+  ids: string[] | null,
+): Promise<ExportReport> {
+  return invoke<ExportReport>("transfer_history_export", TRANSFER, "transferHistoryExport", {
+    path,
+    ids,
+  });
 }
 
 /**

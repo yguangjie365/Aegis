@@ -572,10 +572,12 @@ impl TransferService {
         self.ctx.lock_history().newest_first().cloned().collect()
     }
 
-    /// 导出历史为 CSV（F-FT-58）。
+    /// 导出历史为 CSV（F-FT-56）。`ids = None` 为全量；返回 `(CSV, 条数)`。
+    ///
+    /// 🔴 界面把**当前筛选后的行**的 id 传进来，导出才与屏幕所见一致（"所见即所得"）。
     #[must_use]
-    pub fn history_csv(&self) -> String {
-        self.ctx.lock_history().to_csv()
+    pub fn history_csv_selected(&self, ids: Option<&[String]>) -> (String, usize) {
+        self.ctx.lock_history().to_csv_selected(ids)
     }
 
     /// 清空传输历史（F-FT-57），返回清掉的条数（0 = 本来就没有）。
