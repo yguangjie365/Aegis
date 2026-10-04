@@ -37,7 +37,7 @@
 use std::io;
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -56,6 +56,7 @@ use super::reasons;
 use super::settings::{self, PortProblem, TransferSettings};
 use super::sink::now_unix_ms;
 use super::source;
+use super::tasks::{Direction, TaskRegistry, TaskState};
 use super::transport::{self, HandshakeFacts, ReceiveOutcome, SendOutcome, TransportError};
 
 /// 同时在册的连接硬上限（抗连接洪水；见模块头"两道闸"）。
@@ -152,11 +153,28 @@ struct ServiceContext {
     /// 接收确认闸门（F-FT-18 / R-8）
     confirm: ConfirmGate,
     peers: Mutex<PeerTable>,
+    /// 运行期任务台账（F-FT-25/29/30；🔴 R-16 终态不可回退由 `TaskRegistry` 保证）
+    tasks: Mutex<TaskRegistry>,
+    /// 任务 id 计数（只保证同一会话内不重名，不追求跨进程唯一）
+    task_seq: AtomicU64,
     last_refresh_ms: AtomicI64,
     active_receives: AtomicUsize,
 }
 
 impl ServiceContext {
+    /// 生成一个新的任务 id。
+    fn next_task_id(&self) -> String {
+        let seq = self.task_seq.fetch_add(1, Ordering::SeqCst);
+        format!("t{seq}")
+    }
+
+    fn lock_tasks(&self) -> std::sync::MutexGuard<'_, TaskRegistry> {
+        // 同 `lock_peers`：毒锁恢复，一个线程 panic 不该让台账整体失效
+        self.tasks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     fn lock_peers(&self) -> std::sync::MutexGuard<'_, PeerTable> {
         // 共享缓存用"毒锁恢复"而非 unwrap：一个线程 panic 不该让发现功能整体瘫掉
         self.peers
@@ -321,6 +339,8 @@ impl TransferService {
             pairing: Mutex::new(PairingGuard::new(require_pairing)),
             confirm: ConfirmGate::default(),
             // 🔴 对端表必须按**自己的设备标识**过滤自身宣告
+            tasks: Mutex::new(TaskRegistry::default()),
+            task_seq: AtomicU64::new(1),
             peers: Mutex::new(PeerTable::new(self_id, OFFLINE_AFTER)),
             last_refresh_ms: AtomicI64::new(now_unix_ms()),
             active_receives: AtomicUsize::new(0),
@@ -427,6 +447,12 @@ impl TransferService {
     #[must_use]
     pub fn pending_confirms(&self) -> Vec<confirm::PendingConfirmation> {
         self.ctx.confirm.pending()
+    }
+
+    /// 任务台账快照（F-FT-25；只读，命令层不得改写）。
+    #[must_use]
+    pub fn tasks_snapshot(&self) -> Vec<super::tasks::TransferTask> {
+        self.ctx.lock_tasks().snapshot()
     }
 
     /// 待决确认 + 距超时判拒的剩余毫秒（界面倒计时用）。
@@ -558,7 +584,12 @@ fn handle_connection(
     // 磁盘预检（R-12）：🔴 必须在**拿到握手事实之后**判——R-12 的口径是
     // "完整文件大小 + 128 MB 安全余量"，握手之前根本不知道要留多少空间。
     // 探测与判档都在闭包里做，`disk` 只作入参传给准入闸门。
-    transport::receive_file(
+    //
+    // 任务 id 的回传槽：闭包在握手后登记任务，收尾时按实际结果写终态。
+    // 🔴 用 `Cell` 而不是 `Mutex`：闭包与收尾在**同一线程**（`receive_file` 是阻塞调用），
+    //    跨线程共享既无必要，也会掩盖"这段逻辑本该是单线程"这个事实。
+    let task_id_slot: std::cell::Cell<Option<String>> = std::cell::Cell::new(None);
+    let outcome = transport::receive_file(
         stream,
         &ctx.receive_root,
         &peer_token,
@@ -604,10 +635,48 @@ fn handle_connection(
                     };
                 }
             }
+            // 🔴 登记任务（F-FT-25）：位置在**闸门与确认全过之后**——
+            // 被拒的请求不该在台账里留一行"进行中"，那会让并发槽位与界面都失真。
+            if matches!(verdict, Admission::Admitted { .. }) {
+                let id = ctx.next_task_id();
+                ctx.lock_tasks().begin(
+                    id.clone(),
+                    Direction::Receive,
+                    peer.to_string(),
+                    facts.file_name.to_owned(),
+                    facts.file_size,
+                    super::sink::now_unix_ms(),
+                );
+                task_id_slot.set(Some(id));
+            }
             verdict
         },
         cancel,
-    )
+    );
+
+    // ── 收尾：把**实际结果**写成终态（🔴 R-16：写进去就不再改） ──
+    // 🟠 本批进度是**粗粒度**的（0% → 终结时一次性到位）：分块进度需要
+    //    `receive_file` 提供回调，属独立改动，已登记。终态与原因码是本批的要点。
+    if let Some(id) = task_id_slot.take() {
+        let (state, reason) = match &outcome {
+            Ok(ReceiveOutcome::Committed { .. }) => (TaskState::Completed, None),
+            Ok(ReceiveOutcome::Skipped) => (TaskState::Skipped, Some(reasons::CONFLICT_SKIP)),
+            Ok(ReceiveOutcome::HashMismatch) => (TaskState::Failed, Some(reasons::HASH_MISMATCH)),
+            Ok(ReceiveOutcome::Rejected { reason_code }) => {
+                // 对端明确拒收：原因码**取对端回传的那个**（R-16"以对端回传的原因码为准"）
+                (TaskState::Cancelled, Some(reason_code.as_str()))
+            }
+            // 取消：原因码优先取承载它的那个（Cancelled 自带 eason_code）
+            Err(TransportError::Cancelled { reason_code }) => {
+                (TaskState::Cancelled, Some(reason_code.as_str()))
+            }
+            Err(_) => (TaskState::Failed, Some(reasons::PEER_DISCONNECTED)),
+        };
+        ctx.lock_tasks()
+            .finish(&id, state, reason, super::sink::now_unix_ms());
+    }
+
+    outcome
 }
 
 /// 接收会话计数守卫。

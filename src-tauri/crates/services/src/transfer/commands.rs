@@ -39,6 +39,7 @@ use super::discovery::Peer;
 use super::reasons;
 use super::service::{SendFailure, StartFailure, TransferService};
 use super::settings::{self, LoadOutcome, TransferSettings};
+use super::tasks::Direction;
 use super::transport::TransportError;
 
 /// 启动期失败码（🔴 **不属** `reasons` 的 16 码冻结表——那张表说的是"一次传输"的失败）。
@@ -657,6 +658,26 @@ pub fn transfer_send_file(
     result
 }
 
+/// 一条传输任务的对外快照（F-FT-30 的五态）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferTaskDto {
+    pub id: String,
+    /// `send` | `receive`
+    pub direction: String,
+    pub peer_label: String,
+    pub file_name: String,
+    pub file_size: u64,
+    pub transferred: u64,
+    /// 0..=100（由后端算，避免前后端各算一遍口径漂移）
+    pub percent: u32,
+    /// `active` | `completed` | `skipped` | `failed` | `cancelled`
+    pub state: String,
+    /// 终态原因码（取 reasons 的冻结表；进行中为 None）
+    pub reason_code: Option<String>,
+    pub started_at_ms: i64,
+    pub finished_at_ms: Option<i64>,
+}
 /// 待用户裁决的接收确认（F-FT-14）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -760,6 +781,56 @@ fn confirm_impl(id: &str, accept: bool) -> Result<(), &'static str> {
     } else {
         Err(CODE_CONFIRM_GONE)
     }
+}
+
+/// 传输任务台账快照（F-FT-25/30）。
+///
+/// 🔴 只回**只读快照**：任务由收发线程登记，命令层不得改写（R-16 终态不可回退
+/// 由 `TaskRegistry` 独占保证，多一条写入路径就多一个破坏它的机会）。
+#[must_use]
+#[tauri::command]
+pub fn transfer_tasks_list(envelope: contracts::CmdEnvelope) -> Vec<TransferTaskDto> {
+    let started = Instant::now();
+    let tasks = tasks_impl();
+    log_command(
+        "transferTasksList",
+        ResultLabel::Success,
+        &envelope.correlation_id,
+        started,
+        None,
+    );
+    tasks
+}
+
+fn tasks_impl() -> Vec<TransferTaskDto> {
+    let state = lock_state();
+    let Some(service) = state.service.as_ref() else {
+        return Vec::new();
+    };
+    service
+        .tasks_snapshot()
+        .into_iter()
+        .map(|task| {
+            // 🔴 先算 percent：它在字段被移出后再调就会借用已移动的值
+            let percent = task.percent();
+            TransferTaskDto {
+                id: task.id,
+                direction: match task.direction {
+                    Direction::Send => "send".to_owned(),
+                    Direction::Receive => "receive".to_owned(),
+                },
+                peer_label: task.peer_label,
+                file_name: task.file_name,
+                file_size: task.file_size,
+                transferred: task.transferred,
+                percent,
+                state: task.state.as_str().to_owned(),
+                reason_code: task.reason_code,
+                started_at_ms: task.started_at_ms,
+                finished_at_ms: task.finished_at_ms,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

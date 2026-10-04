@@ -461,6 +461,8 @@ fn known_peers_hit_makes_a_peer_known_without_discovery() {
         receive_root: dir.clone(),
         pairing: Mutex::new(PairingGuard::new(true)),
         confirm: ConfirmGate::default(),
+        tasks: Mutex::new(TaskRegistry::default()),
+        task_seq: AtomicU64::new(1),
         peers: Mutex::new(PeerTable::new("测试机#tok", OFFLINE_AFTER)),
         last_refresh_ms: AtomicI64::new(0),
         active_receives: AtomicUsize::new(0),
