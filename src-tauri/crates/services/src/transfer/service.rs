@@ -160,6 +160,12 @@ struct ServiceContext {
     history: Mutex<super::history::History>,
     /// 历史落盘位置（启动时定下，避免运行期依赖当前目录）。
     history_path: PathBuf,
+    /// 🔴 历史文件**读盘失败**的原因（F-FT-58："降级为空列表**并如实显示**"）。
+    ///
+    /// 规格要的是"降级 + 如实显示"两件事；只降级不显示，用户会以为**从来没有过历史**
+    /// ——那是界面在说假话。这里留住原因，经状态 DTO 带到界面。
+    /// 坏文件仍原样留在盘上（不删、不覆盖），可人工排查。
+    history_load_error: Option<String>,
     /// 任务 id → 取消令牌（F-FT-26「取消单个任务」）。
     ///
     /// 🔴 没有这张表就没法"按 id 取消"：每次发送各自 `new` 一个令牌，
@@ -503,6 +509,8 @@ impl TransferService {
                 }
             };
 
+        // 🔴 供上面的闭包写入：历史读盘失败的原因（F-FT-58 的"如实显示"）
+        let mut history_load_error: Option<String> = None;
         let receive_root = settings
             .receive_directory
             .as_deref()
@@ -525,8 +533,17 @@ impl TransferService {
             tasks: Mutex::new(TaskRegistry::default()),
             // 🟠 历史读盘失败 ⇒ 从空表开始，**不让启动失败**：历史是"最近发生了什么"，
             //    读不出来不该连累收发。坏文件仍原样留在盘上，可人工排查。
-            history: Mutex::new(super::history::History::load(&history_path).unwrap_or_default()),
+            //    🔴 但**不能静默**：F-FT-58 要求"降级为空列表**并如实显示**"，
+            //    所以把原因留住（下面 `history_load_error`）并写日志，界面据此提示用户。
+            history: Mutex::new(super::history::History::load(&history_path).unwrap_or_else(
+                |error| {
+                    eprintln!("[transfer] 历史文件读取失败，已降级为空历史（F-FT-58）：{error}");
+                    history_load_error = Some(error.clone());
+                    super::history::History::new()
+                },
+            )),
             history_path,
+            history_load_error,
             cancels: Mutex::new(HashMap::new()),
             pauses: Mutex::new(HashMap::new()),
             task_seq: AtomicU64::new(1),
@@ -663,6 +680,15 @@ impl TransferService {
         self.ctx
             .pause_gate(id)
             .is_some_and(|gate| gate.resume_local())
+    }
+
+    /// 历史文件**读盘失败**的原因（F-FT-58："降级为空列表**并如实显示**"）。
+    ///
+    /// `None` = 读取正常。`Some(原因)` = 已降级为空历史，**界面必须如实告诉用户**，
+    /// 否则用户会以为自己从来没有过历史（那是界面在说假话）。
+    #[must_use]
+    pub fn history_load_error(&self) -> Option<&str> {
+        self.ctx.history_load_error.as_deref()
     }
 
     /// 某个任务**累计被暂停的毫秒数**（F-FT-25："暂停时长不计入速度"）。

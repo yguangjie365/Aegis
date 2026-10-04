@@ -505,6 +505,7 @@ fn known_peers_hit_makes_a_peer_known_without_discovery() {
     };
     let identity = SelfIdentity::new("测试机", "tok");
     let ctx = ServiceContext {
+        history_load_error: None,
         settings,
         identity,
         receive_root: dir.clone(),
