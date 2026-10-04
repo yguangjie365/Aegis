@@ -32,6 +32,7 @@
 pub mod admission;
 pub mod chunk;
 pub mod conflict;
+pub mod discovery;
 pub mod protocol;
 pub mod reasons;
 pub mod settings;

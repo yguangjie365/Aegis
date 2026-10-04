@@ -283,6 +283,18 @@ fn deepest_existing_ancestor(target: &Path) -> Option<PathBuf> {
     None
 }
 
+/// 去掉**不可见字符**（零宽、BOM、软连字符、方向控制符）。
+///
+/// 与 [`sanitize_file_name`] 共用同一张字符表——"外部来的字符串"（文件名、设备显示名、
+/// 对端自报的名字）都需要这一步，故抽成公开原语而非各处重抄一张表（DP-1 复用优先）。
+///
+/// 🔴 只去不可见字符，**不做**其它清洗：调用方按自己的语义决定后续（文件名要替换非法字符，
+/// 设备名可能只需要 trim 与回退）。
+#[must_use]
+pub fn strip_invisible(raw: &str) -> String {
+    raw.chars().filter(|c| !is_invisible(*c)).collect()
+}
+
 /// 产出一个**可安全落盘的新文件名**（写侧专用；母本 `SanitizeFileName` ③思路复用）。
 ///
 /// 与 [`join_under_root`] 的分工：后者管"能不能落在根内"，本函数管"这个名字在 Windows 上
@@ -294,10 +306,7 @@ fn deepest_existing_ancestor(target: &Path) -> Option<PathBuf> {
 /// 返回 `None` 表示清洗后为空（调用方应拒绝该名字，而不是自己编一个）。
 #[must_use]
 pub fn sanitize_file_name(raw: &str) -> Option<String> {
-    let stripped: String = raw
-        .chars()
-        .filter(|c| !is_invisible(*c))
-        .collect::<String>()
+    let stripped: String = strip_invisible(raw)
         // 结尾的点与空格由 Win32 静默裁掉 → 日志名与实际名不一致
         .trim_end_matches(['.', ' '])
         .to_owned();

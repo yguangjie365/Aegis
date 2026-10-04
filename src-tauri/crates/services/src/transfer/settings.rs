@@ -82,6 +82,12 @@ pub struct TransferSettings {
     pub known_peers: Vec<KnownPeer>,
     /// 本机设备名；`None` = 用机器名
     pub device_name: Option<String>,
+    /// 本机设备标识的**持久随机令牌**（R-6：标识 = 机器名 + 令牌，**重启后必须稳定**）。
+    ///
+    /// 🔴 `None` 表示尚未生成 —— 由 `discovery::SelfIdentity::load_or_create` 生成后
+    /// **必须写回本字段**；不写回则每次重启都换一个标识，
+    /// 对端会看到"同一台机器反复出现又消失"。
+    pub device_token: Option<String>,
 }
 
 impl Default for TransferSettings {
@@ -97,6 +103,7 @@ impl Default for TransferSettings {
             discovery_port: DEFAULT_DISCOVERY_PORT,
             known_peers: Vec::new(),
             device_name: None,
+            device_token: None,
         }
     }
 }
@@ -357,6 +364,8 @@ mod tests {
                 port: 18889,
             }],
             device_name: Some("我的机器".to_owned()),
+            // R-6：设备标识的持久令牌也要能往返（丢了它 → 重启后标识会变）
+            device_token: Some("0123456789abcdef0123456789abcdef".to_owned()),
         };
         save(&path, &original).unwrap();
 
@@ -525,6 +534,7 @@ mod tests {
             "discoveryPort",
             "knownPeers",
             "deviceName",
+            "deviceToken",
         ] {
             assert!(obj.contains_key(key), "缺字段 {key}（磁盘契约）");
         }
