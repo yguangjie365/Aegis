@@ -1235,5 +1235,46 @@ fn send_text_impl(payload: &SendTextPayload) -> Result<TextOutcomeDto, TransferE
     }
 }
 
+/// 剪贴板被别的程序占用（命令级码，非 16 个传输原因码之一）。
+pub const CODE_CLIPBOARD_BUSY: &str = "CLIPBOARD_BUSY";
+/// 剪贴板里没有文本。
+pub const CODE_CLIPBOARD_EMPTY: &str = "CLIPBOARD_EMPTY";
+/// 剪贴板操作失败（其它）。
+pub const CODE_CLIPBOARD_FAILED: &str = "CLIPBOARD_FAILED";
+
+/// 从系统剪贴板读入文本（F-FT-33 的"从剪贴板读入"）。
+///
+/// 🔴 三档失败**分开报**：「被占用」「没有文本」「操作失败」对用户是三件事，
+/// 能做的事也不同（重试 / 先复制点什么 / 报缺陷）。F-FT-33 明写要"如实提示"。
+///
+/// # Errors
+/// 见上方三档命令级码。
+#[tauri::command]
+pub fn transfer_read_clipboard(
+    envelope: contracts::CmdEnvelope,
+) -> Result<String, TransferErrorDto> {
+    let started = Instant::now();
+    let result = infra::clipboard::get_text().map_err(|error| {
+        let code = match error {
+            infra::clipboard::ClipboardError::Busy => CODE_CLIPBOARD_BUSY,
+            infra::clipboard::ClipboardError::Empty => CODE_CLIPBOARD_EMPTY,
+            infra::clipboard::ClipboardError::Failed(_) => CODE_CLIPBOARD_FAILED,
+        };
+        TransferErrorDto::new(code, error.to_string())
+    });
+    let (label, exception) = match &result {
+        Ok(_) => (ResultLabel::Success, None),
+        Err(error) => (ResultLabel::Failed, Some(error.code.as_str())),
+    };
+    log_command(
+        "transferReadClipboard",
+        label,
+        &envelope.correlation_id,
+        started,
+        exception,
+    );
+    result
+}
+
 #[cfg(test)]
 mod tests;

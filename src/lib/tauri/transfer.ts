@@ -25,6 +25,7 @@ import type {
   TransferSettings,
   TransferStatus,
   TransferTask,
+  TextOutcome,
 } from "@/types/transfer";
 
 const TRANSFER: LogModule = "Transfer";
@@ -164,4 +165,24 @@ export async function listTransferHistory(): Promise<TransferHistoryEntry[]> {
  */
 export async function exportTransferHistory(path: string): Promise<void> {
   await invoke<void>("transfer_history_export", TRANSFER, "transferHistoryExport", { path });
+}
+
+/**
+ * 发送一条文本到指定对端（F-FT-33）。
+ *
+ * 🔴 返回值的 `delivered` **不是**"发出去了"，而是"**对方剪贴板写入成功**"（F-FT-34）。
+ * 界面文案必须照此措辞——写成"已发送"就是在骗人。
+ */
+export async function sendText(peer: string, text: string): Promise<TextOutcome> {
+  return invoke<TextOutcome>("transfer_send_text", TRANSFER, "transferSendText", { peer, text });
+}
+
+/**
+ * 从系统剪贴板读入文本（F-FT-33）。
+ *
+ * 🔴 三档失败分开报（`CLIPBOARD_BUSY` / `CLIPBOARD_EMPTY` / `CLIPBOARD_FAILED`）——
+ * 「被别的程序占用」与「里面没有文本」对用户是两件事，能做的处理也不同。
+ */
+export async function readClipboard(): Promise<string> {
+  return invoke<string>("transfer_read_clipboard", TRANSFER, "transferReadClipboard", null);
 }

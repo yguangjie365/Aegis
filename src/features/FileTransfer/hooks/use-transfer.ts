@@ -20,6 +20,8 @@ import {
   exportTransferHistory,
   fetchTransferStatus,
   listTransferHistory,
+  readClipboard,
+  sendText,
   listTransferPeers,
   listTransferTasks,
   loadTransferSettings,
@@ -210,6 +212,29 @@ export function useExportTransferHistory() {
       return "exported";
     },
   });
+}
+
+/**
+ * 发送一条文本（F-FT-33）。
+ *
+ * 🔴 成功后**不清空输入框**——那是 F-FT-33 明写的（"便于改一改再发"），
+ * 由调用方在渲染层决定，这里不越权。
+ */
+export function useSendText() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ peer, text }: { peer: string; text: string }) => sendText(peer, text),
+    onSettled: () => {
+      // 后端已经把台账与历史落好了，这里只负责让界面重新拉一次
+      void queryClient.invalidateQueries({ queryKey: TRANSFER_TASKS_KEY });
+      void queryClient.invalidateQueries({ queryKey: TRANSFER_HISTORY_KEY });
+    },
+  });
+}
+
+/** 从系统剪贴板读入文本（F-FT-33）。三档失败由后端分开报，界面照实显示。 */
+export function useReadClipboard() {
+  return useMutation({ mutationFn: readClipboard });
 }
 
 /** 手动刷新设备列表（F-FT-08：**立即重列当前快照**，不触发任何主动探测）。 */ export function useRefreshTransferPeers() {

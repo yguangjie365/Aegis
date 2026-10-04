@@ -177,6 +177,19 @@ export interface TransferHistoryEntry {
  * 这里要按条目区分——**现在不假装有类型字段**（规格里 CSV 也没有这一列）。
  */
 export type HistoryKind = "file" | "text";
+
+/**
+ * 文本发送的结论（F-FT-34）。
+ *
+ * 🔴 `delivered` 的含义是**对方剪贴板写入成功**，不是"发出去了"。
+ * 界面必须按这个含义措辞（"对方已收到并复制"✓ /"已发送" ✗ 是假话）。
+ */
+export interface TextOutcome {
+  delivered: boolean;
+  reasonCode: string | null;
+  /** 原因说明（🔴 未知码原样回显，不硬翻——F-FT-31 末句） */
+  reasonText: string;
+}
 /** 任务状态（与后端 `TaskState::as_str` 一字不差）。 */
 export type TransferTaskState = "active" | "completed" | "skipped" | "failed" | "cancelled";
 
