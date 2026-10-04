@@ -74,61 +74,18 @@ const Rail = styled.nav`
   --slot-x: 10px;
   /* 26 → 30：胶囊更「鼓」（64px 宽时 30 已接近半圆，视觉更饱满） */
   border-radius: 30px;
-  /* 绿色流光：绕胶囊外缘旋转的亮环。
-     实现不用 mask —— 实测 Chromium 的 mask-composite: exclude 配合
-     linear-gradient(#000 0 0) 双层会把环**整个吃光**（伪元素明明在动，截图里一点不剩）。
-     改用纯几何两层：::before 铺满外扩区画流光，::after 用胶囊底色盖回内部，
-     一减一留就是边缘环；内容靠 z-index 浮到 ::after 之上。 */
-  @property --flow-angle {
-    syntax: "<angle>";
-    initial-value: 0deg;
-    inherits: false;
-  }
-  &::before,
+  /* 绿色流光：绕胶囊外缘旋转的亮环（纯几何两层，不用 mask）。
+     **本层只剩静止的盖底层** —— 发光的那一半（裁切层 + 旋转载具）已抽到下方
+     Ring 元素，改造理由与三层分工见其注释。
+     🔴 本注释位于模板字符串内部，**禁止出现反引号** —— 会提前终止 template literal 报 TS1005。 */
   &::after {
     content: "";
     position: absolute;
-    pointer-events: none;
-  }
-  &::before {
-    inset: -3.5px;
-    border-radius: 33.5px; /* = 胶囊圆角 30 + 外扩 3.5，与胶囊同心 */
-    /* 整圈 60%绿作底 + 实色 accent 亮段在其上跑动。
-       35% 在黑底上太淡（用户反馈"颜色太淡、左侧不显示、看着像半环"）→ 提到 60%，
-       再叠同色光晕，让环在暗背景上有明确轮廓而不只是一条细亮线。
-       🔴 绿值一律由 color-mix 配 var(--aegis-accent) 派生（2026-10-04 审查一般 8）：
-       此前四处写死 rgba(118, 185, 0, …)，换主题时环与按钮的绿会漂成两种。 */
-    background: conic-gradient(
-      from var(--flow-angle),
-      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 0deg,
-      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 80deg,
-      var(--aegis-accent) 120deg,
-      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 160deg,
-      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 360deg
-    );
-    box-shadow: 0 0 8px color-mix(in srgb, var(--aegis-accent) 45%, transparent);
-    /* 周期 3.2s 属「循环速率」，按 motion 契约不入 duration 刻度；缓动取令牌 */
-    animation: aegis-nav-flow 3.2s infinite var(--aegis-motion-easing-linear);
-    z-index: 0; /* 流光环：最底 */
-  }
-  &::after {
     inset: 0;
     border-radius: 30px;
-    background: var(--aegis-chrome-dark); /* 盖掉 ::before 伸进内部的部分 */
+    background: var(--aegis-chrome-dark); /* 盖掉环伸进内部的部分 */
+    pointer-events: none;
     z-index: 1;
-  }
-  @keyframes aegis-nav-flow {
-    to {
-      --flow-angle: 360deg;
-    }
-  }
-  /* 规范 §八：prefers-reduced-motion 下**停在这一帧**而不是把时长压到 0.01ms ——
-     无限动画 + 0.01ms 等于每帧重放上千次（ADR-006 §三 记录的教训）。 */
-  @media (prefers-reduced-motion: reduce) {
-    &::before {
-      animation: none;
-      --flow-angle: 120deg; /* 停在最亮处，仍然看得见这是一道流光环 */
-    }
   }
   flex: none;
   /* 指示器以 Rail 为定位参照（槽位 offsetTop 相对 offsetParent） */
@@ -145,13 +102,95 @@ const Rail = styled.nav`
   --ind-draw: var(--aegis-motion-easing-draw);
   --ind-move: cubic-bezier(0.28, ${overshoot(BOUNCE, SETTLE_MOVE_TUNED)}, 0.36, 1);
   --ind-size: cubic-bezier(0.24, ${overshoot(BOUNCE, SETTLE_SIZE_TUNED)}, 0.38, 1);
-  /* 🔴 失焦/不可见时暂停流光环（2026-10-04）。3.2s infinite 是纯装饰、零信息量，
-     而 @property 变量插值跑在**主线程**（合成器不认自定义属性），窗口不可见时仍在
-     逐帧重算样式 + 重绘整块 conic-gradient + 8px 模糊光晕，纯属后台烧 CPU。
-     用 animation-play-state 而非 display:none —— 后者会让环消失（用户看不见≠看不见），
-     且切换时会有一次重排。信号源用现成的 usePageLiveness（已含聚焦 + 可见双条件）。 */
-  &[data-live="false"]::before {
+`;
+
+/**
+ * 流光环的**裁切层 + 旋转载具**（2026-10-04 P1：把环搬进合成层）。
+ *
+ * 🔴 改的是什么：原先环画在 `Rail::before` 上，动画动的是 `@property --flow-angle`，
+ * 而它被 `conic-gradient(from var(--flow-angle), …)` 消费。自定义属性必须经 `var()` 代入，
+ * 代入发生在**样式计算**阶段 —— 合成器拿不到，于是只要窗口可见，就是 60fps 常驻的
+ * 「样式重算 → 重绘整块 conic-gradient → 8px 光晕模糊」。失焦暂停只是兜底，前台仍全额付费。
+ *
+ * 🔴 改法：**渐变静态化，让一个载具旋转**。conic-gradient 的取值只取决于相对中心的角度，
+ * 且新旧载具与胶囊**同心** ⇒ 同一角度上颜色完全相同；可见区又被裁成同一个轮廓，
+ * 因此这是**逐像素等价**的改造，不是重新设计。
+ *
+ * 三层分工：
+ *   本层         —— 静止。`inset:-3.5px` + `overflow:hidden` 把载具裁成原 `::before` 的轮廓
+ *                  （胶囊外扩 3.5px、圆角 30+3.5）。光晕也留在这一层：载具旋转后它的投影
+ *                  会变成「一个大方块的投影」，不能跟着走。
+ *   ::before     —— 载具。与胶囊同心的正方形，边长 ≥ 对角线故任意旋转角都覆盖整条胶囊；
+ *                   只做 `rotate`（合成属性）。
+ *   `Rail::after` —— 静止的盖底层，盖回胶囊内部；一减一留就是那 3.5px 的边缘环。
+ *
+ * ⚠️ 为什么不直接给 `Rail` 加 `clip-path`（那样不必加元素）：`clip-path` 会把外扩约 8px 的
+ * 光晕一并裁掉，环外的柔和轮廓消失 —— 那是可见回归。独立裁切层能同时保住环宽与光晕。
+ *
+ * ⚠️ `@keyframes` 必须定义在**使用它的元素**上（即本层），随 emotion 注入的是本层的样式块。
+ */
+const Ring = styled.span`
+  position: absolute;
+  inset: -3.5px;
+  border-radius: 33.5px; /* = 胶囊圆角 30 + 外扩 3.5，与胶囊同心 */
+  overflow: hidden;
+  pointer-events: none;
+  /* 整圈 60%绿作底 + 实色 accent 亮段在其上跑动。
+     35% 在黑底上太淡（用户反馈"颜色太淡、左侧不显示、看着像半环"）→ 提到 60%，
+     再叠同色光晕，让环在暗背景上有明确轮廓而不只是一条细亮线。
+     🔴 绿值一律由 color-mix 配 var(--aegis-accent) 派生（2026-10-04 审查一般 8）：
+     此前四处写死 rgba(118, 185, 0, …)，换主题时环与按钮的绿会漂成两种。 */
+  box-shadow: 0 0 8px color-mix(in srgb, var(--aegis-accent) 45%, transparent);
+  z-index: 0; /* 流光环：最底 */
+
+  &::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    /* 🔴 正方形载具：边长须 ≥ 本层对角线，才能保证**任意旋转角**都覆盖整条胶囊。
+       用 aspect-ratio 让宽度跟随高度 —— 百分比 width 会按胶囊宽(64px)解析，远不够高。
+       150% 的下限：本 rail 高 ≥ 64px 时恒够（10 项实测约 516px）。
+       ⚠️ 若将来 rail 可能矮于 64px，这里要改成 vmax 兜底。 */
+    height: 150%;
+    aspect-ratio: 1;
+    translate: -50% -50%;
+    /* 与改前逐值相同的 conic，**只去掉 from var(--flow-angle)**：亮弧固定朝 120deg，
+       由载具旋转把它带走。颜色定义一个字没改。 */
+    background: conic-gradient(
+      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 0deg,
+      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 80deg,
+      var(--aegis-accent) 120deg,
+      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 160deg,
+      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 360deg
+    );
+    /* 周期 3.2s 属「循环速率」，按 motion 契约不入 duration 刻度；缓动取令牌 */
+    animation: aegis-nav-flow 3.2s infinite var(--aegis-motion-easing-linear);
+    will-change: rotate;
+  }
+
+  @keyframes aegis-nav-flow {
+    to {
+      rotate: 360deg;
+    }
+  }
+
+  /* 🔴 失焦/不可见时暂停（2026-10-04）。3.2s infinite 是纯装饰、零信息量，
+     窗口不可见时不该继续逐帧干活。用 animation-play-state 而非 display:none ——
+     后者会让环消失（用户看不见≠看不见），且切换时会有一次重排。
+     信号源用现成的 usePageLiveness（已含聚焦 + 可见双条件），挂在 Rail 的 data-live 上；
+     此处用祖先属性选择器而非引用 Rail 标识符，免得两者声明顺序变成隐式依赖。 */
+  [data-live="false"] &::before {
     animation-play-state: paused;
+  }
+
+  /* 规范 §八：prefers-reduced-motion 下**停在这一帧**而不是把时长压到 0.01ms ——
+     无限动画 + 0.01ms 等于每帧重放上千次（ADR-006 §三 记录的教训）。 */
+  @media (prefers-reduced-motion: reduce) {
+    &::before {
+      animation: none;
+      rotate: 120deg; /* 停在最亮处，仍然看得见这是一道流光环 */
+    }
   }
 `;
 
@@ -468,6 +507,9 @@ export function NavRail() {
 
   return (
     <Rail ref={railRef} aria-label={t("nav.toggleAria")} data-live={live ? "true" : "false"}>
+      {/* 流光环：静止裁切层 + 内部旋转载具（见 Ring 注释）。必须在指示器之前，
+          以便靠 z-index 链（环 0 < 盖底 1 < 指示器 2 < 图标 3）分层。 */}
+      <Ring aria-hidden />
       <IndicatorBox
         data-phase={phase}
         data-far={far ? "true" : "false"}
