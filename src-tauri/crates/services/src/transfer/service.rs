@@ -34,6 +34,7 @@
 //! 🔴 **两处本工程新增**：① 连接硬上限（母本靠 `WatsonTcp` 的会话管理，无此层）；
 //! ② `stop` 返回"是否真的停住了"，把 R-28 的措辞要求变成**类型上的事实**而不是调用方的自觉。
 
+use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
@@ -155,6 +156,12 @@ struct ServiceContext {
     peers: Mutex<PeerTable>,
     /// 运行期任务台账（F-FT-25/29/30；🔴 R-16 终态不可回退由 `TaskRegistry` 保证）
     tasks: Mutex<TaskRegistry>,
+    /// 任务 id → 取消令牌（F-FT-26「取消单个任务」）。
+    ///
+    /// 🔴 没有这张表就没法"按 id 取消"：每次发送各自 `new` 一个令牌，
+    /// 命令层手上只有任务 id，无从取回那个令牌。任务收尾时**必须**移除，
+    /// 否则表会随会话无限增长。
+    cancels: Mutex<HashMap<String, CancellationToken>>,
     /// 任务 id 计数（只保证同一会话内不重名，不追求跨进程唯一）
     task_seq: AtomicU64,
     last_refresh_ms: AtomicI64,
@@ -173,6 +180,39 @@ impl ServiceContext {
         self.tasks
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn lock_cancels(&self) -> std::sync::MutexGuard<'_, HashMap<String, CancellationToken>> {
+        self.cancels
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// 登记某个任务的取消令牌。
+    fn register_cancel(&self, id: &str, token: CancellationToken) {
+        self.lock_cancels().insert(id.to_owned(), token);
+    }
+
+    /// 任务收尾时移除令牌（**必须**调用，否则这张表会随会话无限增长）。
+    fn forget_cancel(&self, id: &str) {
+        self.lock_cancels().remove(id);
+    }
+
+    /// 取消某个任务。返回 `false` = 该任务已收尾或不存在。
+    ///
+    /// 🔴 `false` **不是"取消失败"**，是"没有什么可取消的"——界面应据此刷新列表，
+    /// 而不是弹一个失败提示（那会让人以为出了错）。
+    fn cancel_task(&self, id: &str) -> bool {
+        // 🔴 只在表里取一下令牌就放锁：`cancel()` 会唤醒阻塞中的传输线程，
+        //    在锁内做可能把"取锁的收尾路径"与它串起来。
+        let token = self.lock_cancels().get(id).cloned();
+        match token {
+            Some(token) => {
+                token.cancel();
+                true
+            }
+            None => false,
+        }
     }
 
     fn lock_peers(&self) -> std::sync::MutexGuard<'_, PeerTable> {
@@ -340,6 +380,7 @@ impl TransferService {
             confirm: ConfirmGate::default(),
             // 🔴 对端表必须按**自己的设备标识**过滤自身宣告
             tasks: Mutex::new(TaskRegistry::default()),
+            cancels: Mutex::new(HashMap::new()),
             task_seq: AtomicU64::new(1),
             peers: Mutex::new(PeerTable::new(self_id, OFFLINE_AFTER)),
             last_refresh_ms: AtomicI64::new(now_unix_ms()),
@@ -449,6 +490,12 @@ impl TransferService {
         self.ctx.confirm.pending()
     }
 
+    /// 取消一个进行中的任务（F-FT-26）。alse = 已收尾或不存在。
+    #[must_use]
+    pub fn cancel_task(&self, id: &str) -> bool {
+        self.ctx.cancel_task(id)
+    }
+
     /// 任务台账快照（F-FT-25；只读，命令层不得改写）。
     #[must_use]
     pub fn tasks_snapshot(&self) -> Vec<super::tasks::TransferTask> {
@@ -499,6 +546,8 @@ impl TransferService {
             file_size,
             super::sink::now_unix_ms(),
         );
+        // 登记令牌：命令层要能按 id 取消这个任务（F-FT-26）
+        self.ctx.register_cancel(&id, cancel.clone());
 
         let mut progress = super::tasks::ProgressThrottle::default();
         // 🔴 绝不能把台账锁 held 在**阻塞的网络发送**期间：同进程的接收线程也要锁台账，
@@ -533,6 +582,8 @@ impl TransferService {
         self.ctx
             .lock_tasks()
             .finish(&id, state, reason, super::sink::now_unix_ms());
+        // 收尾即移除令牌：不移除这张表会随会话无限增长
+        self.ctx.forget_cancel(&id);
         outcome
     }
 
@@ -749,6 +800,7 @@ fn handle_connection(
                     facts.file_size,
                     super::sink::now_unix_ms(),
                 );
+                ctx.register_cancel(&id, cancel.clone());
                 task_id_slot.replace(Some(id));
             }
             verdict
@@ -786,6 +838,8 @@ fn handle_connection(
         };
         ctx.lock_tasks()
             .finish(&id, state, reason, super::sink::now_unix_ms());
+        // 收尾即移除令牌：不移除这张表会随会话无限增长
+        ctx.forget_cancel(&id);
     }
 
     outcome

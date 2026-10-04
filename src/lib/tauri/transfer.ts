@@ -124,3 +124,19 @@ export async function confirmReceive(
 export async function listTransferTasks(): Promise<TransferTask[]> {
   return invoke<TransferTask[]>("transfer_tasks_list", TRANSFER, "transferTasksList", null);
 }
+
+/**
+ * 取消一个进行中的任务（F-FT-26）。
+ *
+ * 🔴 返回 `false` **不是失败**，是"该任务已收尾或不存在"——
+ * 调用方应据此**刷新列表**，而不是弹失败提示（真实情况往往是任务刚跑完）。
+ */
+export async function cancelTransferTask(id: string): Promise<boolean> {
+  const result = await invoke<{ cancelled: boolean }>(
+    "transfer_cancel_task",
+    TRANSFER,
+    "transferCancelTask",
+    { id },
+  );
+  return result.cancelled;
+}

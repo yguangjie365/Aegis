@@ -875,5 +875,46 @@ fn parse_conflict_policy(raw: &str) -> Option<ConflictPolicy> {
         _ => None,
     }
 }
+/// 取消命令的返回（只回一个事实，不回文案——文案归界面）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferCancelDto {
+    /// 是否真的发出了取消。`false` = 该任务已收尾或不存在
+    pub cancelled: bool,
+}
+
+/// 取消一个进行中的传输任务（F-FT-26）。
+///
+/// 🔴 `cancelled: false` 表示**该任务已收尾或不存在**——这不是失败，
+/// 是"没有什么可取消的"。界面应据此**刷新列表**，而不是弹失败提示
+/// （那会让人以为出了错；而真实情况往往是任务刚跑完）。
+#[must_use]
+#[tauri::command]
+pub fn transfer_cancel_task(envelope: contracts::CmdEnvelope, id: String) -> TransferCancelDto {
+    let started = Instant::now();
+    let outcome = {
+        // 锁在 `{}` 里就释放：`cancel()` 会唤醒阻塞中的传输线程，
+        // 把命令锁带进那个时刻没有好处
+        let state = lock_state();
+        state
+            .service
+            .as_ref()
+            .map(|service| service.cancel_task(&id))
+    };
+    let (label, exception, cancelled) = match outcome {
+        Some(true) => (ResultLabel::Success, None, true),
+        // 服务没跑 / 任务已收尾：都不是错误，如实回报"没取消到"
+        Some(false) | None => (ResultLabel::Rejected, Some("no-such-active-task"), false),
+    };
+    log_command(
+        "transferCancelTask",
+        label,
+        &envelope.correlation_id,
+        started,
+        exception,
+    );
+    TransferCancelDto { cancelled }
+}
+
 #[cfg(test)]
 mod tests;

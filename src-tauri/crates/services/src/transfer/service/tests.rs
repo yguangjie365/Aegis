@@ -3,6 +3,8 @@
 //! 除生命周期本身，这里有一条**真正的端到端**：起一个真实服务 → 用真实 TCP 连上去 →
 //! 配对 → 传文件 → 校验落盘。前九批的零件在这里第一次全部串起来跑。
 
+use std::collections::HashMap;
+
 use std::fs;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
 use std::path::PathBuf;
@@ -468,6 +470,7 @@ fn known_peers_hit_makes_a_peer_known_without_discovery() {
         pairing: Mutex::new(PairingGuard::new(true)),
         confirm: ConfirmGate::default(),
         tasks: Mutex::new(TaskRegistry::default()),
+        cancels: Mutex::new(HashMap::new()),
         task_seq: AtomicU64::new(1),
         peers: Mutex::new(PeerTable::new("测试机#tok", OFFLINE_AFTER)),
         last_refresh_ms: AtomicI64::new(0),
