@@ -220,14 +220,26 @@ impl ServiceContext {
     ///
     /// 🔴 返回的耗时是 `Option`：`None` = 未知（老记录 / 任务已不在台账），
     /// 界面显示"—"。用 0 表示未知会让"没测到"与"真的瞬间完成"长得一样（真机目验撞到过）。
+    ///
+    /// 🔴 **两个数的口径不同，这是刻意的**：
+    /// * **耗时** = 墙钟跨度（用户实际等了多久，含暂停）；
+    /// * **速度** = 传输量 ÷ **有效时间**（**扣掉暂停时长**）。
+    ///
+    /// R-14 原文："暂停时长**不计入速度**"。不扣的话，一次五分钟的暂停会把平均速度
+    /// 拖到接近 0 —— 而用户看到的明明是"我暂停了，它没在传"。
+    /// 于是可能出现"耗时 5 分钟、速度 40 MB/s"这种看着不协调、实则各自正确的组合。
+    ///
+    /// 🔴 因此**必须在 `forget_pause` 之前**调用：闸门一旦移除，暂停时长就取不到了。
     fn history_facts(&self, id: &str) -> (Option<u64>, Option<u64>) {
         let Some(task) = self.lock_tasks().get(id).cloned() else {
             return (None, None);
         };
         let finished = task.finished_at_ms.unwrap_or_else(super::sink::now_unix_ms);
-        let duration_ms = u64::try_from(finished.saturating_sub(task.started_at_ms)).unwrap_or(0);
-        let speed = super::history::average_speed_bps(task.transferred, duration_ms);
-        (Some(duration_ms), speed)
+        let wall_ms = u64::try_from(finished.saturating_sub(task.started_at_ms)).unwrap_or(0);
+        let paused_ms = self.pause_gate(id).map_or(0, |gate| gate.paused_ms());
+        let effective_ms = wall_ms.saturating_sub(paused_ms);
+        let speed = super::history::average_speed_bps(task.transferred, effective_ms);
+        (Some(wall_ms), speed)
     }
 
     fn lock_pauses(
@@ -1320,11 +1332,14 @@ fn handle_connection(
         let snapshot = ctx.lock_tasks().get(&id).cloned();
         ctx.lock_tasks()
             .finish(&id, state, reason.as_deref(), finished_at_ms);
-        // 收尾即移除令牌与闸门：不移除这两张表会随会话无限增长
+        // 收尾即移除令牌与闸门：不移除这两张表会随会话无限增长。
+        // 🔴 但**先**取历史事实——`history_facts` 要读闸门里的暂停时长（R-14：暂停不计入速度），
+        //    闸门一移除就再也取不到了。
+        let facts = ctx.history_facts(&id);
         ctx.forget_cancel(&id);
         ctx.forget_pause(&id);
         if let Some(task) = snapshot {
-            let (duration_ms, avg_speed_bps) = ctx.history_facts(&id);
+            let (duration_ms, avg_speed_bps) = facts;
             ctx.record_history(super::history::HistoryEntry {
                 id,
                 direction: Direction::Receive,
