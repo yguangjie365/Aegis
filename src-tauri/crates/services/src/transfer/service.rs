@@ -578,6 +578,20 @@ impl TransferService {
         self.ctx.lock_history().to_csv()
     }
 
+    /// 清空传输历史（F-FT-57），返回清掉的条数（0 = 本来就没有）。
+    ///
+    /// 🔴 只清历史，**不动台账**：进行中的任务不受影响（规格原文）。
+    /// 清空是用户明确要求的不可逆动作，故落盘失败**必须报出来**——
+    /// 否则内存已清、盘上还在，下次启动历史会"复活"，而用户以为已经清干净了。
+    pub fn clear_history(&self) -> usize {
+        let mut history = self.ctx.lock_history();
+        let removed = history.clear();
+        if let Err(error) = history.save(&self.ctx.history_path) {
+            eprintln!("[transfer] 历史清空后落盘失败（下次启动可能复活）：{error}");
+        }
+        removed
+    }
+
     /// 回答一条待决确认。返回 `false` 表示**没有这条待决**（已超时、已被答复、或服务已停）。
     ///
     /// 🔴 不能把 `false` 当成功：它意味着用户在界面上点了"接收"但**接收方线程已经走了**

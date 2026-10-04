@@ -193,6 +193,16 @@ impl History {
         self.entries.iter().rev()
     }
 
+    /// 清空全部历史，返回清掉的条数（0 = 本来就没有，界面据此说"暂无可清空记录"）。
+    ///
+    /// 🔴 只动历史：**进行中的任务在 [`super::tasks`] 的台账里，不受影响**（F-FT-57 原文）。
+    /// 调用方负责"二次确认且明示不可恢复"——本函数不做确认，它是不可逆的。
+    pub fn clear(&mut self) -> usize {
+        let removed = self.entries.len();
+        self.entries.clear();
+        removed
+    }
+
     #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()

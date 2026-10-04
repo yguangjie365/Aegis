@@ -279,7 +279,8 @@ pub fn run() {
             services::transfer::commands::transfer_tasks_list,
             services::transfer::commands::transfer_cancel_task,
             services::transfer::commands::transfer_history_list,
-            services::transfer::commands::transfer_history_export
+            services::transfer::commands::transfer_history_export,
+            services::transfer::commands::transfer_history_clear
         ])
         .setup(|app| {
             // 🔴 MU-1 曲库状态托管段已删除（2026-10-03 用户裁决「全删 Aegis 自造层」）：

@@ -1283,5 +1283,32 @@ pub fn transfer_read_clipboard(
     result
 }
 
+/// 清空传输历史（F-FT-57）。
+///
+/// 🔴 **不可恢复**：界面必须**二次确认并明示不可恢复**后才调用本命令。
+/// 返回清掉的条数（0 = 本来就没有，界面据此说"暂无可清空记录"，不报错）。
+///
+/// 只清历史：进行中的任务在台账里，**不受影响**（规格原文）。
+#[must_use]
+#[tauri::command]
+pub fn transfer_history_clear(envelope: contracts::CmdEnvelope) -> usize {
+    let started = Instant::now();
+    let removed = {
+        let state = lock_state();
+        state
+            .service
+            .as_ref()
+            .map_or(0, |service| service.clear_history())
+    };
+    log_command(
+        "transferHistoryClear",
+        ResultLabel::Success,
+        &envelope.correlation_id,
+        started,
+        None,
+    );
+    removed
+}
+
 #[cfg(test)]
 mod tests;

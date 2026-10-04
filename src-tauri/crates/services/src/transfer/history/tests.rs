@@ -321,3 +321,35 @@ fn default_path_ends_with_the_constant() {
     );
     assert!(path.to_string_lossy().contains("aegis"));
 }
+
+/// 清空：返回清掉的条数（0 = 本来就没有），且**只动历史**。
+#[test]
+fn clear_reports_how_many_were_removed_and_is_idempotent() {
+    let mut history = History::new();
+    assert_eq!(history.clear(), 0, "本来就没有 ⇒ 返回 0（界面据此说"暂无可清空记录"）");
+    history.push(entry("a", "一.bin", TaskState::Completed, None));
+    history.push(entry("b", "二.bin", TaskState::Completed, None));
+    assert_eq!(history.clear(), 2);
+    assert!(history.is_empty());
+    assert_eq!(history.clear(), 0, "再清一次仍是 0，不报错");
+}
+
+/// 清空之后落盘再读回，仍是空的（否则重启会"复活"）。
+#[test]
+fn cleared_history_stays_cleared_after_a_round_trip() {
+    let dir = std::env::temp_dir().join(format!("aegis-hist-clear-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(HISTORY_FILE_NAME);
+    let mut history = History::new();
+    history.push(entry("a", "一.bin", TaskState::Completed, None));
+    history.save(&path).expect("先写一份");
+    assert_eq!(History::load(&path).expect("读回").len(), 1);
+    history.clear();
+    history.save(&path).expect("清空后写盘");
+    assert_eq!(
+        History::load(&path).expect("读回").len(),
+        0,
+        "清空后落盘必须也是空的，否则重启会复活"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
