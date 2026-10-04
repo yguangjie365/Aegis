@@ -1093,5 +1093,141 @@ fn history_impl() -> Vec<TransferHistoryEntryDto> {
         .collect()
 }
 
+/// 文本空内容（命令级码，**不属于** [`super::reasons`] 那 16 个传输原因码）。
+pub const CODE_TEXT_EMPTY: &str = "TEXT_EMPTY";
+
+/// 发送文本的载荷（F-FT-33）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendTextPayload {
+    /// 目标设备地址（`ip:port`）——🔴 由用户在界面上明确选定，不许猜（R-7）
+    pub peer: String,
+    pub text: String,
+}
+
+/// 文本发送的对外结论（F-FT-34）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextOutcomeDto {
+    /// 🔴 电脑通道上它的含义是**对方剪贴板写入成功**，不是"发出去了"。
+    /// 界面文案必须照此措辞，不得写成"已发送"。
+    pub delivered: bool,
+    pub reason_code: Option<String>,
+    /// 原因说明（🔴 未知码原样回显，F-FT-31 末句）
+    pub reason_text: String,
+}
+
+/// 发送一条文本到指定设备（F-FT-33 的落点）。
+///
+/// # Errors
+/// 载荷不合法 / 文本不合法（空、超 256 KB）/ 未起服务 / 连不上 / 对端拒收。
+#[tauri::command]
+pub async fn transfer_send_text(
+    envelope: contracts::CmdEnvelope,
+) -> Result<TextOutcomeDto, TransferErrorDto> {
+    // 🔴 同 `transfer_send_file`：必须 async + spawn_blocking。
+    //    发送要等接收端把「接收前询问」问完（最长 HANDSHAKE_WAIT=60s），
+    //    同步命令会占住 Tauri 命令线程 ⇒ 弹窗相关的轮询全部排队。
+    let moved = envelope.clone();
+    tauri::async_runtime::spawn_blocking(move || send_text_command_blocking(moved))
+        .await
+        .unwrap_or_else(|error| {
+            Err(TransferErrorDto::new(
+                CODE_BAD_PAYLOAD,
+                format!("发送任务异常终止：{error}"),
+            ))
+        })
+}
+
+/// 文本发送命令的**阻塞本体**（由 `transfer_send_text` 放到阻塞线程池执行）。
+fn send_text_command_blocking(
+    envelope: contracts::CmdEnvelope,
+) -> Result<TextOutcomeDto, TransferErrorDto> {
+    let started = Instant::now();
+    let parsed: Result<SendTextPayload, _> = envelope
+        .payload
+        .clone()
+        .ok_or("缺少 payload")
+        .and_then(|value| serde_json::from_value(value).map_err(|_| "payload 形状不对"));
+    let result = match parsed {
+        Ok(payload) => send_text_impl(&payload),
+        Err(message) => Err(TransferErrorDto::new(CODE_BAD_PAYLOAD, message)),
+    };
+    let (label, exception) = match &result {
+        Ok(_) => (ResultLabel::Success, None),
+        Err(error) if error.code == reasons::USER_CANCEL => (ResultLabel::Cancelled, None),
+        Err(error) => (ResultLabel::Failed, Some(error.message.as_str())),
+    };
+    log_command(
+        "transferSendText",
+        label,
+        &envelope.correlation_id,
+        started,
+        exception,
+    );
+    result
+}
+
+fn send_text_impl(payload: &SendTextPayload) -> Result<TextOutcomeDto, TransferErrorDto> {
+    // ── F-FT-32：**发送前**判定，拒绝而非截断 ──
+    // 🔴 这里绝不"取前 256 KB 发出去"：那会出现"发出去了但内容少了半段"，
+    //    而发送方与接收方都无从察觉。
+    let validation = super::text::validate(&payload.text);
+    if !validation.is_valid() {
+        let message =
+            super::text::error_text(validation).unwrap_or_else(|| "文本不合法".to_owned());
+        let code = match validation.kind {
+            super::text::TextValidationKind::Empty => CODE_TEXT_EMPTY,
+            _ => reasons::TEXT_TOO_LONG,
+        };
+        return Err(TransferErrorDto::new(code, message));
+    }
+
+    let peer: std::net::SocketAddr = payload.peer.parse().map_err(|_| {
+        TransferErrorDto::new(
+            CODE_BAD_PAYLOAD,
+            format!("目标地址不合法：{}", payload.peer),
+        )
+    })?;
+
+    // 🔴 取出 Arc 后**立刻放锁**：发送会阻塞数十秒，绝不能把命令状态锁 held 在传输期间
+    //    （第 36 轮的实测结论：那会让「接收前询问」的弹窗永远弹不出来）。
+    let service = { lock_state().service.clone() };
+    let Some(service) = service else {
+        return Err(TransferErrorDto::new(
+            CODE_NOT_RUNNING,
+            "传输服务未在运行。",
+        ));
+    };
+
+    let cancel = tokio_util::sync::CancellationToken::new();
+    match service.send_text_tracked(peer, &payload.text, &cancel) {
+        // 🔴 交付 = 对方剪贴板写入成功（F-FT-34）
+        Ok(super::transport::TextOutcome::Delivered) => Ok(TextOutcomeDto {
+            delivered: true,
+            reason_code: None,
+            reason_text: String::new(),
+        }),
+        // 业务性拒收不是"命令失败"：如实告诉界面"没交付 + 为什么"
+        Ok(super::transport::TextOutcome::Rejected { reason_code }) => Ok(TextOutcomeDto {
+            reason_text: reasons::display_text(&reason_code),
+            reason_code: Some(reason_code),
+            delivered: false,
+        }),
+        Err(failure) => {
+            let code = match &failure {
+                super::service::SendFailure::Transport(TransportError::Aborted) => {
+                    reasons::USER_CANCEL
+                }
+                super::service::SendFailure::Transport(TransportError::RemoteFailed {
+                    reason_code,
+                }) => reason_code.as_deref().unwrap_or(reasons::PEER_DISCONNECTED),
+                _ => reasons::PEER_DISCONNECTED,
+            };
+            Err(TransferErrorDto::new(code, failure.to_string()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

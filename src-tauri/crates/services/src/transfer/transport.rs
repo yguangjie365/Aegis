@@ -460,8 +460,7 @@ enum HandshakePhase {
 /// 读握手 → 跑调用方的准入闭包 → 回执。抽出来是为了让 [`receive_file`] 保持在可读长度内。
 ///
 /// 🔴 拒收路径**不碰文件系统**：R-13 要求闸门在"建未完成文件"之前，本函数是那条顺序的落点。
-fn admit_handshake<R: Read, W: Write>(
-    reader: &mut FrameReader<R>,
+fn admit_handshake<W: Write>(
     writer: &mut W,
     policy: &mut ConflictPolicy,
     admit: impl FnOnce(&HandshakeFacts<'_>, &mut ConflictPolicy) -> Admission,
@@ -594,7 +593,7 @@ pub fn receive_file_with_first(
     let mut reader = FrameReader::new(stream);
 
     // ── 握手 + 准入裁决（已抽出，见 `admit_handshake`） ──
-    let admitted = match admit_handshake(&mut reader, &mut writer, policy, admit, first)? {
+    let admitted = match admit_handshake(&mut writer, policy, admit, first)? {
         HandshakePhase::Admitted(admitted) => admitted,
         // 🔴 拒收即不建任何文件（R-13 的顺序：闸门在"建未完成文件"之前）
         HandshakePhase::Rejected(outcome) => return Ok(outcome),

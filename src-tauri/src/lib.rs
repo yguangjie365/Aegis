@@ -272,6 +272,7 @@ pub fn run() {
             services::transfer::commands::transfer_settings_save,
             services::transfer::commands::transfer_peers_list,
             services::transfer::commands::transfer_send_file,
+            services::transfer::commands::transfer_send_text,
             services::transfer::commands::transfer_pending_confirms,
             services::transfer::commands::transfer_confirm_receive,
             services::transfer::commands::transfer_tasks_list,
