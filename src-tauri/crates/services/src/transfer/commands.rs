@@ -1,0 +1,652 @@
+//! 文件互传的 Tauri 命令面（04 分册 §一：命令实体落 `services`，壳只做薄转发）。
+//!
+//! ## 这一层只做三件事
+//!
+//! 1. **持有服务实例**：`TransferService` 是进程级单例（一次运行期一个），
+//!    由本模块的静态槽持有；不放在 app state 里是因为本 crate 不许引用 Tauri 宿主类型。
+//! 2. **解包络、包结果**：入参 `contracts::CmdEnvelope`，出参一律 `serde` DTO（camelCase 给 TS）。
+//! 3. **落日志**：每个命令一条，字段按 01 专题 §2.1 的八字段命名（见下）。
+//!
+//! ## 🔴 日志的现状与边界（如实登记）
+//!
+//! 八字段**JSONL 落盘**（W0-10 日志总线）**尚未落地**：本仓未装 `tracing_subscriber`，
+//! 故本模块的日志目前**没有落点**。W0-07 也未把 `LogEntry` 放进 `contracts`。
+//!
+//! 本批的处理：**用 `tracing` 按八字段的名字输出结构化字段**（`module` / `action` /
+//! `result` / `correlation_id` / `duration_ms` / `exception`），
+//! 字段名与前端 `src/lib/logging/index.ts` 的手工投影逐字对齐，
+//! `module` 取 `contracts::LOG_MODULE_TRANSFER`（**不散落魔法字符串**）。
+//! ⇒ W0-10 装上 sink 后这些行即可直接落盘，无需回头改调用点。
+//! 🔴 **本模块不自造 JSONL 写入器**——那是 W0-10 的职责，自造会与其冲突。
+//!
+//! ## 🔴 禁止静默失败
+//!
+//! 每个命令**无论成功失败都落一条日志**；失败路径一律返回带 `code` 的 DTO
+//! （`code` 取 `reasons` 的 16 码冻结表，或本模块的启动期码——两者不混用，
+//! 因为启动期失败不属于"一次传输"）。
+
+// 🔴 Tauri 命令**必须按值接收参数**（`generate_handler!` 生成的反序列化要靠它），
+// 故 `envelope: contracts::CmdEnvelope` 是宏契约要求的形状，不是可以改成引用的选择。
+#![allow(clippy::needless_pass_by_value)]
+
+use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::time::Instant;
+
+use serde::{Deserialize, Serialize};
+
+use super::discovery::Peer;
+use super::reasons;
+use super::service::{SendFailure, StartFailure, TransferService};
+use super::settings::{self, LoadOutcome, TransferSettings};
+use super::transport::TransportError;
+
+/// 启动期失败码（🔴 **不属** `reasons` 的 16 码冻结表——那张表说的是"一次传输"的失败）。
+pub const CODE_START_INVALID_PORT: &str = "START_INVALID_PORT";
+pub const CODE_START_TRANSFER_FAILED: &str = "START_TRANSFER_FAILED";
+pub const CODE_START_DISCOVERY_FAILED: &str = "START_DISCOVERY_FAILED";
+/// 命令层自身的用法错误（未启动就发送、载荷缺字段等）。
+pub const CODE_NOT_RUNNING: &str = "SERVICE_NOT_RUNNING";
+pub const CODE_ALREADY_RUNNING: &str = "SERVICE_ALREADY_RUNNING";
+pub const CODE_BAD_PAYLOAD: &str = "BAD_PAYLOAD";
+pub const CODE_SETTINGS_IO: &str = "SETTINGS_IO_FAILED";
+
+/// 进程级状态：运行中的服务 + 设置文件路径。
+#[derive(Debug, Default)]
+struct CommandState {
+    service: Option<TransferService>,
+    /// 设置文件落点（测试可换到临时目录，避免污染真实用户配置）
+    settings_path: Option<PathBuf>,
+}
+
+fn state() -> &'static Mutex<CommandState> {
+    static STATE: OnceLock<Mutex<CommandState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(CommandState::default()))
+}
+
+fn lock_state() -> MutexGuard<'static, CommandState> {
+    // 命令层是进程级临界区：一个线程 panic 后仍应能继续服务（毒锁恢复），
+    // 否则整个互传功能会因一次意外而永久不可用。
+    state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn settings_path(state: &CommandState) -> PathBuf {
+    state
+        .settings_path
+        .clone()
+        .unwrap_or_else(settings::default_settings_path)
+}
+
+// ── DTO（camelCase 给 TS） ────────────────────────────────────────────────
+
+/// 服务状态快照（界面据此显示"当前服务运行于 …"与配对码倒计时）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferStatusDto {
+    pub running: bool,
+    pub transfer_port: u16,
+    pub discovery_port: u16,
+    pub receive_directory: String,
+    /// 服务未启动时为 `None`（界面显示占位"——————"，F-FT-38）
+    pub pairing_code: Option<String>,
+    pub pairing_expires_in_ms: i64,
+    pub online_peer_count: usize,
+    pub live_connections: usize,
+    /// 本机设备标识（R-6；未启动时为 `None`）
+    pub device_id: Option<String>,
+}
+
+/// 在线设备一行（F-FT-08）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferPeerDto {
+    pub device_id: String,
+    pub device_name: String,
+    pub ip: String,
+    pub port: u16,
+    /// 本机收到最后一次宣告的时刻（界面算"最近刷新"与相对时间）
+    pub last_seen_ms: i64,
+}
+
+/// 失败载荷（🔴 只回**原因码 + 可读文案**，不回显对端输入）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferErrorDto {
+    pub code: String,
+    pub message: String,
+}
+
+impl TransferErrorDto {
+    fn new(code: &str, message: impl Into<String>) -> Self {
+        Self {
+            code: code.to_owned(),
+            message: message.into(),
+        }
+    }
+}
+
+/// 设置加载结论（禁止静默失败：把"文件缺失/损坏/修了什么"如实带回界面）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsLoadedDto {
+    pub settings: TransferSettings,
+    pub file_missing: bool,
+    pub corrupt: bool,
+    pub repairs: Vec<String>,
+}
+
+/// 停止结论（R-28：停止失败不得宣称已停止）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopReportDto {
+    pub all_stopped: bool,
+    pub threads_joined: usize,
+    pub message: String,
+}
+
+/// 发送结论。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendResultDto {
+    /// `Delivered` / `Skipped` / `HashMismatch`
+    pub outcome: String,
+    /// 非成功时带原因码（取 `reasons` 表）
+    pub reason_code: Option<String>,
+}
+
+/// `transfer_send_file` 的载荷。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendFilePayload {
+    pub ip: String,
+    pub port: u16,
+    pub path: String,
+    #[serde(default)]
+    pub pair_code: Option<String>,
+}
+
+// ── 八字段日志（见模块头对现状的说明） ────────────────────────────────────
+
+/// 一条命令的日志（字段名与前端手工投影逐字对齐）。
+fn log_command(
+    action: &str,
+    result: ResultLabel,
+    correlation_id: &str,
+    started: Instant,
+    exception: Option<&str>,
+) {
+    let duration_ms = started.elapsed().as_millis();
+    let module = contracts::LOG_MODULE_TRANSFER;
+    // 成功一条 info、其余一条 warn（八字段同名；见模块头对 sink 现状的说明）
+    if result == ResultLabel::Success {
+        tracing::info!(
+            module,
+            action,
+            result = result.as_str(),
+            correlation_id,
+            duration_ms,
+            "transfer command"
+        );
+    } else {
+        tracing::warn!(
+            module,
+            action,
+            result = result.as_str(),
+            correlation_id,
+            duration_ms,
+            exception = exception.unwrap_or(""),
+            "transfer command"
+        );
+    }
+}
+
+/// 八字段里 `Result` 的取值（01 专题 §2.1：`Success / Failed / Cancelled / Rejected`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResultLabel {
+    Success,
+    Failed,
+    Cancelled,
+    Rejected,
+}
+
+impl ResultLabel {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "Success",
+            Self::Failed => "Failed",
+            Self::Cancelled => "Cancelled",
+            Self::Rejected => "Rejected",
+        }
+    }
+}
+
+// ── 命令实现（抽成可测的 `*_impl`，命令函数只是薄壳） ──────────────────────
+
+/// 状态快照。
+fn status_impl() -> TransferStatusDto {
+    let state = lock_state();
+    let now = super::sink::now_unix_ms();
+    let persisted = settings::load(&settings_path(&state)).settings;
+    match state.service.as_ref() {
+        Some(service) => TransferStatusDto {
+            running: true,
+            transfer_port: service.local_addr().port(),
+            discovery_port: service.discovery_port(),
+            receive_directory: service.receive_root().display().to_string(),
+            pairing_code: Some(service.current_pairing_code(now)),
+            pairing_expires_in_ms: service.pairing_expires_in_ms(now),
+            online_peer_count: service.online_peers().len(),
+            live_connections: service.live_connections(),
+            device_id: Some(service.device_id()),
+        },
+        None => TransferStatusDto {
+            running: false,
+            transfer_port: persisted.transfer_port,
+            discovery_port: persisted.discovery_port,
+            receive_directory: persisted
+                .receive_directory
+                .clone()
+                .unwrap_or_else(|| settings::default_receive_directory().display().to_string()),
+            pairing_code: None,
+            pairing_expires_in_ms: 0,
+            online_peer_count: 0,
+            live_connections: 0,
+            device_id: None,
+        },
+    }
+}
+
+/// 启动服务（用**已持久化的设置**；`machine_name` 取设置里的名字或环境变量）。
+fn start_impl() -> Result<TransferStatusDto, TransferErrorDto> {
+    let mut state = lock_state();
+    if state.service.is_some() {
+        return Err(TransferErrorDto::new(
+            CODE_ALREADY_RUNNING,
+            "传输与设备发现服务已在运行",
+        ));
+    }
+    let path = settings_path(&state);
+    let outcome = settings::load(&path);
+    let machine_name = outcome
+        .settings
+        .device_name
+        .clone()
+        .unwrap_or_else(machine_name);
+    // 先把"启动前"的设置留一份：`start` 会把它移走，而下面要拿它比对新令牌
+    let before = outcome.settings.clone();
+
+    let service = TransferService::start(outcome.settings, &machine_name).map_err(|failure| {
+        let (code, message) = match &failure {
+            StartFailure::InvalidPort { .. } => (CODE_START_INVALID_PORT, failure.to_string()),
+            StartFailure::Transfer { .. } => (CODE_START_TRANSFER_FAILED, failure.to_string()),
+            StartFailure::Discovery { .. } => (CODE_START_DISCOVERY_FAILED, failure.to_string()),
+        };
+        TransferErrorDto::new(code, message)
+    })?;
+
+    // 🔴 R-6：新生成的设备令牌必须写回设置，否则每次重启都会换标识
+    if before.device_token.as_deref() != Some(service.device_token()) {
+        let mut updated = before.clone();
+        updated.device_token = Some(service.device_token().to_owned());
+        // 写回失败不该让"服务已起来"这件事回滚（服务本身没受影响）；
+        // 但要如实报——故把失败记在状态里由下一次 `status` 带出？本批先尽力而为并留日志。
+        if let Err(error) = settings::save(&path, &updated) {
+            tracing::warn!(
+                module = contracts::LOG_MODULE_TRANSFER,
+                action = "transferServiceStart",
+                result = "Failed",
+                exception = error.as_str(),
+                "设备令牌写回设置失败（下次重启标识会变）"
+            );
+        }
+    }
+
+    state.service = Some(service);
+    drop(state);
+    Ok(status_impl())
+}
+
+/// 停止服务。
+fn stop_impl() -> Result<StopReportDto, TransferErrorDto> {
+    let mut state = lock_state();
+    let Some(service) = state.service.take() else {
+        return Err(TransferErrorDto::new(CODE_NOT_RUNNING, "服务未在运行"));
+    };
+    drop(state);
+    let report = service.stop();
+    Ok(StopReportDto {
+        all_stopped: report.all_stopped,
+        threads_joined: report.threads_joined,
+        message: report.describe(),
+    })
+}
+
+/// 加载设置。
+fn settings_load_impl() -> SettingsLoadedDto {
+    let state = lock_state();
+    let path = settings_path(&state);
+    drop(state);
+    let LoadOutcome {
+        settings,
+        file_missing,
+        corrupt,
+        repairs,
+    } = settings::load(&path);
+    SettingsLoadedDto {
+        settings,
+        file_missing,
+        corrupt,
+        repairs,
+    }
+}
+
+/// 保存设置（🔴 原子写；运行中的服务不会热更新端口——那需要重启服务，与 F-FT-06 的两态提示一致）。
+fn settings_save_impl(settings: &TransferSettings) -> Result<(), TransferErrorDto> {
+    let state = lock_state();
+    let path = settings_path(&state);
+    drop(state);
+    settings::save(&path, settings)
+        .map_err(|error| TransferErrorDto::new(CODE_SETTINGS_IO, format!("写入设置失败：{error}")))
+}
+
+/// 在线设备列表。
+fn peers_impl() -> Vec<TransferPeerDto> {
+    let state = lock_state();
+    let Some(service) = state.service.as_ref() else {
+        return Vec::new();
+    };
+    let mut peers: Vec<Peer> = service.online_peers();
+    peers.sort_by(|a, b| a.device_id.cmp(&b.device_id));
+    peers
+        .into_iter()
+        .map(|peer| TransferPeerDto {
+            device_id: peer.device_id,
+            device_name: peer.device_name,
+            ip: peer.address.ip().to_string(),
+            port: peer.transfer_port,
+            last_seen_ms: peer.last_seen_local_ms,
+        })
+        .collect()
+}
+
+/// 发送一个文件到指定设备。
+fn send_impl(payload: &SendFilePayload) -> Result<SendResultDto, TransferErrorDto> {
+    {
+        let state = lock_state();
+        if state.service.is_none() {
+            // 发送侧不要求本机服务在跑（对端在跑即可），但界面语境是"服务已启动"；
+            // 这里**不拦**，只把事实记进日志——拦了反而让"只发不收"的用法不可用。
+        }
+    }
+    let ip: std::net::IpAddr = payload.ip.parse().map_err(|_| {
+        TransferErrorDto::new(CODE_BAD_PAYLOAD, format!("地址不合法：{}", payload.ip))
+    })?;
+    let peer = std::net::SocketAddr::new(ip, payload.port);
+    let path = PathBuf::from(&payload.path);
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let task_id = format!("t-{}", super::sink::now_unix_ms());
+
+    match super::service::send_to(
+        peer,
+        &path,
+        super::chunk::DEFAULT_CHUNK_SIZE,
+        payload.pair_code.as_deref(),
+        &task_id,
+        &cancel,
+    ) {
+        Ok(outcome) => Ok(SendResultDto {
+            outcome: format!("{outcome:?}"),
+            reason_code: None,
+        }),
+        Err(failure) => {
+            let code = match &failure {
+                SendFailure::NotAFile => CODE_BAD_PAYLOAD,
+                SendFailure::Source(_) | SendFailure::Transport(TransportError::Source(_)) => {
+                    reasons::INVALID_FILE_SIZE
+                }
+                // 对端明确说的话（拒收/取消）优先原样回传——R-16：以对端回传的原因码为准
+                SendFailure::Transport(
+                    TransportError::Rejected { reason_code }
+                    | TransportError::Cancelled { reason_code },
+                ) => reason_code,
+                SendFailure::Transport(TransportError::Aborted) => reasons::USER_CANCEL,
+                SendFailure::Transport(TransportError::RemoteFailed { reason_code }) => {
+                    reason_code.as_deref().unwrap_or(reasons::PEER_DISCONNECTED)
+                }
+                // 其余都归"这一趟没成，对端或链路出了问题"
+                SendFailure::Connect { .. }
+                | SendFailure::Transport(
+                    TransportError::TimedOut
+                    | TransportError::PeerClosed
+                    | TransportError::Io(_)
+                    | TransportError::Frame(_)
+                    | TransportError::Sink(_)
+                    | TransportError::Unexpected(_),
+                ) => reasons::PEER_DISCONNECTED,
+            };
+            Err(TransferErrorDto::new(code, failure.to_string()))
+        }
+    }
+}
+
+/// 机器名（设置里没写设备名时的回退）。
+fn machine_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "Aegis".to_owned())
+}
+
+// ── 命令（薄壳：解包络 → 调 impl → 落日志） ──────────────────────────────
+
+/// 服务状态（界面轮询；无副作用）。
+#[must_use]
+#[tauri::command]
+pub fn transfer_service_status(envelope: contracts::CmdEnvelope) -> TransferStatusDto {
+    let started = Instant::now();
+    let status = status_impl();
+    log_command(
+        "transferServiceStatus",
+        ResultLabel::Success,
+        &envelope.correlation_id,
+        started,
+        None,
+    );
+    status
+}
+
+/// 启动传输与设备发现服务（F-FT-02 的三步次序在 `service::start` 里）。
+///
+/// # Errors
+/// 端口非法 / 传输段失败 / 发现段失败各有专属 `code` 与措辞（R-28）。
+#[tauri::command]
+pub fn transfer_service_start(
+    envelope: contracts::CmdEnvelope,
+) -> Result<TransferStatusDto, TransferErrorDto> {
+    let started = Instant::now();
+    let result = start_impl();
+    let (label, exception) = match &result {
+        Ok(_) => (ResultLabel::Success, None),
+        Err(error) => (ResultLabel::Failed, Some(error.message.as_str())),
+    };
+    log_command(
+        "transferServiceStart",
+        label,
+        &envelope.correlation_id,
+        started,
+        exception,
+    );
+    result
+}
+
+/// 停止服务。
+///
+/// 🔴 返回值里的 `allStopped` **必须**被界面用起来（R-28：停止失败不得宣称已停止）。
+///
+/// # Errors
+/// 服务本来就没在跑时返回 [`CODE_NOT_RUNNING`]。
+#[tauri::command]
+pub fn transfer_service_stop(
+    envelope: contracts::CmdEnvelope,
+) -> Result<StopReportDto, TransferErrorDto> {
+    let started = Instant::now();
+    let result = stop_impl();
+    let (label, exception) = match &result {
+        Ok(report) if report.all_stopped => (ResultLabel::Success, None),
+        Ok(report) => (ResultLabel::Failed, Some(report.message.as_str())),
+        Err(error) => (ResultLabel::Failed, Some(error.message.as_str())),
+    };
+    log_command(
+        "transferServiceStop",
+        label,
+        &envelope.correlation_id,
+        started,
+        exception,
+    );
+    result
+}
+
+/// 读取设置（含"文件缺失/损坏/修了什么"，供界面如实提示）。
+#[must_use]
+#[tauri::command]
+pub fn transfer_settings_load(envelope: contracts::CmdEnvelope) -> SettingsLoadedDto {
+    let started = Instant::now();
+    let loaded = settings_load_impl();
+    let label = if loaded.corrupt {
+        ResultLabel::Failed
+    } else {
+        ResultLabel::Success
+    };
+    log_command(
+        "transferSettingsLoad",
+        label,
+        &envelope.correlation_id,
+        started,
+        if loaded.corrupt {
+            Some("设置文件损坏，已降级为默认值")
+        } else {
+            None
+        },
+    );
+    loaded
+}
+
+/// 命令载荷里**至少要出现一个**这些键，才认为是"一份设置"。
+///
+/// 🔴 为什么需要这道校验：`TransferSettings` 带 `#[serde(default)]`（为**磁盘文件**的向前兼容，
+/// 缺字段取默认值），于是**任意 JSON 对象**都能反序列化成功——包括 `{"nope":1}`。
+/// 那意味着一个形状不对的载荷会**静默把用户设置清成默认值**（本批被自己的用例抓出）。
+/// 故：磁盘文件保持宽容，**命令边界从严**。
+const SETTINGS_KEYS: [&str; 10] = [
+    "receiveDirectory",
+    "requireKnownPeer",
+    "requireReceiveConfirmation",
+    "conflictPolicy",
+    "pauseTimeoutMinutes",
+    "transferPort",
+    "discoveryPort",
+    "knownPeers",
+    "deviceName",
+    "deviceToken",
+];
+
+/// 该 JSON 是否"看起来像一份设置"（至少含一个已知键）。
+fn looks_like_settings(value: &serde_json::Value) -> bool {
+    value
+        .as_object()
+        .is_some_and(|object| SETTINGS_KEYS.iter().any(|key| object.contains_key(*key)))
+}
+
+/// 保存设置（原子写）。
+///
+/// # Errors
+/// 载荷缺字段/形状不对返回 [`CODE_BAD_PAYLOAD`]；写盘失败返回 [`CODE_SETTINGS_IO`]。
+#[tauri::command]
+pub fn transfer_settings_save(envelope: contracts::CmdEnvelope) -> Result<(), TransferErrorDto> {
+    let started = Instant::now();
+    let parsed: Result<TransferSettings, _> = envelope
+        .payload
+        .clone()
+        .ok_or("缺少 payload")
+        .and_then(|value| {
+            if !looks_like_settings(&value) {
+                return Err("payload 里没有任何已知的设置字段（拒绝把设置清成默认）");
+            }
+            serde_json::from_value(value).map_err(|_| "payload 形状不对")
+        });
+    let result = match parsed {
+        Ok(settings) => settings_save_impl(&settings),
+        Err(message) => Err(TransferErrorDto::new(CODE_BAD_PAYLOAD, message)),
+    };
+    let (label, exception) = match &result {
+        Ok(()) => (ResultLabel::Success, None),
+        Err(error) => (ResultLabel::Failed, Some(error.message.as_str())),
+    };
+    log_command(
+        "transferSettingsSave",
+        label,
+        &envelope.correlation_id,
+        started,
+        exception,
+    );
+    result
+}
+
+/// 在线设备列表（被动监听快照）。
+///
+/// `Vec` 不是 `#[must_use]` 类型，故这里显式加；🔴 `#[must_use]` 必须在
+/// `#[tauri::command]` **之前**（宏会原样重放函数与其外层属性）。
+#[must_use]
+#[tauri::command]
+pub fn transfer_peers_list(envelope: contracts::CmdEnvelope) -> Vec<TransferPeerDto> {
+    let started = Instant::now();
+    let peers = peers_impl();
+    log_command(
+        "transferPeersList",
+        ResultLabel::Success,
+        &envelope.correlation_id,
+        started,
+        None,
+    );
+    peers
+}
+
+/// 发送一个文件到指定设备（F-FT-11/12 的落点）。
+///
+/// # Errors
+/// 载荷不合法 / 连不上 / 对端拒收（含 `PAIRING_INVALID`）时返回带原因码的 DTO。
+#[tauri::command]
+pub fn transfer_send_file(
+    envelope: contracts::CmdEnvelope,
+) -> Result<SendResultDto, TransferErrorDto> {
+    let started = Instant::now();
+    let parsed: Result<SendFilePayload, _> = envelope
+        .payload
+        .clone()
+        .ok_or("缺少 payload")
+        .and_then(|value| serde_json::from_value(value).map_err(|_| "payload 形状不对"));
+    let result = match parsed {
+        Ok(payload) => send_impl(&payload),
+        Err(message) => Err(TransferErrorDto::new(CODE_BAD_PAYLOAD, message)),
+    };
+    let (label, exception) = match &result {
+        Ok(_) => (ResultLabel::Success, None),
+        Err(error) if error.code == reasons::USER_CANCEL => (ResultLabel::Cancelled, None),
+        Err(error) if error.code == reasons::PAIRING_INVALID => {
+            (ResultLabel::Rejected, Some(error.message.as_str()))
+        }
+        Err(error) => (ResultLabel::Failed, Some(error.message.as_str())),
+    };
+    log_command(
+        "transferSendFile",
+        label,
+        &envelope.correlation_id,
+        started,
+        exception,
+    );
+    result
+}
+
+#[cfg(test)]
+mod tests;

@@ -31,6 +31,7 @@
 
 pub mod admission;
 pub mod chunk;
+pub mod commands;
 pub mod conflict;
 pub mod discovery;
 pub mod pairing;

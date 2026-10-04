@@ -24,6 +24,36 @@ use serde::{Deserialize, Serialize};
 /// 改动本值即改动全链路，不会出现"两处各说各话"。
 pub const TRANSFER_REQUIRE_RECEIVE_CONFIRMATION_DEFAULT: bool = true;
 
+/// 日志 `Module` 字段的**取值登记表**（01 专题 §2.1 的 `Module` 行）。
+///
+/// 🔴 **逐字与前端 `src/lib/logging/index.ts` 的 `LOG_MODULES` 相同**（含顺序）——
+/// 前端那份是"W0-07 前的手工投影"，本常量是它的 Rust 侧对应物。
+/// 两侧同值由 `log_modules_match_the_frontend_projection` 用例钉住。
+///
+/// 规则原文：*"取值限定在 contracts 登记的 `LOG_MODULES` 常量集（八模块 +
+/// `ElevatedHelper / Worker / Shell / Security`）…🔴 禁止散落魔法字符串；新增须登记"*。
+///
+/// 🟠 本常量是 M-05 批为"命令层不散落魔法字符串"而落的；W0-07 落地时应把
+/// `LogEntry` / `LogLevel` / `LogResult` 一并放到本 crate（并改由 ts-rs 生成 TS 侧），
+/// 届时本数组**原样保留**即可。
+pub const LOG_MODULES: [&str; 12] = [
+    "Overview",
+    "Software",
+    "Driver",
+    "Network",
+    "Transfer",
+    "Backup",
+    "Music",
+    "Steam",
+    "ElevatedHelper",
+    "Worker",
+    "Shell",
+    "Security",
+];
+
+/// 文件互传域的 `Module` 取值（避免在各命令里写字面量）。
+pub const LOG_MODULE_TRANSFER: &str = "Transfer";
+
 /// 统一 command 参数包络：前端 `src/lib/tauri/invoke.ts` 以 `{ envelope: ... }` 传递。
 /// `CorrelationId` 一次用户操作一个 ID，贯穿前端 → command → 日志总线 → helper（01 总览 §5.2）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,7 +68,48 @@ pub struct CmdEnvelope {
 
 #[cfg(test)]
 mod tests {
-    use super::TRANSFER_REQUIRE_RECEIVE_CONFIRMATION_DEFAULT;
+    use super::{LOG_MODULES, LOG_MODULE_TRANSFER, TRANSFER_REQUIRE_RECEIVE_CONFIRMATION_DEFAULT};
+
+    /// 🔴 `LOG_MODULES` 与**前端手工投影**必须逐字同值同序。
+    ///
+    /// 直接读前端文件（相对本 crate 的已知路径）而不是抄一份数组——
+    /// 抄一份就变成"两份都写死的表"，那就失去了这条用例的意义。
+    #[test]
+    fn log_modules_match_the_frontend_projection() {
+        // CARGO_MANIFEST_DIR = <repo>/Aegis/src-tauri/crates/contracts
+        // ⇒ 上三级到 <repo>/Aegis/，再进 src/lib/logging/
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../src/lib/logging/index.ts"
+        );
+        let source = std::fs::read_to_string(path)
+            .unwrap_or_else(|error| panic!("读不到前端日志契约 {path}：{error}"));
+
+        // 从前端文件里把 LOG_MODULES 数组的字面量抽出来（只认形如 "Xxx", 的行）
+        let start = source
+            .find("export const LOG_MODULES")
+            .expect("前端应有 LOG_MODULES");
+        let rest = &source[start..];
+        let end = rest.find("] as const").expect("数组应以 ] as const 结束");
+        let mut frontend: Vec<String> = Vec::new();
+        for line in rest[..end].lines() {
+            let trimmed = line.trim().trim_end_matches(',');
+            if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() > 2 {
+                frontend.push(trimmed.trim_matches('"').to_owned());
+            }
+        }
+
+        assert_eq!(
+            frontend,
+            LOG_MODULES.to_vec(),
+            "Rust 与 TS 两侧的日志模块表漂移了（含顺序）"
+        );
+        assert!(
+            frontend.contains(&LOG_MODULE_TRANSFER.to_owned()),
+            "Transfer 必须在登记表内"
+        );
+        assert_eq!(LOG_MODULES.len(), 12);
+    }
 
     /// 🔴 Q-15 的用户裁决（2026-10-04）：**默认开启询问**。改动此值即改动全链路行为，
     /// 且会推翻用户裁决——故用用例把它钉死，任何改动都必须先经过一次显式决策。

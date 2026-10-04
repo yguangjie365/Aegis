@@ -260,7 +260,18 @@ pub fn run() {
             // `(app, provider: String)`，不需要 CmdEnvelope）。
             // ⚠️ 该文件**不再保留**宿主层同名的第二份实现：同名命令会致 Tauri 解析不确定，
             //    且它是 Aegis 自造层（非 NexBox 原样），留着违反「复刻域不得自造」口径。
-            services::music::music_api::music_open_login_window
+            services::music::music_api::music_open_login_window,
+            // ── M-05 文件互传（2026-10-04，片1 电脑通道）：命令实体在
+            //    `crates/services/src/transfer/commands.rs`，此处只做薄转发 ──
+            // 口径：入参统一 `contracts::CmdEnvelope`；每个命令无论成败都落一条日志
+            // （字段按 01 专题 §2.1 八字段命名；JSONL 落盘由 W0-10 的 sink 负责）。
+            services::transfer::commands::transfer_service_status,
+            services::transfer::commands::transfer_service_start,
+            services::transfer::commands::transfer_service_stop,
+            services::transfer::commands::transfer_settings_load,
+            services::transfer::commands::transfer_settings_save,
+            services::transfer::commands::transfer_peers_list,
+            services::transfer::commands::transfer_send_file
         ])
         .setup(|app| {
             // 🔴 MU-1 曲库状态托管段已删除（2026-10-03 用户裁决「全删 Aegis 自造层」）：
