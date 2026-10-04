@@ -51,14 +51,33 @@ pub struct PendingConfirmation {
     pub id: String,
     /// 对端标识（`ip:port`）
     pub peer_label: String,
+    /// 🔴 **这次要确认的是什么**。
+    ///
+    /// 界面据此只显示**与该类型有关**的行：文件要问"存到哪、空间够不够"，
+    /// 文本要问"要不要覆盖你当前的剪贴板"——把文件的磁盘信息摆给文本看，
+    /// 是用无关信息干扰一个**不可逆**的决定（写入剪贴板会覆盖既有内容）。
+    ///
+    /// 🔴 用**显式字段**而不是让界面从"目录为空且磁盘未知"去猜：
+    /// 猜测会在某天因为某个合法取值而悄悄失效，而这里错不起。
+    pub kind: PendingKind,
     pub file_name: String,
     pub file_size: u64,
-    /// 保存目录（未设置时为空串，界面显示"—"）
+    /// 保存目录（未设置时为空串，界面显示"—"；**文本传输不适用**）
     pub save_directory: String,
-    /// 磁盘剩余（`None` = 无法判定，界面显示"无法判定剩余空间"）
+    /// 磁盘剩余（`None` = 无法判定；**文本传输不适用**）
     pub available_bytes: Option<u64>,
     /// 是否已存在同名文件（**仅当存在时才展示冲突区**，F-FT-14 原文）
     pub name_conflict: bool,
+}
+
+/// 待决确认的种类（见 [`PendingConfirmation::kind`]）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PendingKind {
+    /// 文件：要落盘，故问目录与磁盘
+    File,
+    /// 文本：写入剪贴板，与磁盘无关
+    Text,
 }
 
 /// 内部的待决槽。

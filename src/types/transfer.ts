@@ -108,6 +108,14 @@ export interface PendingConfirm {
   /** 裁决时回传此 id */
   id: string;
   peerLabel: string;
+  /**
+   * 🔴 这次要确认的是什么。
+   *
+   * 界面据此**只显示与该类型有关**的行：文件问"存到哪、空间够不够"，
+   * 文本问"要不要覆盖你的剪贴板"——把磁盘信息摆给文本看，是用无关信息
+   * 干扰一个**不可逆**的决定（写入剪贴板会覆盖既有内容）。
+   */
+  kind: "file" | "text";
   fileName: string;
   fileSize: number;
   saveDirectory: string;

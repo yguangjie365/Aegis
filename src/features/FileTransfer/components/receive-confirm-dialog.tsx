@@ -210,21 +210,33 @@ export function ReceiveConfirmDialog({
             <Value>
               <Mono>{pending.peerLabel}</Mono>
             </Value>
-            <Key>{t("recvConfirm.fileName")}</Key>
+            {/* 🔴 文本传输的"文件名"其实是条目标签，措辞要按类型走 */}
+            <Key>{t(pending.kind === "text" ? "recvConfirm.content" : "recvConfirm.fileName")}</Key>
             <Value>{pending.fileName}</Value>
-            <Key>{t("recvConfirm.fileSize")}</Key>
+            <Key>{t(pending.kind === "text" ? "recvConfirm.size" : "recvConfirm.fileSize")}</Key>
             <Value>{formatBytes(pending.fileSize)}</Value>
-            <Key>{t("recvConfirm.saveTo")}</Key>
-            <Value>
-              <Mono>{pending.saveDirectory === "" ? "—" : pending.saveDirectory}</Mono>
-            </Value>
-            <Key>{t("recvConfirm.diskFree")}</Key>
-            {/* 🔴 无法判定 ≠ 0：显示 "0 B" 会让人以为空间不够 */}
-            <Value>
-              {pending.availableBytes === null
-                ? t("recvConfirm.diskUnknown")
-                : formatBytes(pending.availableBytes)}
-            </Value>
+            {/* 🔴 文本与磁盘无关：绝不在文本传输里显示"保存到/磁盘剩余"——
+                那是在用一个不存在的约束干扰"要不要覆盖剪贴板"这个不可逆的决定。 */}
+            {pending.kind === "text" ? (
+              <>
+                <Key>{t("recvConfirm.writeTo")}</Key>
+                <Value>{t("recvConfirm.clipboardOverwrite")}</Value>
+              </>
+            ) : (
+              <>
+                <Key>{t("recvConfirm.saveTo")}</Key>
+                <Value>
+                  <Mono>{pending.saveDirectory === "" ? "—" : pending.saveDirectory}</Mono>
+                </Value>
+                <Key>{t("recvConfirm.diskFree")}</Key>
+                {/* 🔴 无法判定 ≠ 0：显示 "0 B" 会让人以为空间不够 */}
+                <Value>
+                  {pending.availableBytes === null
+                    ? t("recvConfirm.diskUnknown")
+                    : formatBytes(pending.availableBytes)}
+                </Value>
+              </>
+            )}
           </Meta>
 
           {conflict && !expired && (

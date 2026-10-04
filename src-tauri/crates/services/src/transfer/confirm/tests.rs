@@ -12,6 +12,7 @@ fn snapshot(id: &str) -> PendingConfirmation {
     PendingConfirmation {
         id: id.to_owned(),
         peer_label: "192.168.1.24:18889".to_owned(),
+        kind: PendingKind::File,
         file_name: "报告.pdf".to_owned(),
         file_size: 1_000,
         save_directory: r"D:\收件".to_owned(),

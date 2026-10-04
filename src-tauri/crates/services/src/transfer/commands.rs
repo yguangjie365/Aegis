@@ -774,6 +774,9 @@ pub struct PendingConfirmDto {
     pub id: String,
     /// 对端标识（`ip:port`）
     pub peer_label: String,
+    /// `file` | `text`（🔴 界面据此**只显示与该类型有关**的行：
+    /// 文本传输不该看到"保存到/磁盘剩余"，那不是它的信息）
+    pub kind: String,
     pub file_name: String,
     pub file_size: u64,
     /// 保存目录（空串表示未定，界面显示"—"）
@@ -851,6 +854,10 @@ fn pending_confirms_impl() -> Vec<PendingConfirmDto> {
         .map(|(pending, expires_in_ms)| PendingConfirmDto {
             id: pending.id,
             peer_label: pending.peer_label,
+            kind: match pending.kind {
+                super::confirm::PendingKind::File => "file".to_owned(),
+                super::confirm::PendingKind::Text => "text".to_owned(),
+            },
             file_name: pending.file_name,
             file_size: pending.file_size,
             save_directory: pending.save_directory,

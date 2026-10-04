@@ -934,6 +934,7 @@ fn handle_connection(
                 let id = format!("{}|{}", peer.ip(), facts.file_name);
                 ctx.confirm.ask(confirm::PendingConfirmation {
                     id: id.clone(),
+                    kind: confirm::PendingKind::File,
                     peer_label: peer.to_string(),
                     file_name: facts.file_name.to_owned(),
                     file_size: facts.file_size,
@@ -994,6 +995,7 @@ fn handle_connection(
                 let label = format!("文本消息（{} 字节）", facts.bytes);
                 ctx.confirm.ask(confirm::PendingConfirmation {
                     id: id.clone(),
+                    kind: confirm::PendingKind::Text,
                     peer_label: peer.to_string(),
                     file_name: label,
                     file_size: facts.bytes,
