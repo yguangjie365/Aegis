@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>M-05 片1 · 接收确认弹窗 · 布局示意（待审）</title>
+    <style>
+      /* 示意稿：颜色/圆角/间距引用本页已在用的令牌名（实现走 var(--aegis-*)），
+         此处给出近似值仅为可读，不代表最终像素。 */
+      :root {
+        --aegis-canvas: #faf9f5;
+        --aegis-surface-soft: #f2f0ea;
+        --aegis-surface-inset: #e9e6de;
+        --aegis-ink: #1f2430;
+        --aegis-mute: #6b7280;
+        --aegis-hairline: #dcd8cd;
+        --aegis-border-strong: #b9b3a4;
+        --aegis-accent: #d97757;
+        --aegis-radius-sm: 6px;
+        --aegis-space-xs: 4px;
+        --aegis-space-sm: 8px;
+        --aegis-space-md: 12px;
+        --aegis-space-lg: 16px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 22px 26px;
+        background: var(--aegis-canvas);
+        color: var(--aegis-ink);
+        font:
+          13px/1.55 "Microsoft YaHei",
+          "Segoe UI",
+          sans-serif;
+      }
+      h1 {
+        font-size: 15px;
+        margin: 0 0 2px;
+      }
+      .sub {
+        color: var(--aegis-mute);
+        font-size: 12px;
+        margin-bottom: 16px;
+      }
+      h2 {
+        font-size: 12.5px;
+        margin: 18px 0 8px;
+        color: var(--aegis-mute);
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .dlg {
+        width: 452px;
+        background: #fff;
+        border: 1px solid var(--aegis-border-strong);
+        border-radius: 10px;
+        box-shadow: 0 10px 30px rgba(31, 36, 48, 0.16);
+        overflow: hidden;
+      }
+      .dlg-head {
+        padding: 12px 16px 0;
+        font-weight: 700;
+        font-size: 13.5px;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+      }
+      .count {
+        margin-left: auto;
+        font-weight: 400;
+        font-size: 12px;
+        color: #b3402a;
+        font-family: Consolas, monospace;
+      }
+      .dlg-body {
+        padding: 8px 16px 14px;
+      }
+      .meta {
+        display: grid;
+        grid-template-columns: 76px 1fr;
+        gap: 3px 10px;
+        margin: 4px 0 10px;
+      }
+      .k {
+        color: var(--aegis-mute);
+        font-size: 12px;
+      }
+      .v {
+        font-size: 12.5px;
+        word-break: break-all;
+      }
+      .mono {
+        font-family: Consolas, monospace;
+      }
+      .conflict {
+        border: 1px solid #e0b4a4;
+        background: #fdf3ef;
+        border-radius: var(--aegis-radius-sm);
+        padding: 8px 10px;
+        margin: 10px 0 2px;
+      }
+      .conflict b {
+        color: #b3402a;
+      }
+      .conflict .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 6px;
+        font-size: 12px;
+      }
+      .seg {
+        border: 1px solid var(--aegis-border-strong);
+        border-radius: var(--aegis-radius-sm);
+        padding: 2px 9px;
+        font-size: 12px;
+        background: var(--aegis-surface-soft);
+      }
+      .seg.on {
+        background: var(--aegis-accent);
+        border-color: var(--aegis-accent);
+        color: #fff;
+      }
+      .dlg-foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--aegis-space-sm);
+        padding: 10px 16px;
+        background: var(--aegis-surface-soft);
+        border-top: 1px solid var(--aegis-hairline);
+      }
+      .btn {
+        border: 1px solid var(--aegis-border-strong);
+        background: #fff;
+        border-radius: var(--aegis-radius-sm);
+        padding: 4px 14px;
+        font-size: 12.5px;
+      }
+      .btn.reject {
+        background: #fff;
+        border-color: #b3402a;
+        color: #b3402a;
+      }
+      .btn.accept {
+        background: var(--aegis-accent);
+        border-color: var(--aegis-accent);
+        color: #fff;
+      }
+      .note {
+        color: var(--aegis-mute);
+        font-size: 12px;
+        margin: 6px 0 0;
+      }
+      .warn {
+        color: #8a6a1f;
+        font-size: 12px;
+        margin-top: 6px;
+      }
+      ul {
+        margin: 6px 0 0 18px;
+        padding: 0;
+      }
+      li {
+        margin: 3px 0;
+      }
+      .tag {
+        display: inline-block;
+        background: var(--aegis-surface-inset);
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-family: Consolas, monospace;
+        font-size: 11.5px;
+      }
+      .cols {
+        display: flex;
+        gap: 18px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+      }
+      .cols > div {
+        flex: 1 1 452px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>M-05 片1 · 接收确认弹窗 — 布局示意（待用户确认）</h1>
+    <div class="sub">
+      规格：F-FT-14（弹窗内容）+ F-FT-18（<b>默认开启</b>，Q-15 你已裁决）+
+      R-8（拒绝/关闭/Esc/<b>超时</b>四条路径全部按拒绝）。 🔴 你说「可以」之前，本页不写任何 UI
+      代码。
+    </div>
+
+    <div class="cols">
+      <div>
+        <h2>① 常态（无同名文件）</h2>
+        <div class="dlg">
+          <div class="dlg-head">
+            <span>接收到文件请求</span>
+            <span class="count">29 秒后按拒绝</span>
+          </div>
+          <div class="dlg-body">
+            <div class="meta">
+              <span class="k">来自</span><span class="v mono">192.168.1.24:18889</span>
+              <span class="k">文件名</span><span class="v">季度报告 2026Q3（终稿）.pdf</span>
+              <span class="k">大小</span><span class="v">128.4 MB</span>
+              <span class="k">保存到</span><span class="v mono">D:\下载\Received</span>
+              <span class="k">磁盘剩余</span><span class="v">412.7 GB</span>
+            </div>
+          </div>
+          <div class="dlg-foot">
+            <span class="btn">拒绝</span>
+            <span class="btn accept">接收</span>
+          </div>
+        </div>
+        <p class="note">
+          倒计时是 <b>R-8 的可见化</b>：超时 = 拒绝，所以必须让用户看见还剩多久。
+          剩余毫秒由后端算（本轮已把"常量"改成真实剩余，见提交说明）。
+        </p>
+      </div>
+
+      <div>
+        <h2>② 存在同名文件（F-FT-14：仅此时才出现冲突区）</h2>
+        <div class="dlg">
+          <div class="dlg-head">
+            <span>接收到文件请求</span>
+            <span class="count">21 秒后按拒绝</span>
+          </div>
+          <div class="dlg-body">
+            <div class="meta">
+              <span class="k">来自</span><span class="v mono">192.168.1.24:18889</span>
+              <span class="k">文件名</span><span class="v">季度报告 2026Q3（终稿）.pdf</span>
+              <span class="k">大小</span><span class="v">128.4 MB</span>
+              <span class="k">保存到</span><span class="v mono">D:\下载\Received</span>
+              <span class="k">磁盘剩余</span><span class="v">412.7 GB</span>
+            </div>
+            <div class="conflict">
+              <b>同名文件已存在</b>（2026-09-28 14:02，118.9 MB）
+              <div class="row">
+                <span>如何处理：</span>
+                <span class="seg on">自动改名</span>
+                <span class="seg">覆盖</span>
+                <span class="seg">跳过</span>
+              </div>
+            </div>
+          </div>
+          <div class="dlg-foot">
+            <span class="btn">拒绝</span>
+            <span class="btn accept">接收</span>
+          </div>
+        </div>
+        <p class="note">
+          冲突区<b>只在真有同名文件时出现</b>（后端已把
+          <span class="tag">nameConflict</span> 真判了）。
+          默认取设置里的"同名文件"策略；此处改动<b>只作用于本次</b>接收。
+        </p>
+      </div>
+
+      <div>
+        <h2>③ 磁盘剩余无法判定（R-12 的保守分支）</h2>
+        <div class="dlg">
+          <div class="dlg-head">
+            <span>接收到文件请求</span>
+            <span class="count">14 秒后按拒绝</span>
+          </div>
+          <div class="dlg-body">
+            <div class="meta">
+              <span class="k">来自</span><span class="v mono">192.168.1.24:18889</span>
+              <span class="k">文件名</span><span class="v">备份.tar</span>
+              <span class="k">大小</span><span class="v">2.1 GB</span> <span class="k">保存到</span
+              ><span class="v mono">\\NAS\share\Received</span> <span class="k">磁盘剩余</span
+              ><span class="v">无法判定（网络路径）</span>
+            </div>
+            <div class="warn">
+              空间无法判定：后端会<b>放行但记录</b>（R-12）。若放不下，传输会在中途失败并给出原因码。
+            </div>
+          </div>
+          <div class="dlg-foot">
+            <span class="btn">拒绝</span>
+            <span class="btn accept">接收</span>
+          </div>
+        </div>
+        <p class="note">
+          🔴 这里<b>绝不能</b>显示「剩余 0 B」——那是"空间不足"，与"查不到"是两回事 （后端约定
+          <span class="tag">availableBytes: null</span> 表示无法判定）。
+        </p>
+      </div>
+
+      <div>
+        <h2>④ 用户点慢了（点「接收」时已超时）</h2>
+        <div class="dlg">
+          <div class="dlg-head"><span>接收到文件请求</span></div>
+          <div class="dlg-body">
+            <div class="meta">
+              <span class="k">来自</span><span class="v mono">192.168.1.24:18889</span>
+              <span class="k">文件名</span><span class="v">备份.tar</span>
+            </div>
+            <p style="color: #b3402a; margin: 8px 0 0">
+              该请求已超时并按<b>拒绝</b>处理，无法再接收。<span class="tag">CONFIRM_GONE</span>
+            </p>
+          </div>
+          <div class="dlg-foot"><span class="btn">好</span></div>
+        </div>
+        <p class="note">
+          🔴 这条必须有：否则用户点了「接收」却什么都没发生，他会以为界面坏了。
+          当轮命令面已为此独立出了 <span class="tag">CONFIRM_GONE</span> 码。
+        </p>
+      </div>
+    </div>
+
+    <h2>⑤ 交互与边界（实现要点，请核对）</h2>
+    <ul>
+      <li>
+        <b>四条路径全部按拒绝</b>（R-8）：点「拒绝」/ 点遮罩关闭 / 按 Esc / 超时 —— 终点都是"不收"。
+      </li>
+      <li><b>默认按钮是「拒绝」</b>：直接回车 = 拒绝（保守）。「接收」需显式点。</li>
+      <li>
+        <b>多个请求同时到达<b>排队</b>显示</b
+        >（后端每连接一条待决）：界面一次只显示一条，标题旁标注"还有 N 条"。
+      </li>
+      <li><b>倒计时到 0 不清空弹窗</b>，而是切成第 ④ 态——用户得知道"刚才那条没了"。</li>
+      <li><b>不记忆"总是接收"</b>：F-FT-18 是每次询问；要免问请关设置里的开关（那是显式动作）。</li>
+      <li>
+        <b>保存目录可改</b>？👉 <b>本批不做</b>（F-FT-14
+        只要求"显示"）。要改请走设置页，避免在弹窗里塞路径选择器。
+      </li>
+    </ul>
+
+    <p class="note" style="margin-top: 14px">
+      待你确认的点：<b>① 冲突区三个选项</b>（自动改名/覆盖/跳过）是否都要 ｜
+      <b>② 回车默认拒绝</b>是否接受 ｜ <b>③ 多请求排队</b>是否可接受（还是一次只显示最新一条）。
+    </p>
+  </body>
+</html>
