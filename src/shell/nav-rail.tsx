@@ -3,7 +3,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useTranslation } from "react-i18next";
 import styled from "@emotion/styled";
 import { SHELL_MODULES, type ShellModule } from "./modules";
-import { usePageLiveness } from "@/lib/timing/use-tick";
 
 // nav-rail（§三）：192px 展开 ↔ 64px 折叠（2026-10-02 用户要求自 232 收窄）；黑底 chrome；激活项 = chrome-elevated 底 +
 // 2px accent 左竖条（黑底上 accent 8.71:1 合规）+ 白字 700。
@@ -175,14 +174,18 @@ const Ring = styled.span`
     }
   }
 
-  /* 🔴 失焦/不可见时暂停（2026-10-04）。3.2s infinite 是纯装饰、零信息量，
-     窗口不可见时不该继续逐帧干活。用 animation-play-state 而非 display:none ——
-     后者会让环消失（用户看不见≠看不见），且切换时会有一次重排。
-     信号源用现成的 usePageLiveness（已含聚焦 + 可见双条件），挂在 Rail 的 data-live 上；
-     此处用祖先属性选择器而非引用 Rail 标识符，免得两者声明顺序变成隐式依赖。 */
-  [data-live="false"] &::before {
-    animation-play-state: paused;
-  }
+  /* 🟢 原「失焦/不可见时暂停动画」规则已于 2026-10-04 移除（用户裁决）。
+     —— 移除理由（保留存档，避免日后被"优化回来"）：
+     该规则是 **P1 之前**加的。当时环的动画动的是 @property 变量 --flow-angle，每帧在主线程
+     重算样式并重绘整块 conic-gradient（实测 1.65% 单核、永不停歇），失焦暂停能省下一大块。
+     P1 把环改成「静态渐变 + 旋转载具」进合成层之后（实测 RecalcStyleCount 由 300 降为 0），
+     失焦暂停省下的只剩一点 GPU，**收益基本归零**；而代价仍在：
+     Aegis **可见但未聚焦**时（放副屏、用户在别的窗口打字），环会停住，看起来像应用卡死。
+     即：该优化的必要性被后续那次优化架空了，故撤销。
+     🔴 下方 prefers-reduced-motion 那条**保留不动** —— 那是规范 §八的无障碍要求，
+     与性能无关，且属用户系统偏好，不得以"省 CPU"为由削弱。
+     🔴 本注释在模板字符串内部，**禁止出现反引号** —— 会提前终止 template literal 报 TS1005
+     （本轮已因此踩坑一次；写降级/性能类注释时尤其容易带进来）。 */
 
   /* 规范 §八：prefers-reduced-motion 下**停在这一帧**而不是把时长压到 0.01ms ——
      无限动画 + 0.01ms 等于每帧重放上千次（ADR-006 §三 记录的教训）。 */
@@ -401,8 +404,9 @@ export function NavRail() {
     [pathname],
   );
   const activeId = SHELL_MODULES.find(isActive)?.id;
-  // R-19 现成信号源：聚焦 + 可见双条件，用于失焦时暂停流光环（见 Rail 的 data-live 规则）
-  const live = usePageLiveness();
+  // （原此处有 `usePageLiveness()` + Rail 的 `data-live`，用于失焦时暂停流光环。
+  //   2026-10-04 与 Ring 的暂停规则一并移除，理由见 Ring 顶部「原失焦暂停规则已移除」注释。
+  //   注意：`usePageLiveness` 在概览取数（features/Overview）处仍是必需，故 use-tick 不动。）
 
   const railRef = useRef<HTMLElement | null>(null);
   const slots = useRef<Record<string, HTMLAnchorElement | null>>({});
@@ -518,7 +522,7 @@ export function NavRail() {
   const fillStyle = ind ? { height: ind.s + "px" } : { opacity: 0 };
 
   return (
-    <Rail ref={railRef} aria-label={t("nav.toggleAria")} data-live={live ? "true" : "false"}>
+    <Rail ref={railRef} aria-label={t("nav.toggleAria")}>
       {/* 流光环：静止裁切层 + 内部旋转载具（见 Ring 注释）。必须在指示器之前，
           以便靠 z-index 链（环 0 < 盖底 1 < 指示器 2 < 图标 3）分层。 */}
       <Ring aria-hidden />
