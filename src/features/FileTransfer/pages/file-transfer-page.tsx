@@ -333,6 +333,24 @@ interface PendingSend {
   paths: string[];
 }
 
+/** 速度（字节/秒）→ 人读串；判不出来就"—"（F-FT-25 允许）。 */
+function formatSpeed(bytesPerSecond: number | null): string {
+  // 🔴 用 `== null`：同时挡住 null 与 undefined（接口漂移时不要把界面变成 NaN MB/s）
+  if (bytesPerSecond == null || bytesPerSecond <= 0) return "—";
+  if (bytesPerSecond >= 1024 * 1024) return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
+  if (bytesPerSecond >= 1024) return `${(bytesPerSecond / 1024).toFixed(0)} KB/s`;
+  return `${bytesPerSecond} B/s`;
+}
+
+/** 剩余毫秒 → hh:mm:ss；判不出来就"—"（F-FT-25 允许）。 */
+function formatDuration(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return "—";
+  const total = Math.floor(ms / 1000);
+  const hh = String(Math.floor(total / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+  const ss = String(total % 60).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
 export function FileTransferPage() {
   const { t } = useTranslation("fileTransfer");
 
@@ -1225,6 +1243,20 @@ export function FileTransferPage() {
                 <MonoInput readOnly value={task.peerLabel} style={{ width: 150 }} />
                 {/* 进度由后端算好的 percent 直接显示，界面不再算一遍（避免口径漂移） */}
                 <span style={{ width: 44, textAlign: "right", fontSize: 12 }}>{task.percent}%</span>
+                {/* 🔴 F-FT-25：「速度 · 剩余 hh:mm:ss」。
+                    两者都由**后端**算好（含"暂停时长不计入速度"，见 tasks.rs 的 `speed_bps`）——
+                    界面只做格式化，不再算一遍，避免两处口径漂移。
+                    任一项判不出来就显示"—"，**不编数字**。 */}
+                <span
+                  style={{
+                    width: 128,
+                    fontSize: 12,
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--aegis-mute)",
+                  }}
+                >
+                  {formatSpeed(task.speedBps)} · {formatDuration(task.remainingMs)}
+                </span>
                 <span style={{ width: 58, fontSize: 12 }}>{t(`tasks.state.${task.state}`)}</span>
                 {/* 🔴 失败/跳过/取消必须带原因码——R-29：失败态不摆无解释的红字 */}
                 {task.reasonCode !== null && (

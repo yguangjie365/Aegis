@@ -63,6 +63,11 @@ pub struct PauseGate {
     /// 回收路径 ⇒ 若不记下来，终态会变成 `USER_CANCEL` ✗，而 F-FT-27 明写要固定为
     /// `PAUSE_TIMEOUT`——"让用户知道是放太久自动放弃了，而不是我按了取消"。
     timed_out: std::sync::atomic::AtomicBool,
+    /// 累计被暂停的毫秒数（F-FT-25 / R-14：暂停时长**不计入速度**）。
+    ///
+    /// 🔴 每进入一次等待就累加那一趟的实际时长 ⇒ 多次暂停正确累加；
+    ///    恢复后重新计时，正对应"恢复时重置速度基线"。
+    paused_ms: std::sync::atomic::AtomicU64,
 }
 
 impl Default for PauseGate {
@@ -82,6 +87,7 @@ impl PauseGate {
             inner: Mutex::new(PauseState::Run),
             signal: Condvar::new(),
             timed_out: std::sync::atomic::AtomicBool::new(false),
+            paused_ms: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -89,6 +95,19 @@ impl PauseGate {
         self.inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// 把一趟等待的时长记进累计暂停时长（毫秒）。
+    fn add_paused(&self, waited: Duration) {
+        let ms = u64::try_from(waited.as_millis()).unwrap_or(u64::MAX);
+        self.paused_ms
+            .fetch_add(ms, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// 该任务**累计被暂停的毫秒数**（F-FT-25："暂停时长不计入速度"）。
+    #[must_use]
+    pub fn paused_ms(&self) -> u64 {
+        self.paused_ms.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// 本次暂停是否**因超上限**结束（F-FT-27：终态据此判 `PAUSE_TIMEOUT`）。
@@ -164,10 +183,13 @@ impl PauseGate {
             {
                 let state = self.lock();
                 if *state == PauseState::Run {
+                    // 恢复（或本就没暂停）：把这一趟实际等待记进暂停总时长
+                    self.add_paused(waited);
                     return PauseExit::Resumed;
                 }
             }
             if cancel.is_cancelled() {
+                self.add_paused(waited);
                 return PauseExit::Cancelled;
             }
             if let Some(cap) = limit {
@@ -175,6 +197,7 @@ impl PauseGate {
                     // 🔴 记下来：调用方据此把终态收成 PAUSE_TIMEOUT 而不是 USER_CANCEL
                     self.timed_out
                         .store(true, std::sync::atomic::Ordering::SeqCst);
+                    self.add_paused(waited);
                     return PauseExit::TimedOut;
                 }
             }

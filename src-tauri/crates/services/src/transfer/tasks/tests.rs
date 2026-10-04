@@ -294,3 +294,61 @@ fn serde_spelling_is_lowercase_for_both_directions() {
         "\"receive\""
     );
 }
+
+// ── F-FT-25 / R-14：速度与剩余（暂停时长不计入速度） ──────────────────────
+
+fn task_with(transferred: u64, file_size: u64, started_at_ms: i64) -> TransferTask {
+    TransferTask {
+        id: "t".to_owned(),
+        direction: Direction::Send,
+        peer_label: "127.0.0.1:18889".to_owned(),
+        file_name: "x.bin".to_owned(),
+        file_size,
+        transferred,
+        state: TaskState::Active,
+        reason_code: None,
+        started_at_ms,
+        finished_at_ms: None,
+    }
+}
+
+/// 🔴 R-14 的核心：**暂停时长必须从分母里扣掉**。
+///
+/// 同一段墙钟时间，扣掉暂停后速度应当**变快**——若把暂停算进去，
+/// 一次长暂停会把速度拖到接近 0，"剩余时间"随之暴涨。
+#[test]
+fn speed_excludes_paused_time() {
+    // 传了 10 MB，墙钟走了 10 秒
+    let task = task_with(10 * 1024 * 1024, 100 * 1024 * 1024, 0);
+    // 没暂停：10 MB / 10s = 1.0 MB/s
+    assert_eq!(task.speed_bps(10_000, 0), Some(1024 * 1024));
+    // 其中暂停了 5 秒：10 MB / 5s = 2.0 MB/s —— 应当**翻倍**，而不是变慢
+    assert_eq!(task.speed_bps(10_000, 5_000), Some(2 * 1024 * 1024));
+    // 暂停占满全部时间 ⇒ 有效时间为 0 ⇒ 不给速度（宁可不显示）
+    assert_eq!(task.speed_bps(10_000, 10_000), None);
+}
+
+/// 有效时间不足 1 秒、或还没传字节 ⇒ **不给数字**（避免数字乱跳）。
+#[test]
+fn speed_is_unknown_when_the_sample_is_too_small() {
+    let fresh = task_with(1024 * 1024, 10 * 1024 * 1024, 0);
+    assert_eq!(fresh.speed_bps(800, 0), None, "不足 1 秒 ⇒ 不显示");
+    let nothing = task_with(0, 10 * 1024 * 1024, 0);
+    assert_eq!(nothing.speed_bps(10_000, 0), None, "还没传 ⇒ 不显示");
+}
+
+#[test]
+fn remaining_is_derived_from_speed_and_can_be_unknown() {
+    let task = task_with(10 * 1024 * 1024, 110 * 1024 * 1024, 0);
+    // 速度 1 MB/s，还剩 100 MB ⇒ 100 秒
+    assert_eq!(task.remaining_ms(10_000, 0), Some(100_000));
+    // 速度未知 ⇒ 剩余也未知（界面显示"—"）
+    assert_eq!(task.remaining_ms(500, 0), None);
+}
+
+#[test]
+fn effective_ms_never_underflows() {
+    // 暂停时长比墙钟还大（时钟回拨或统计口径差）⇒ 取 0，不能 panic、不能回绕
+    let task = task_with(1, 100, 5_000);
+    assert_eq!(task.effective_ms(5_000, 99_999), 0);
+}

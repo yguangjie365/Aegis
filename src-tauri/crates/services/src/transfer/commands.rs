@@ -759,6 +759,10 @@ pub struct TransferTaskDto {
     pub transferred: u64,
     /// 0..=100（由后端算，避免前后端各算一遍口径漂移）
     pub percent: u32,
+    /// 平均速度（**字节/秒**）。`None` = 样本太小或尚未开始 ⇒ 界面显示"—"（F-FT-25）
+    pub speed_bps: Option<u64>,
+    /// 预计剩余毫秒。`None` = 无法判定 ⇒ 界面显示"—"（F-FT-25）
+    pub remaining_ms: Option<u64>,
     /// `active` | `completed` | `skipped` | `failed` | `cancelled`
     pub state: String,
     /// 终态原因码（取 reasons 的冻结表；进行中为 None）
@@ -918,6 +922,16 @@ fn tasks_impl() -> Vec<TransferTaskDto> {
         .map(|task| {
             // 🔴 先算 percent：它在字段被移出后再调就会借用已移动的值
             let percent = task.percent();
+            // 🔴 F-FT-25 / R-14：速度必须扣掉**暂停时长**，否则一次长暂停会把速度拖到接近 0、
+            //    "剩余时间"随之暴涨。暂停时长由闸门累计（见 `pause::PauseGate::paused_ms`）。
+            let paused_ms = lock_state()
+                .service
+                .as_ref()
+                .and_then(|service| service.paused_ms_of(&task.id))
+                .unwrap_or(0);
+            let now_ms = super::sink::now_unix_ms();
+            let speed_bps = task.speed_bps(now_ms, paused_ms);
+            let remaining_ms = task.remaining_ms(now_ms, paused_ms);
             TransferTaskDto {
                 id: task.id,
                 direction: match task.direction {
@@ -929,6 +943,8 @@ fn tasks_impl() -> Vec<TransferTaskDto> {
                 file_size: task.file_size,
                 transferred: task.transferred,
                 percent,
+                speed_bps,
+                remaining_ms,
                 state: task.state.as_str().to_owned(),
                 reason_code: task.reason_code,
                 started_at_ms: task.started_at_ms,

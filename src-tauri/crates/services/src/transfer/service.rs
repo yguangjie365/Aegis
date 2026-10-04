@@ -613,6 +613,13 @@ impl TransferService {
             .is_some_and(|gate| gate.resume_local())
     }
 
+    /// 某个任务**累计被暂停的毫秒数**（F-FT-25："暂停时长不计入速度"）。
+    /// `None` = 任务不存在或已收尾。
+    #[must_use]
+    pub fn paused_ms_of(&self, id: &str) -> Option<u64> {
+        self.ctx.pause_gate(id).map(|gate| gate.paused_ms())
+    }
+
     /// 某个任务当前的暂停状态（界面据此显示"已暂停"／"已暂停（对端）"，F-FT-25）。
     /// `None` = 该任务不存在或已收尾。
     #[must_use]

@@ -103,6 +103,41 @@ impl TransferTask {
         let raw = self.transferred.saturating_mul(100) / self.file_size;
         u32::try_from(raw.min(100)).unwrap_or(100)
     }
+
+    /// **有效传输毫秒数** = 墙钟时长 − 累计暂停时长。
+    ///
+    /// 🔴 R-14 原文："暂停时长**不计入速度**，恢复时重置速度基线"。
+    /// 把暂停时长从分母里扣掉，正是这句话的算法表达——否则一次长暂停会把平均速度
+    /// 拖到接近 0，界面上的"剩余时间"随之暴涨。
+    #[must_use]
+    pub fn effective_ms(&self, now_ms: i64, paused_ms: u64) -> u64 {
+        let wall = u64::try_from(now_ms.saturating_sub(self.started_at_ms).max(0)).unwrap_or(0);
+        wall.saturating_sub(paused_ms)
+    }
+
+    /// 平均速度（字节/秒）。
+    ///
+    /// 🔴 有效时间不足 1 秒、或还没传任何字节时返回 `None`：
+    /// 样本太小会让数字剧烈跳动 ⇒ **宁可不显示**，也不给一个乱跳的数（F-FT-25 允许"—"）。
+    #[must_use]
+    pub fn speed_bps(&self, now_ms: i64, paused_ms: u64) -> Option<u64> {
+        let ms = self.effective_ms(now_ms, paused_ms);
+        if ms < 1000 || self.transferred == 0 {
+            return None;
+        }
+        Some(self.transferred.saturating_mul(1000) / ms)
+    }
+
+    /// 剩余毫秒 = 剩余字节 ÷ 当前速度；速度未知或为 0 时返回 `None`（界面显示"—"）。
+    #[must_use]
+    pub fn remaining_ms(&self, now_ms: i64, paused_ms: u64) -> Option<u64> {
+        let speed = self.speed_bps(now_ms, paused_ms)?;
+        if speed == 0 {
+            return None;
+        }
+        let left = self.file_size.saturating_sub(self.transferred);
+        Some(left.saturating_mul(1000) / speed)
+    }
 }
 
 /// 运行期任务台账。

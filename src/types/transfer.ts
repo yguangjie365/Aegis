@@ -231,6 +231,10 @@ export interface TransferTask {
   transferred: number;
   /** 0..=100（后端算好，界面不再算一遍——避免两处口径漂移） */
   percent: number;
+  /** 平均速度（字节/秒）；null = 样本太小 ⇒ 界面显示"—"（F-FT-25） */
+  speedBps: number | null;
+  /** 预计剩余毫秒；null = 无法判定 ⇒ 界面显示"—"（F-FT-25） */
+  remainingMs: number | null;
   state: TransferTaskState;
   /** 终态原因码（取 reasons 的冻结表；进行中为 null） */
   reasonCode: string | null;
