@@ -1216,7 +1216,9 @@ export function FileTransferPage() {
               variant="secondary"
               size="sm"
               disabled={exportHistory.isPending || history.length === 0}
-              onClick={() => exportHistory.mutate()}
+              // 🔴 F-FT-56：导出的是**当前筛选后的行**（所见即所得），提示语照规格原文
+              title={t("history.exportHint")}
+              onClick={() => exportHistory.mutate(visibleHistory.map((entry) => entry.id))}
             >
               {t("history.export")}
             </AppButton>
@@ -1225,7 +1227,15 @@ export function FileTransferPage() {
             </AppButton>
           </Acts>
         </CardHead>
-        {exportHistory.data === "exported" && <Hint span>{t("history.exported")}</Hint>}
+        {/* 🔴 成功话术按规格原文："✅ 已导出 {N} 条历史：{路径}" */}
+        {exportHistory.data != null && (
+          <Hint span>
+            {t("history.exported", {
+              count: exportHistory.data.count,
+              path: exportHistory.data.path,
+            })}
+          </Hint>
+        )}
         {exportHistory.error !== null && (
           <Hint span>
             {t("history.exportFailed", { reason: asTransferError(exportHistory.error).message })}

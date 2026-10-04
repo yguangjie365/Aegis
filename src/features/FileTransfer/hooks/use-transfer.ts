@@ -12,6 +12,7 @@ import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { downloadDir } from "@tauri-apps/api/path";
 import { BackendUnavailableError } from "@/lib/tauri/invoke";
 import { REFRESH_INTERVAL_MS, usePageLiveness } from "@/lib/timing/use-tick";
 import {
@@ -30,7 +31,7 @@ import {
   startTransferService,
   stopTransferService,
 } from "@/lib/tauri/transfer";
-import type { TransferSettings } from "@/types/transfer";
+import type { ExportReport, TransferSettings } from "@/types/transfer";
 
 export const TRANSFER_STATUS_KEY = ["transfer", "status"] as const;
 export const TRANSFER_SETTINGS_KEY = ["transfer", "settings"] as const;
@@ -193,24 +194,34 @@ export function useTransferHistory() {
 }
 
 /**
- * 导出历史为 CSV（F-FT-58）。
+ * 导出历史为 CSV（F-FT-56「所见即所得」）。
  *
+ * 🔴 传**当前筛选后那些行**的 id（`null` = 全量）：导出的内容必须与屏幕所见一致。
  * 🔴 路径从**保存对话框**来，写盘由**后端**做（原子写，且不必引入 fs 插件）。
- * 用户取消 ⇒ `"cancelled"`，调用方应视作**什么都没发生**（不是错误）。
+ * 用户取消 ⇒ `null`，调用方应视作**什么都没发生**（不是错误）。
+ *
+ * 默认落在**下载**目录、文件名带时间戳（规格原文：避免反复导出时互相覆盖）。
  */
 export function useExportTransferHistory() {
   const { t } = useTranslation("fileTransfer");
   return useMutation({
-    mutationFn: async (): Promise<"exported" | "cancelled"> => {
+    mutationFn: async (ids: string[] | null): Promise<ExportReport | null> => {
+      const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
+      const name = `文件互传历史-${stamp}.csv`;
+      // 下载目录拿不到时退回纯文件名（对话框会用系统默认目录），**不因此阻断导出**
+      let defaultPath = name;
+      try {
+        defaultPath = `${await downloadDir()}\\${name}`;
+      } catch {
+        // 忽略：只用文件名
+      }
       const target = await save({
         title: t("history.exportTitle"),
-        defaultPath: "文件互传历史.csv",
+        defaultPath,
         filters: [{ name: "CSV", extensions: ["csv"] }],
       });
-      if (target === null) return "cancelled";
-      // 🟠 目前传 null = 全量；按筛选导出（F-FT-56 的「所见即所得」）待接线
-      await exportTransferHistory(target, null);
-      return "exported";
+      if (target === null) return null;
+      return exportTransferHistory(target, ids);
     },
   });
 }
