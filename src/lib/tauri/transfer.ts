@@ -20,6 +20,7 @@ import type {
   SettingsLoaded,
   StopReport,
   TransferError,
+  TransferHistoryEntry,
   TransferPeer,
   TransferSettings,
   TransferStatus,
@@ -139,4 +140,28 @@ export async function cancelTransferTask(id: string): Promise<boolean> {
     { id },
   );
   return result.cancelled;
+}
+
+/**
+ * 传输历史（F-FT-54）。
+ *
+ * 🔴 服务未运行时返回**空表**（不是错误，与设备列表同口径）。
+ */
+export async function listTransferHistory(): Promise<TransferHistoryEntry[]> {
+  return invoke<TransferHistoryEntry[]>(
+    "transfer_history_list",
+    TRANSFER,
+    "transferHistoryList",
+    null,
+  );
+}
+
+/**
+ * 导出历史为 CSV 到 `path`（F-FT-58）。
+ *
+ * 🔴 **写盘由后端完成**（原子写）：这样不必为导出引入前端 fs 插件。
+ * 调用方只需用保存对话框拿到路径即可。
+ */
+export async function exportTransferHistory(path: string): Promise<void> {
+  await invoke<void>("transfer_history_export", TRANSFER, "transferHistoryExport", { path });
 }

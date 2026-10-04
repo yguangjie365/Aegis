@@ -5,7 +5,7 @@ import { AppButton } from "@/ui/components/app-button";
 import { PageHeader } from "@/ui/components/page-header";
 import { log, newCorrelationId } from "@/lib/logging";
 import { PairCodeDialog } from "../components/pair-code-dialog";
-import { ReceiveConfirmDialog } from "../components/receive-confirm-dialog";
+import { ReceiveConfirmDialog, formatBytes } from "../components/receive-confirm-dialog";
 import { useReceiveConfirms, useResolveReceiveConfirm } from "../hooks/use-receive-confirms";
 import { useTransferDrop } from "../hooks/use-transfer-drop";
 import {
@@ -19,7 +19,10 @@ import {
   useTransferStatus,
   useTransferTasks,
   useCancelTransferTask,
+  useExportTransferHistory,
+  useTransferHistory,
 } from "../hooks/use-transfer";
+import type { TransferTaskState } from "@/types/transfer";
 import { asTransferError } from "@/lib/tauri/transfer";
 import type { KnownPeer, TransferPeer, TransferSettings } from "@/types/transfer";
 import { formatCountdown, isExpiringSoon } from "../lib/countdown";
@@ -407,6 +410,27 @@ export function FileTransferPage() {
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
   /** 取消"没取消到"时的如实提示（`cancelled: false` 不是错误，见钩子注释）。 */
   const cancelNotice = cancelTask.data === false ? t("tasks.cancelMissed") : null;
+
+  // 传输历史（F-FT-54/55）：只读快照 + 三个筛选（全在本地过滤，不打后端）
+  const historyQuery = useTransferHistory();
+  const history = useMemo(() => historyQuery.data ?? [], [historyQuery.data]);
+  const exportHistory = useExportTransferHistory();
+  const [historyDirection, setHistoryDirection] = useState<"all" | "send" | "receive">("all");
+  const [historyStatus, setHistoryStatus] = useState<"all" | TransferTaskState>("all");
+  const [historySearch, setHistorySearch] = useState("");
+  const visibleHistory = useMemo(() => {
+    const needle = historySearch.trim().toLowerCase();
+    return history.filter((entry) => {
+      if (historyDirection !== "all" && entry.direction !== historyDirection) return false;
+      if (historyStatus !== "all" && entry.state !== historyStatus) return false;
+      if (needle === "") return true;
+      // F-FT-55：按文件名或对端 IP/端口搜索
+      return (
+        entry.fileName.toLowerCase().includes(needle) ||
+        entry.peerLabel.toLowerCase().includes(needle)
+      );
+    });
+  }, [history, historyDirection, historyStatus, historySearch]);
 
   // ── 目标选择与发送（F-FT-11/12；R-7：目标不许猜测） ──
   // 按钮路径用"所选行"、拖放路径用"落点命中哪一行"——两条路径都不猜。
@@ -1130,7 +1154,12 @@ export function FileTransferPage() {
         <CardHead>
           <CardTitle>{t("history.title")}</CardTitle>
           <Acts>
-            <AppButton variant="secondary" size="sm">
+            <AppButton
+              variant="secondary"
+              size="sm"
+              disabled={exportHistory.isPending || history.length === 0}
+              onClick={() => exportHistory.mutate()}
+            >
               {t("history.export")}
             </AppButton>
             <AppButton variant="secondary" size="sm">
@@ -1138,16 +1167,36 @@ export function FileTransferPage() {
             </AppButton>
           </Acts>
         </CardHead>
+        {exportHistory.data === "exported" && <Hint span>{t("history.exported")}</Hint>}
+        {exportHistory.error !== null && (
+          <Hint span>
+            {t("history.exportFailed", { reason: asTransferError(exportHistory.error).message })}
+          </Hint>
+        )}
         <Filters>
-          <Select defaultValue="all">
+          <Select
+            value={historyDirection}
+            onChange={(e) => setHistoryDirection(e.target.value as "all" | "send" | "receive")}
+          >
             <option value="all">{t("history.allDirections")}</option>
             <option value="send">{t("history.sendOnly")}</option>
             <option value="receive">{t("history.receiveOnly")}</option>
           </Select>
-          <Select defaultValue="all">
+          <Select
+            value={historyStatus}
+            onChange={(e) => setHistoryStatus(e.target.value as "all" | TransferTaskState)}
+          >
             <option value="all">{t("history.allStatuses")}</option>
+            <option value="completed">{t("tasks.state.completed")}</option>
+            <option value="skipped">{t("tasks.state.skipped")}</option>
+            <option value="failed">{t("tasks.state.failed")}</option>
+            <option value="cancelled">{t("tasks.state.cancelled")}</option>
           </Select>
-          <Input placeholder={t("history.search")} />
+          <Input
+            placeholder={t("history.search")}
+            value={historySearch}
+            onChange={(e) => setHistorySearch(e.target.value)}
+          />
         </Filters>
         <Board>
           <Head>
@@ -1159,10 +1208,46 @@ export function FileTransferPage() {
             <span style={{ width: 80 }}>{t("history.col.size")}</span>
             <span style={{ width: 60 }}>{t("history.col.status")}</span>
           </Head>
-          <Empty>
-            <EmptyTitle>{t("history.emptyTitle")}</EmptyTitle>
-            <EmptyHint>{t("history.emptyHint")}</EmptyHint>
-          </Empty>
+          {visibleHistory.length === 0 ? (
+            <Empty>
+              {/* 🔴 空态区分"确实没有"与"筛掉了"——两者对用户的意思完全不同 */}
+              <EmptyTitle>
+                {history.length === 0 ? t("history.emptyTitle") : t("history.noMatch")}
+              </EmptyTitle>
+              <EmptyHint>
+                {history.length === 0 ? t("history.emptyHint") : t("history.noMatchHint")}
+              </EmptyHint>
+            </Empty>
+          ) : (
+            visibleHistory.map((entry) => (
+              <EditRow key={entry.id}>
+                <span style={{ width: 130, fontSize: 12 }}>{entry.finishedAtText}</span>
+                <span style={{ width: 70, fontSize: 12 }}>
+                  {t(`history.dir.${entry.direction}`)}
+                </span>
+                <span style={{ width: 50, fontSize: 12 }}>{t("history.kindFile")}</span>
+                <span style={{ flex: 1, fontSize: 13, minWidth: 0 }}>{entry.fileName}</span>
+                <MonoInput readOnly value={entry.peerLabel} style={{ width: 130 }} />
+                <span style={{ width: 80, fontSize: 12, textAlign: "right" }}>
+                  {formatBytes(entry.fileSize)}
+                </span>
+                <span style={{ width: 60, fontSize: 12 }}>{t(`tasks.state.${entry.state}`)}</span>
+                {/* 🔴 失败/跳过/取消必须带原因——R-29：不摆无解释的红字 */}
+                {entry.reasonCode !== null && (
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11.5,
+                      color: "var(--aegis-mute)",
+                    }}
+                    title={entry.reasonText}
+                  >
+                    {entry.reasonCode}
+                  </span>
+                )}
+              </EditRow>
+            ))
+          )}
         </Board>
       </Card>
 

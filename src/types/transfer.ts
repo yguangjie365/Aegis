@@ -131,7 +131,45 @@ export const CODE_CONFIRM_GONE = "CONFIRM_GONE";
  * 只作用于本次接收，**不写设置**——用户在弹窗里选「覆盖」，
  * 不该把他下次的默认行为一并改掉。
  */
+/**
+ * **本次传输**可选的冲突策略（接收确认弹窗的「同名文件」三个选项）。
+ *
+ * 🔴 定义在 DTO 层而不是组件里：门面（`lib/tauri`）也要用它，
+ * 而 `lib` 依赖 `features` 是分层倒挂。
+ *
+ * 只作用于本次接收，**不写设置**——用户在弹窗里选「覆盖」，
+ * 不该把他下次的默认行为一并改掉。
+ */
 export type PerTransferPolicy = "rename" | "ask" | "skip" | "overwrite";
+
+/**
+ * 一条传输历史（F-FT-54）。
+ *
+ * 🔴 `reasonText` 与 `finishedAtText` 由**后端**算好：
+ * 界面与 CSV 若各格式化一遍，就会有两处口径漂移。
+ */
+export interface TransferHistoryEntry {
+  id: string;
+  direction: "send" | "receive";
+  peerLabel: string;
+  fileName: string;
+  fileSize: number;
+  state: TransferTaskState;
+  reasonCode: string | null;
+  /** 原因说明（🔴 未知码原样回显，不硬翻——F-FT-31 末句） */
+  reasonText: string;
+  finishedAtMs: number;
+  /** 本地时区的可读时间 */
+  finishedAtText: string;
+}
+
+/**
+ * 一条历史在界面上的「类型」列。
+ *
+ * 🟠 片1 只有文件通道，故恒为「文件」；文本通道（F-FT-32~36）落地后
+ * 这里要按条目区分——**现在不假装有类型字段**（规格里 CSV 也没有这一列）。
+ */
+export type HistoryKind = "file";
 
 /** 任务状态（与后端 `TaskState::as_str` 一字不差）。 */
 export type TransferTaskState = "active" | "completed" | "skipped" | "failed" | "cancelled";

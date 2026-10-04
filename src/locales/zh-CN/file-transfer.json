@@ -180,6 +180,15 @@
     "emptyTitle": "暂无传输历史",
     "emptyHint": "完成传输后会自动记录到此处",
     "noMatch": "无匹配记录",
+    "noMatchHint": "当前筛选条件下没有记录；清空筛选可看全部。",
+    "exportTitle": "导出传输历史",
+    "exported": "已导出 CSV（含 UTF-8 BOM，Excel 可直接打开）。",
+    "exportFailed": "导出失败：{{reason}}",
+    "kindFile": "文件",
+    "dir": {
+      "send": "发送",
+      "receive": "接收"
+    },
     "col": {
       "time": "时间",
       "direction": "方向",

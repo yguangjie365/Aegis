@@ -11,13 +11,15 @@
 import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { BackendUnavailableError } from "@/lib/tauri/invoke";
 import { REFRESH_INTERVAL_MS, usePageLiveness } from "@/lib/timing/use-tick";
 import {
   asTransferError,
   cancelTransferTask,
+  exportTransferHistory,
   fetchTransferStatus,
+  listTransferHistory,
   listTransferPeers,
   listTransferTasks,
   loadTransferSettings,
@@ -32,6 +34,7 @@ export const TRANSFER_STATUS_KEY = ["transfer", "status"] as const;
 export const TRANSFER_SETTINGS_KEY = ["transfer", "settings"] as const;
 export const TRANSFER_PEERS_KEY = ["transfer", "peers"] as const;
 export const TRANSFER_TASKS_KEY = ["transfer", "tasks"] as const;
+export const TRANSFER_HISTORY_KEY = ["transfer", "history"] as const;
 
 /**
  * 本域统一的 retry 策略（与 overview 同口径）。
@@ -166,6 +169,45 @@ export function useCancelTransferTask() {
     onSettled: () => {
       // 无论取消到没取消到都重取：取消成功要让状态变，点慢了要让界面看到真实状态
       void queryClient.invalidateQueries({ queryKey: TRANSFER_TASKS_KEY });
+    },
+  });
+}
+
+/**
+ * 传输历史（F-FT-54）。
+ *
+ * 🔴 与设备列表同一节拍：历史只在传输收尾时变，不必更密。
+ * 服务未运行时后端返回空表 ⇒ 界面显示空态而非失败态。
+ */
+export function useTransferHistory() {
+  const live = usePageLiveness();
+  return useQuery({
+    queryKey: TRANSFER_HISTORY_KEY,
+    queryFn: listTransferHistory,
+    enabled: live,
+    refetchInterval: live ? REFRESH_INTERVAL_MS : false,
+    retry: (count, error) => !(error instanceof BackendUnavailableError) && count < 1,
+  });
+}
+
+/**
+ * 导出历史为 CSV（F-FT-58）。
+ *
+ * 🔴 路径从**保存对话框**来，写盘由**后端**做（原子写，且不必引入 fs 插件）。
+ * 用户取消 ⇒ `"cancelled"`，调用方应视作**什么都没发生**（不是错误）。
+ */
+export function useExportTransferHistory() {
+  const { t } = useTranslation("fileTransfer");
+  return useMutation({
+    mutationFn: async (): Promise<"exported" | "cancelled"> => {
+      const target = await save({
+        title: t("history.exportTitle"),
+        defaultPath: "文件互传历史.csv",
+        filters: [{ name: "CSV", extensions: ["csv"] }],
+      });
+      if (target === null) return "cancelled";
+      await exportTransferHistory(target);
+      return "exported";
     },
   });
 }
