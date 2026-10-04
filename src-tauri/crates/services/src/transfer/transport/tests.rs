@@ -654,3 +654,212 @@ fn peer_that_never_speaks_is_cut_off_by_the_read_timeout() {
     }
     let _ = fs::remove_dir_all(&dir);
 }
+
+// ── 文本事务（F-FT-33/34） ────────────────────────────────────────────────
+//
+// 🔴 这些用例**一律注入 `commit`**，绝不碰真实剪贴板：
+//    第 45 轮那次 `STATUS_HEAP_CORRUPTION` 就是并发操作真实剪贴板造成的
+//    （详见 `infra::clipboard` 模块头）。
+
+/// 一律准入（文本侧的白名单/配对另有专测，这里只测传输流程）。
+fn admit_text(_facts: &TextFacts<'_>) -> Admission {
+    Admission::Admitted {
+        disk_unknown: false,
+    }
+}
+
+#[test]
+fn text_round_trip_reports_delivered_when_commit_succeeds() {
+    let (addr, server) = spawn_server(1, |stream| {
+        let cancel = CancellationToken::new();
+        receive_text(&stream, admit_text, |_text| Ok(()), &cancel)
+    });
+    let stream = connect(addr);
+    let cancel = CancellationToken::new();
+    let outcome = send_text(
+        &stream,
+        "你好，互传 🚀",
+        "t-text-1",
+        Some("测试机"),
+        &cancel,
+    )
+    .expect("发送文本");
+    assert_eq!(outcome, TextOutcome::Delivered);
+    assert_eq!(
+        server.join().unwrap()[0].as_ref().unwrap(),
+        &TextOutcome::Delivered
+    );
+}
+
+/// 🔴 F-FT-34 的红线：**交付失败必须回 `CLIPBOARD_WRITE_FAILED`，不许回"已送达"**。
+///
+/// 这条不守，用户会看到"发送成功"而对方剪贴板里什么都没有——
+/// 一个**两头都无从察觉**的谎言。
+#[test]
+fn text_commit_failure_surfaces_clipboard_write_failed_not_delivered() {
+    let (addr, server) = spawn_server(1, |stream| {
+        let cancel = CancellationToken::new();
+        // 模拟"剪贴板被占用/写不进去"
+        receive_text(
+            &stream,
+            admit_text,
+            |_text| Err("剪贴板被其它程序占用".to_owned()),
+            &cancel,
+        )
+    });
+    let stream = connect(addr);
+    let cancel = CancellationToken::new();
+    let outcome = send_text(&stream, "写不进去的文本", "t-text-2", None, &cancel)
+        .expect("发送文本（业务性拒绝不算传输错误）");
+    let expected = TextOutcome::Rejected {
+        reason_code: crate::transfer::reasons::CLIPBOARD_WRITE_FAILED.to_owned(),
+    };
+    assert_eq!(
+        outcome, expected,
+        "交付失败必须如实回传 CLIPBOARD_WRITE_FAILED"
+    );
+    assert_ne!(outcome, TextOutcome::Delivered, "绝不能回已送达");
+    assert_eq!(server.join().unwrap()[0].as_ref().unwrap(), &expected);
+}
+
+#[test]
+fn text_admission_rejection_returns_the_gate_reason() {
+    let (addr, server) = spawn_server(1, |stream| {
+        let cancel = CancellationToken::new();
+        receive_text(
+            &stream,
+            |_facts| Admission::Rejected {
+                gate: Gate::Whitelist,
+                reason: crate::transfer::reasons::PEER_NOT_DISCOVERED,
+            },
+            |_text| Ok(()),
+            &cancel,
+        )
+    });
+    let stream = connect(addr);
+    let cancel = CancellationToken::new();
+    let outcome = send_text(&stream, "应被白名单拒", "t-text-3", None, &cancel).expect("发送");
+    assert_eq!(
+        outcome,
+        TextOutcome::Rejected {
+            reason_code: crate::transfer::reasons::PEER_NOT_DISCOVERED.to_owned()
+        }
+    );
+    let _ = server.join();
+}
+
+/// 声明字节数与实际 body 不符 ⇒ 拒收并回 `TEXT_TOO_LONG`，
+/// 🔴 **不按声明值裁剪**（宁可拒绝，也不交付半个文本）。
+#[test]
+fn text_with_a_lying_byte_count_is_rejected_not_truncated() {
+    let (addr, server) = spawn_server(1, |stream| {
+        let cancel = CancellationToken::new();
+        // 服务端走**真实**接收流程；客户端手写一条畸形帧
+        receive_text(&stream, admit_text, |_text| Ok(()), &cancel)
+    });
+    let stream = connect(addr);
+    // 畸形：声明 999 字节，实际只写 3 字节
+    let mut writer = &stream;
+    write_frame(
+        &mut writer,
+        &TransferMessage::Text {
+            task_id: "t-lying".to_owned(),
+            chars: 3,
+            bytes: 999,
+            from_device: None,
+        },
+        b"abc",
+    )
+    .expect("写畸形帧");
+
+    // 读回执：必须是拒收且码为 TEXT_TOO_LONG
+    let mut reader = FrameReader::new(&stream);
+    let (message, _) = reader.read_frame().expect("读回执");
+    match message {
+        TransferMessage::TextAck {
+            ok, reason_code, ..
+        } => {
+            assert!(!ok, "畸形帧不得被当成已交付");
+            assert_eq!(
+                reason_code.as_deref(),
+                Some(crate::transfer::reasons::TEXT_TOO_LONG)
+            );
+        }
+        other => panic!("应收到 TextAck，实得 {other:?}"),
+    }
+    let received = server.join().unwrap()[0].as_ref().unwrap().clone();
+    assert_eq!(
+        received,
+        TextOutcome::Rejected {
+            reason_code: crate::transfer::reasons::TEXT_TOO_LONG.to_owned()
+        }
+    );
+}
+
+#[test]
+fn receive_text_refuses_a_non_text_first_frame() {
+    let (addr, server) = spawn_server(1, |stream| {
+        let cancel = CancellationToken::new();
+        receive_text(&stream, admit_text, |_text| Ok(()), &cancel)
+    });
+    let stream = connect(addr);
+    let mut writer = &stream;
+    write_frame(
+        &mut writer,
+        &TransferMessage::Handshake {
+            task_id: "x".to_owned(),
+            file_name: "a.bin".to_owned(),
+            file_size: 1,
+            file_hash: "h".to_owned(),
+            chunk_size: 2 * 1024 * 1024,
+            file_modified_at_ms: None,
+            pair_code: None,
+        },
+        &[],
+    )
+    .expect("写帧");
+    let result = server.join().unwrap();
+    assert!(
+        result[0].is_err(),
+        "第一帧不是 Text 时应报错，而不是当成文本交付"
+    );
+}
+
+#[test]
+fn text_round_trip_preserves_multibyte_and_emoji() {
+    let (addr, server) = spawn_server(1, |stream| {
+        let cancel = CancellationToken::new();
+        receive_text(
+            &stream,
+            admit_text,
+            |text| {
+                // 交付侧看到的必须与发送侧一模一样（多字节/表情/制表/换行都不许变）
+                assert_eq!(text, "中文🚀\ttab\n换行");
+                Ok(())
+            },
+            &cancel,
+        )
+    });
+    let stream = connect(addr);
+    let cancel = CancellationToken::new();
+    let outcome = send_text(&stream, "中文🚀\ttab\n换行", "t-mb", None, &cancel).expect("发送");
+    assert_eq!(outcome, TextOutcome::Delivered, "发送方应看到已交付");
+    // 服务端也必须报已交付（交付侧那条 assert_eq 已经验过正文逐字相同）
+    assert_eq!(
+        server.join().unwrap()[0].as_ref().unwrap(),
+        &TextOutcome::Delivered
+    );
+}
+
+#[test]
+fn empty_text_is_a_valid_transaction() {
+    let (addr, server) = spawn_server(1, |stream| {
+        let cancel = CancellationToken::new();
+        receive_text(&stream, admit_text, |_text| Ok(()), &cancel)
+    });
+    let stream = connect(addr);
+    let cancel = CancellationToken::new();
+    let outcome = send_text(&stream, "", "t-empty", None, &cancel).expect("发送空文本");
+    assert_eq!(outcome, TextOutcome::Delivered);
+    let _ = server.join();
+}

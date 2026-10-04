@@ -651,5 +651,188 @@ pub fn receive_file(
     }
 }
 
+/// 文本事务的事实（准入判定用；文件侧对应 [`HandshakeFacts`]）。
+///
+/// 🔴 文本**没有**文件那些闸门（分块大小 / 文件大小上限 / 磁盘余量都不适用），
+/// 适用的是：**来源白名单**、**配对**、以及**接收前询问**。
+pub struct TextFacts<'a> {
+    pub task_id: &'a str,
+    /// 发送方声明的字符数（F-FT-32 的"137 字"，按 Unicode 标量）
+    pub chars: u64,
+    /// 发送方声明的 UTF-8 字节数
+    pub bytes: u64,
+    pub from_device: Option<&'a str>,
+    /// 本次运行期所需的配对凭据（免码地址可省）
+    pub pair_code: Option<&'a str>,
+}
+
+/// 文本事务的结论。
+///
+/// 🔴 [`TextOutcome::Delivered`] 在**电脑通道**上的含义是**剪贴板写入成功**——
+/// 这正是 F-FT-34 那条红线：写不进去就必须是 `Rejected`，**不许回"已送达"**。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TextOutcome {
+    Delivered,
+    Rejected { reason_code: String },
+}
+
+/// 发送一条文本（F-FT-33）。
+///
+/// 🔴 等回执用的是 [`HANDSHAKE_WAIT`] 而不是 [`IO_TIMEOUT`]：接收端要先把
+/// "接收前询问"问完才回执，30 秒的常规超时会让发送方在用户还没点之前就失败
+/// （文件侧踩过这个坑，见 [`HANDSHAKE_WAIT`] 的文档）。
+///
+/// # Errors
+/// 编码失败、底层写失败、或读回执失败。
+pub fn send_text(
+    stream: &TcpStream,
+    text: &str,
+    task_id: &str,
+    from_device: Option<&str>,
+    cancel: &CancellationToken,
+) -> Result<TextOutcome, TransportError> {
+    let mut writer = stream;
+    let mut reader = FrameReader::new(stream);
+    let chars = super::text::char_count(text) as u64;
+    let bytes = super::text::byte_count(text) as u64;
+
+    write_frame(
+        &mut writer,
+        &TransferMessage::Text {
+            task_id: task_id.to_owned(),
+            chars,
+            bytes,
+            from_device: from_device.map(str::to_owned),
+        },
+        text.as_bytes(),
+    )?;
+
+    if cancel.is_cancelled() {
+        return Ok(TextOutcome::Rejected {
+            reason_code: super::reasons::USER_CANCEL.to_owned(),
+        });
+    }
+
+    let _ = stream.set_read_timeout(Some(HANDSHAKE_WAIT));
+    let ack = reader.read_frame();
+    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
+    let (message, _) = ack?;
+    match message {
+        TransferMessage::TextAck {
+            ok, reason_code, ..
+        } => {
+            if ok {
+                Ok(TextOutcome::Delivered)
+            } else {
+                Ok(TextOutcome::Rejected {
+                    reason_code: reason_code.unwrap_or_else(|| "UNKNOWN".to_owned()),
+                })
+            }
+        }
+        TransferMessage::Error {
+            reason_code,
+            message,
+            ..
+        } => Err(TransportError::Unexpected(Box::leak(
+            format!("对端报错 {reason_code} {}", message.unwrap_or_default()).into_boxed_str(),
+        ))),
+        _ => Err(TransportError::Unexpected("等文本回执时收到别的帧")),
+    }
+}
+
+/// 接收一条文本（F-FT-34：**成功定义就是 `commit` 成功**）。
+///
+/// `commit` 是"把文本变成交付"的那一步（电脑通道上是写剪贴板）。
+/// 🔴 之所以注入而不是直接调 `infra::clipboard`：单测不该动**用户真实的剪贴板**
+/// （第 45 轮那次堆损坏就是并发碰真实剪贴板造成的）。
+///
+/// # Errors
+/// 读帧失败、写回执失败。业务性拒绝走 `Ok(TextOutcome::Rejected { .. })`。
+pub fn receive_text(
+    stream: &TcpStream,
+    admit: impl FnOnce(&TextFacts<'_>) -> Admission,
+    commit: impl FnOnce(&str) -> Result<(), String>,
+    cancel: &CancellationToken,
+) -> Result<TextOutcome, TransportError> {
+    let mut writer = stream;
+    let mut reader = FrameReader::new(stream);
+
+    let (message, body) = reader.read_frame()?;
+    let TransferMessage::Text {
+        task_id,
+        chars,
+        bytes,
+        from_device,
+    } = message
+    else {
+        return Err(TransportError::Unexpected("文本事务的第一帧必须是 Text"));
+    };
+
+    let text = String::from_utf8_lossy(&body).into_owned();
+    let facts = TextFacts {
+        task_id: &task_id,
+        chars,
+        bytes,
+        from_device: from_device.as_deref(),
+        pair_code: None,
+    };
+
+    let reply = |writer: &mut &TcpStream, ok: bool, reason: Option<String>| {
+        write_frame(
+            writer,
+            &TransferMessage::TextAck {
+                task_id: task_id.clone(),
+                ok,
+                reason_code: reason.clone(),
+            },
+            &[],
+        )
+        .map(|()| reason)
+    };
+
+    // 声明的字节数与实际 body 不符 ⇒ 拒收（🔴 不按声明值裁剪，宁可拒绝也不交付半个文本）
+    if bytes as usize != body.len() {
+        let reason = super::reasons::TEXT_TOO_LONG.to_owned();
+        let _ = reply(&mut writer, false, Some(reason.clone()));
+        return Ok(TextOutcome::Rejected {
+            reason_code: reason,
+        });
+    }
+
+    let verdict = admit(&facts);
+    if let Admission::Rejected { reason, .. } = verdict {
+        let reason = reason.to_owned();
+        let _ = reply(&mut writer, false, Some(reason.clone()));
+        return Ok(TextOutcome::Rejected {
+            reason_code: reason,
+        });
+    }
+
+    // 与文件侧同口径：取消/断开也要如实收场
+    if cancel.is_cancelled() {
+        let reason = super::reasons::USER_CANCEL.to_owned();
+        let _ = reply(&mut writer, false, Some(reason.clone()));
+        return Ok(TextOutcome::Rejected {
+            reason_code: reason,
+        });
+    }
+
+    // 准入通过 ⇒ 交付。🔴 交付失败的原因码是 CLIPBOARD_WRITE_FAILED，
+    //    而不是"已送达"——这正是 F-FT-34 的落点。
+    match commit(&text) {
+        Ok(()) => {
+            let _ = reply(&mut writer, true, None);
+            Ok(TextOutcome::Delivered)
+        }
+        Err(_detail) => {
+            let reason = super::reasons::CLIPBOARD_WRITE_FAILED.to_owned();
+            let _ = reply(&mut writer, false, Some(reason.clone()));
+            Ok(TextOutcome::Rejected {
+                reason_code: reason,
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;
