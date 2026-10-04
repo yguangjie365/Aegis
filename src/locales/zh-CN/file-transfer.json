@@ -68,6 +68,25 @@
     "retry": "重试",
     "sending": "正在发送 {{count}} 个文件…"
   },
+  "recvConfirm": {
+    "title": "接收到文件请求",
+    "countdown": "{{seconds}} 秒后按拒绝",
+    "queued": "还有 {{count}} 条",
+    "from": "来自",
+    "fileName": "文件名",
+    "fileSize": "大小",
+    "saveTo": "保存到",
+    "diskFree": "磁盘剩余",
+    "diskUnknown": "无法判定（网络路径或卷未就绪）",
+    "diskUnknownNote": "空间无法判定：放行但记录（R-12）。若放不下，传输会在中途失败并给出原因码。",
+    "conflictTitle": "同名文件已存在",
+    "conflictHow": "如何处理：",
+    "reject": "拒绝",
+    "accept": "接收",
+    "ok": "好",
+    "hint": "回车不会选择；请点击按钮",
+    "gone": "该请求已超时并按拒绝处理，无法再接收。"
+  },
   "conflict": {
     "rename": "自动改名（推荐）",
     "ask": "每次询问",

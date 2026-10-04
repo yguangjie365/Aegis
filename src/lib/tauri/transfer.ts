@@ -14,6 +14,7 @@ import { invoke } from "./invoke";
 import type { LogModule } from "@/lib/logging";
 import type {
   PendingConfirm,
+  PerTransferPolicy,
   SendFilePayload,
   SendResult,
   SettingsLoaded,
@@ -94,12 +95,21 @@ export async function listPendingConfirms(): Promise<PendingConfirm[]> {
 /**
  * 答复一条待决确认（`accept=false` 即拒绝）。
  *
+ * `conflictPolicy` 是**本次传输**的冲突策略覆盖（`rename` / `overwrite` / `skip`）；
+ * 省略即沿用设置。🔴 它**不写设置**——用户在弹窗里选「覆盖」，
+ * 不该把他下次的默认行为一并改掉。
+ *
  * 🔴 失败**不是**可以忽略的：`CONFIRM_GONE` 表示"你点慢了，那条请求已按拒绝处理"，
  * 界面必须如实说，而不是显示"已接收"。
  */
-export async function confirmReceive(id: string, accept: boolean): Promise<void> {
+export async function confirmReceive(
+  id: string,
+  accept: boolean,
+  conflictPolicy?: PerTransferPolicy,
+): Promise<void> {
   await invoke<void>("transfer_confirm_receive", TRANSFER, "transferConfirmReceive", {
     id,
     accept,
+    conflictPolicy: conflictPolicy ?? null,
   });
 }

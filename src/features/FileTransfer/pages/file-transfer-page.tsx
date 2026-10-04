@@ -5,6 +5,8 @@ import { AppButton } from "@/ui/components/app-button";
 import { PageHeader } from "@/ui/components/page-header";
 import { log, newCorrelationId } from "@/lib/logging";
 import { PairCodeDialog } from "../components/pair-code-dialog";
+import { ReceiveConfirmDialog } from "../components/receive-confirm-dialog";
+import { useReceiveConfirms, useResolveReceiveConfirm } from "../hooks/use-receive-confirms";
 import { useTransferDrop } from "../hooks/use-transfer-drop";
 import {
   usePickFilesToSend,
@@ -400,6 +402,15 @@ export function FileTransferPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const send = useSendTransferFile();
   const pickFiles = usePickFilesToSend();
+
+  // ── 接收确认（F-FT-14 / R-8；布局经用户 2026-10-04 确认） ──
+  // 🔴 一次只显示一条（用户裁决：多请求**排队**），队列长度显示在标题旁。
+  const confirmsQuery = useReceiveConfirms();
+  const resolveConfirm = useResolveReceiveConfirm();
+  const confirmQueue = useMemo(() => confirmsQuery.data ?? [], [confirmsQuery.data]);
+  const currentConfirm = confirmQueue.at(0) ?? null;
+  const confirmError =
+    resolveConfirm.error !== null ? asTransferError(resolveConfirm.error).message : null;
 
   // ── 配对码对话框与发送编排（布局经用户 2026-10-04 确认，方案 A） ──
   // 三条发送路径（拖放 / 已知设备行 / 所选设备按钮）**都经 `requestSend`**：
@@ -1115,6 +1126,17 @@ export function FileTransferPage() {
           setPairError(null);
         }}
         onConfirm={confirmPair}
+      />
+      {/* 接收确认弹窗（F-FT-14；布局经用户确认，含"回车不默认拒绝、拒绝需点击"） */}
+      <ReceiveConfirmDialog
+        pending={currentConfirm}
+        queuedCount={Math.max(0, confirmQueue.length - 1)}
+        busy={resolveConfirm.isPending}
+        error={confirmError}
+        onResolve={(accept, policy) => {
+          if (currentConfirm === null) return;
+          resolveConfirm.mutate({ id: currentConfirm.id, accept, policy });
+        }}
       />
     </Wrap>
   );

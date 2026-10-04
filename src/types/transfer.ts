@@ -121,3 +121,14 @@ export interface PendingConfirm {
 
 /** 答复待决确认时的专属失败码。 */
 export const CODE_CONFIRM_GONE = "CONFIRM_GONE";
+
+/**
+ * **本次传输**可选的冲突策略（接收确认弹窗的「同名文件」三个选项）。
+ *
+ * 🔴 定义在 DTO 层而不是组件里：门面（`lib/tauri`）也要用它，
+ * 而 `lib` 依赖 `features` 是分层倒挂。
+ *
+ * 只作用于本次接收，**不写设置**——用户在弹窗里选「覆盖」，
+ * 不该把他下次的默认行为一并改掉。
+ */
+export type PerTransferPolicy = "rename" | "ask" | "skip" | "overwrite";
