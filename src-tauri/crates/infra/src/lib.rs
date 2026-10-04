@@ -18,6 +18,7 @@
 pub mod fs;
 // M-01 片2-c（2026-10-03）：显示器分辨率/刷新率 + EDID 注册表读（FFI 层，准入表 §一）。
 #[cfg(windows)]
+pub mod clipboard;
 pub mod display;
 pub mod net_tcp_table;
 // M-01 片2-b（2026-10-03）：静态硬件采集的两条 FFI 通道（WMI/COM、NVML/libloading）

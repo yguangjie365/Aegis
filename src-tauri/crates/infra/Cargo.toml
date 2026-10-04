@@ -35,6 +35,10 @@ windows-sys = { version = "0.59", features = [
     "Win32_Storage_FileSystem",
     "Win32_Security",
     "Win32_System_IO",
+    # 剪贴板（F-FT-33 从剪贴板读入 / F-FT-34 接收文本=剪贴板写入成功）：
+    # OpenClipboard / SetClipboardData / GlobalAlloc 所需
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
 ] }
 
 [lints]
