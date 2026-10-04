@@ -8,10 +8,28 @@
     },
     "status": {
       "stopped": "服务未启动",
+      "starting": "正在启动…",
+      "stopping": "正在停止…",
       "desktopRunning": "电脑互传运行中",
       "mobileRunning": "手机通道运行中",
-      "bothRunning": "服务运行中（双通道）"
+      "bothRunning": "服务运行中（双通道）",
+      "statusUnavailable": "状态未知（{{reason}}）"
     }
+  },
+  "service": {
+    "startFailed": "启动失败：{{reason}}",
+    "stopIncomplete": "停止不完整：{{reason}}",
+    "stopFailed": "停止失败：{{reason}}",
+    "notRunning": "服务未在运行",
+    "alreadyRunning": "服务已在运行",
+    "unsupportedPort": "端口设置非法，未启动任何监听"
+  },
+  "settings": {
+    "fileMissing": "尚无配置文件，当前为出厂默认值（首次运行属正常）。",
+    "corrupt": "配置文件损坏，已回退为出厂默认值。",
+    "repairs": "已自动修复：{{detail}}",
+    "saveFailed": "保存设置失败：{{reason}}",
+    "saved": "设置已保存"
   },
   "local": {
     "title": "本机与服务",
@@ -33,6 +51,13 @@
     "stop": "停止服务",
     "browse": "选择…",
     "open": "打开"
+  },
+  "pairing": {
+    "label": "配对码",
+    "placeholder": "——————",
+    "notStarted": "启动服务后生成配对码",
+    "expiresIn": "{{time}} 后轮换",
+    "expiringSoon": "即将轮换"
   },
   "conflict": {
     "rename": "自动改名（推荐）",
@@ -70,7 +95,15 @@
     "sendToSelected": "发送文件到所选设备",
     "dragHint": "提示：也可把文件拖到目标设备行上",
     "emptyTitle": "未发现设备",
-    "emptyHint": "服务启动后会自动监听；也可点「刷新」立即重列"
+    "emptyHint": "服务启动后会自动监听；也可点「刷新」立即重列",
+    "emptyNotStarted": "服务未启动，不会发现任何设备；请先「启动服务」。",
+    "loadFailed": "读取设备列表失败：{{reason}}"
+  },
+  "send": {
+    "failed": "发送失败：{{reason}}",
+    "delivered": "已送达",
+    "skipped": "对端已跳过",
+    "hashMismatch": "校验不符（对端已丢弃该文件）"
   },
   "text": {
     "title": "文本 / 文件 / 剪贴板",

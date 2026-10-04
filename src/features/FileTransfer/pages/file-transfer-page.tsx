@@ -1,8 +1,19 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styled from "@emotion/styled";
 import { AppButton } from "@/ui/components/app-button";
 import { PageHeader } from "@/ui/components/page-header";
+import {
+  useRefreshTransferPeers,
+  useSaveTransferSettings,
+  useTransferPeers,
+  useTransferServiceControl,
+  useTransferSettings,
+  useTransferStatus,
+} from "../hooks/use-transfer";
+import { asTransferError } from "@/lib/tauri/transfer";
+import type { TransferSettings } from "@/types/transfer";
+import { formatCountdown, isExpiringSoon } from "../lib/countdown";
 import { validate, sizeLine } from "../lib/text-metrics";
 
 /**
@@ -292,28 +303,87 @@ const Badge = styled.span<{ on?: boolean }>`
 export function FileTransferPage() {
   const { t } = useTranslation("fileTransfer");
 
-  // 🟠 本批无后端命令面：服务恒为"未启动"。接命令后由真实运行态驱动（F-FT-02/03）。
-  const serviceRunning = false;
+  // ── 后端状态（M-05 片1 命令面，2026-10-04 接线） ──
+  // 🔴 不做乐观更新：`serviceRunning` 一律取自后端快照（R-08「状态诚实」）。
+  const statusQuery = useTransferStatus();
+  const settingsQuery = useTransferSettings();
+  const peersQuery = useTransferPeers();
+  const control = useTransferServiceControl();
+  const saveSettings = useSaveTransferSettings();
+  const refreshPeers = useRefreshTransferPeers();
+
+  const status = statusQuery.data;
+  const serviceRunning = status?.running ?? false;
+  const loaded = settingsQuery.data;
+  const persisted = loaded?.settings;
+
+  // 表单是本机编辑副本；设置载入成功后灌一次，此后由用户编辑驱动
   const [receiveDir, setReceiveDir] = useState("");
   const [tcpPort, setTcpPort] = useState("18889");
   const [udpPort, setUdpPort] = useState("18888");
   const [policy, setPolicy] = useState("rename");
   const [knownPeerOnly, setKnownPeerOnly] = useState(true);
   // 🔴 Q-15 裁决（2026-10-04，用户）：接收前询问**默认开启**，全链路统一。
+  // 该初值是"载入前"的占位；载入后由后端设置覆盖（后端默认同样为开）。
   const [askBeforeReceive, setAskBeforeReceive] = useState(true);
   const [text, setText] = useState("");
   const [logOpen, setLogOpen] = useState(true);
+  const [seeded, setSeeded] = useState(false);
+
+  useEffect(() => {
+    if (seeded || persisted === undefined) return;
+    setReceiveDir(persisted.receiveDirectory ?? "");
+    setTcpPort(String(persisted.transferPort));
+    setUdpPort(String(persisted.discoveryPort));
+    setPolicy(persisted.conflictPolicy);
+    setKnownPeerOnly(persisted.requireKnownPeer);
+    setAskBeforeReceive(persisted.requireReceiveConfirmation);
+    setSeeded(true);
+  }, [persisted, seeded]);
+
+  /** 提交一次设置变更（F-FT-59：合法即自动保存，无需"保存"按钮）。 */
+  const commit = useCallback(
+    (patch: Partial<TransferSettings>) => {
+      if (persisted === undefined) return;
+      saveSettings.mutate({ ...persisted, ...patch });
+    },
+    [persisted, saveSettings],
+  );
 
   const textValidation = useMemo(() => validate(text), [text]);
+
+  /** 服务动作的失败文案（R-28：失败必须可见，不静默）。 */
+  const actionError =
+    control.start.error !== null
+      ? t("service.startFailed", { reason: asTransferError(control.start.error).message })
+      : control.stop.error !== null
+        ? t("service.stopFailed", { reason: asTransferError(control.stop.error).message })
+        : null;
+
+  /** 停止"不完整"时如实提示（R-28：不得宣称已停止）。 */
+  const stopIncomplete =
+    control.stop.data !== undefined && !control.stop.data.allStopped
+      ? t("service.stopIncomplete", { reason: control.stop.data.message })
+      : null;
+
+  const peers = peersQuery.data ?? [];
+  const peerError = peersQuery.error !== null ? asTransferError(peersQuery.error).message : null;
 
   return (
     <Wrap>
       <PageHeader
         title={t("page.title")}
-        sub={t("page.sub", { devices: 0, tasks: 0 })}
+        sub={t("page.sub", {
+          devices: peers.length,
+          tasks: 0, // 任务视图随传输任务批接入；此处不摆占位数字（R-29）
+        })}
         actions={
           <Badge on={serviceRunning}>
-            {serviceRunning ? t("page.status.desktopRunning") : t("page.status.stopped")}
+            {statusQuery.isPending
+              ? t("page.status.stopped")
+              : serviceRunning
+                ? t("page.status.desktopRunning")
+                : t("page.status.stopped")}
           </Badge>
         }
       />
@@ -334,22 +404,63 @@ export function FileTransferPage() {
         <CardHead>
           <CardTitle>{t("local.title")}</CardTitle>
           <Acts>
-            <AppButton variant="secondary" size="sm">
-              {serviceRunning ? t("local.stop") : t("local.start")}
+            {/* 🔴 启停是**后端定论**：按钮在动作在飞时禁用，失败一律显示原因（R-28） */}
+            <AppButton
+              variant={serviceRunning ? "secondary" : "primary"}
+              size="sm"
+              disabled={control.busy || settingsQuery.isPending}
+              onClick={() => {
+                if (serviceRunning) {
+                  control.stop.mutate();
+                } else {
+                  control.start.mutate();
+                }
+              }}
+            >
+              {control.busy
+                ? serviceRunning
+                  ? t("page.status.stopping")
+                  : t("page.status.starting")
+                : serviceRunning
+                  ? t("local.stop")
+                  : t("local.start")}
             </AppButton>
           </Acts>
         </CardHead>
+        {/* 失败与"停止不完整"都必须可见（禁止静默失败 / R-28） */}
+        {actionError !== null && <Hint span>{actionError}</Hint>}
+        {stopIncomplete !== null && <Hint span>{stopIncomplete}</Hint>}
+        {loaded?.corrupt === true && <Hint span>{t("settings.corrupt")}</Hint>}
+        {loaded?.fileMissing === true && <Hint span>{t("settings.fileMissing")}</Hint>}
+        {loaded !== undefined && loaded.repairs.length > 0 && (
+          <Hint span>{t("settings.repairs", { detail: loaded.repairs.join("；") })}</Hint>
+        )}
         <Form>
           <Label>{t("local.deviceId")}</Label>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>—</span>
-          <span />
-          <span />
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>
+            {status?.deviceId ?? "—"}
+          </span>
+          <Label>{t("pairing.label")}</Label>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>
+            {status?.pairingCode ?? t("pairing.placeholder")}
+          </span>
+          {/* F-FT-38：服务未启动时说明"启动后生成"；运行中给出轮换剩余（本轮 2 秒粒度） */}
+          <Hint span>
+            {status?.pairingCode == null
+              ? t("pairing.notStarted")
+              : isExpiringSoon(status.pairingExpiresInMs)
+                ? t("pairing.expiringSoon")
+                : t("pairing.expiresIn", {
+                    time: formatCountdown(status.pairingExpiresInMs),
+                  })}
+          </Hint>
 
           <Label>{t("local.receiveDir")}</Label>
           <MonoInput
             value={receiveDir}
             placeholder={t("local.receiveDirMissing")}
             onChange={(e) => setReceiveDir(e.target.value)}
+            onBlur={() => commit({ receiveDirectory: receiveDir === "" ? null : receiveDir })}
           />
           <AppButton variant="secondary" size="sm">
             {t("local.browse")}
@@ -360,18 +471,47 @@ export function FileTransferPage() {
           <Hint span>{t("space.unknown")}</Hint>
 
           <Label>{t("local.tcpPort")}</Label>
-          <PortInput value={tcpPort} onChange={(e) => setTcpPort(e.target.value)} />
+          <PortInput
+            value={tcpPort}
+            onChange={(e) => setTcpPort(e.target.value)}
+            onBlur={() => {
+              const parsed = Number.parseInt(tcpPort, 10);
+              // 🔴 端口非法就**不提交**：后端 `validate_ports` 会拒，但让用户先改到合法值
+              // 比"提交后被拒再回退"体验好；合法值才落库（F-FT-10 的"非法输入只给行内错误"同取向）
+              if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) {
+                commit({ transferPort: parsed });
+              }
+            }}
+          />
           <Hint>{t("local.tcpPortTooltip")}</Hint>
           <span />
           <Label>{t("local.udpPort")}</Label>
-          <PortInput value={udpPort} onChange={(e) => setUdpPort(e.target.value)} />
+          <PortInput
+            value={udpPort}
+            onChange={(e) => setUdpPort(e.target.value)}
+            onBlur={() => {
+              const parsed = Number.parseInt(udpPort, 10);
+              if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) {
+                commit({ discoveryPort: parsed });
+              }
+            }}
+          />
           <Hint>{t("local.udpPortTooltip")}</Hint>
           <span />
           {/* F-FT-06：端口生效时机只描述当前事实 */}
-          <Hint span>{t("local.portHintStopped")}</Hint>
+          <Hint span>
+            {serviceRunning ? t("local.portHintRunning") : t("local.portHintStopped")}
+          </Hint>
 
           <Label>{t("local.conflict")}</Label>
-          <Select value={policy} onChange={(e) => setPolicy(e.target.value)}>
+          <Select
+            value={policy}
+            onChange={(e) => {
+              setPolicy(e.target.value);
+              // 离散控件：选定即提交（F-FT-59"合法即自动保存"）
+              commit({ conflictPolicy: e.target.value });
+            }}
+          >
             <option value="rename">{t("conflict.rename")}</option>
             <option value="ask">{t("conflict.ask")}</option>
             <option value="skip">{t("conflict.skip")}</option>
@@ -387,7 +527,10 @@ export function FileTransferPage() {
               <input
                 type="checkbox"
                 checked={knownPeerOnly}
-                onChange={(e) => setKnownPeerOnly(e.target.checked)}
+                onChange={(e) => {
+                  setKnownPeerOnly(e.target.checked);
+                  commit({ requireKnownPeer: e.target.checked });
+                }}
               />
               {t("local.requireKnownPeer")}
             </Check>
@@ -395,7 +538,10 @@ export function FileTransferPage() {
               <input
                 type="checkbox"
                 checked={askBeforeReceive}
-                onChange={(e) => setAskBeforeReceive(e.target.checked)}
+                onChange={(e) => {
+                  setAskBeforeReceive(e.target.checked);
+                  commit({ requireReceiveConfirmation: e.target.checked });
+                }}
               />
               {t("local.requireConfirm")}
             </Check>
@@ -443,17 +589,43 @@ export function FileTransferPage() {
           <CardHead>
             <CardTitle>{t("discovered.title")}</CardTitle>
             <Acts>
-              <Hint>{t("discovered.neverRefreshed")}</Hint>
-              <AppButton variant="secondary" size="sm">
+              {/* F-FT-08：刷新 = 立即重列当前快照，**不触发任何主动探测** */}
+              <Hint>
+                {peersQuery.dataUpdatedAt > 0
+                  ? t("discovered.lastRefresh", {
+                      time: new Date(peersQuery.dataUpdatedAt).toLocaleTimeString(),
+                    })
+                  : t("discovered.neverRefreshed")}
+              </Hint>
+              <AppButton variant="secondary" size="sm" onClick={refreshPeers}>
                 {t("discovered.refresh")}
               </AppButton>
             </Acts>
           </CardHead>
+          {peerError !== null && (
+            <Hint span>{t("discovered.loadFailed", { reason: peerError })}</Hint>
+          )}
           <List>
-            <Empty>
-              <EmptyTitle>{t("discovered.emptyTitle")}</EmptyTitle>
-              <EmptyHint>{t("discovered.emptyHint")}</EmptyHint>
-            </Empty>
+            {peers.length === 0 ? (
+              // 🔴 F-FT-08：空态**永远带原因**，不给一张无解释的空表
+              <Empty>
+                <EmptyTitle>{t("discovered.emptyTitle")}</EmptyTitle>
+                <EmptyHint>
+                  {serviceRunning ? t("discovered.emptyHint") : t("discovered.emptyNotStarted")}
+                </EmptyHint>
+              </Empty>
+            ) : (
+              peers.map((peer) => (
+                <EditRow key={peer.deviceId}>
+                  <Label>{t("discovered.online")}</Label>
+                  <span style={{ fontSize: 13 }}>{peer.deviceName}</span>
+                  <MonoInput readOnly value={`${peer.ip}:${peer.port}`} style={{ width: 178 }} />
+                  <AppButton variant="secondary" size="sm" style={{ marginLeft: "auto" }}>
+                    {t("discovered.addToKnown")}
+                  </AppButton>
+                </EditRow>
+              ))
+            )}
           </List>
           <EditRow>
             <AppButton variant="secondary" size="sm">
