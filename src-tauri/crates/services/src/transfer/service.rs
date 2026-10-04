@@ -208,6 +208,25 @@ impl ServiceContext {
         self.lock_cancels().remove(id);
     }
 
+    /// 从**台账**取一条任务的「耗时毫秒 + 平均速度」（F-FT-54 的快照字段）。
+    ///
+    /// 🔴 用台账的事实，而不是各站点自己算：
+    /// * `started_at_ms` 是任务**真正开始**的时刻（`begin` 那一下）；
+    /// * `transferred` 是**实际传了多少** —— 已跳过/失败的条目自然是 0，
+    ///   于是 [`super::history::average_speed_bps`] 会给出 `None`，
+    ///   历史里就不会替一个"没传成功"的任务报平均速度（那是把没发生的事说成发生了）。
+    ///
+    /// 任务已不在台账时退回 `(0, None)`：宁可不报，也不编。
+    fn history_facts(&self, id: &str) -> (u64, Option<u64>) {
+        let Some(task) = self.lock_tasks().get(id).cloned() else {
+            return (0, None);
+        };
+        let finished = task.finished_at_ms.unwrap_or_else(super::sink::now_unix_ms);
+        let duration_ms = u64::try_from(finished.saturating_sub(task.started_at_ms)).unwrap_or(0);
+        let speed = super::history::average_speed_bps(task.transferred, duration_ms);
+        (duration_ms, speed)
+    }
+
     fn lock_pauses(
         &self,
     ) -> std::sync::MutexGuard<'_, HashMap<String, std::sync::Arc<super::pause::PauseGate>>> {
@@ -768,6 +787,7 @@ impl TransferService {
         self.ctx.forget_cancel(&id);
         self.ctx.forget_pause(&id);
         // 记进历史（F-FT-54）：**快照**，之后不再改
+        let (duration_ms, avg_speed_bps) = self.ctx.history_facts(&id);
         self.ctx.record_history(super::history::HistoryEntry {
             id: id.clone(),
             direction: Direction::Send,
@@ -778,6 +798,8 @@ impl TransferService {
             chars: 0, // 文件条目按字节显示（F-FT-35 的"共 N 字"只针对文本）
             state,
             reason_code: reason.map(str::to_owned),
+            duration_ms,
+            avg_speed_bps,
             finished_at_ms,
         });
         outcome
@@ -848,6 +870,7 @@ impl TransferService {
             .lock_tasks()
             .finish(&id, state, reason, finished_at_ms);
         self.ctx.forget_cancel(&id);
+        let (duration_ms, avg_speed_bps) = self.ctx.history_facts(&id);
         self.ctx.record_history(super::history::HistoryEntry {
             id,
             direction: Direction::Send,
@@ -859,6 +882,8 @@ impl TransferService {
             chars: super::text::char_count(text) as u64,
             state,
             reason_code: reason.map(str::to_owned),
+            duration_ms,
+            avg_speed_bps,
             finished_at_ms,
         });
 
@@ -1163,6 +1188,10 @@ fn handle_connection(
         // 🔴 失败**必须**变成 CLIPBOARD_WRITE_FAILED 回给发送方，
         //    而不是"已送达"——这是本通道唯一能让发送方察觉真相的地方。
         |text: &str| {
+            // 🔴 F-FT-54：台账的起点必须**真实**。原先这个闭包把 `finished_at_ms`
+            //    当作 `started_at_ms` 传进 `begin`，导致这条任务的耗时恒为 0、
+            //    历史里的"耗时/速度"因此失真。起点取本次落地动作开始的那一刻。
+            let started_at_ms = super::sink::now_unix_ms();
             let result = infra::clipboard::set_text(text).map_err(|error| error.to_string());
             // 文本是一次性事务：台账与历史在这里**一次写齐**（没有进度可报，
             // 故不留"进行中"的行；与文件收尾口径一致，只是没有中间态）。
@@ -1184,9 +1213,10 @@ fn handle_connection(
                 peer.to_string(),
                 preview.clone(),
                 super::text::byte_count(text) as u64,
-                finished_at_ms,
+                started_at_ms,
             );
             ctx.lock_tasks().finish(&id, state, reason, finished_at_ms);
+            let (duration_ms, avg_speed_bps) = ctx.history_facts(&id);
             // 🔴 历史里**只留预览**，绝不留正文（F-FT-35 隐私要求）
             ctx.record_history(super::history::HistoryEntry {
                 id,
@@ -1198,6 +1228,8 @@ fn handle_connection(
                 chars: super::text::char_count(text) as u64,
                 state,
                 reason_code: reason.map(str::to_owned),
+                duration_ms,
+                avg_speed_bps,
                 finished_at_ms,
             });
             result
@@ -1271,6 +1303,7 @@ fn handle_connection(
         ctx.forget_cancel(&id);
         ctx.forget_pause(&id);
         if let Some(task) = snapshot {
+            let (duration_ms, avg_speed_bps) = ctx.history_facts(&id);
             ctx.record_history(super::history::HistoryEntry {
                 id,
                 direction: Direction::Receive,
@@ -1281,6 +1314,8 @@ fn handle_connection(
                 chars: 0,
                 state,
                 reason_code: reason,
+                duration_ms,
+                avg_speed_bps,
                 finished_at_ms,
             });
         }

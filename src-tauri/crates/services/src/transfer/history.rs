@@ -79,6 +79,18 @@ pub struct HistoryEntry {
     pub state: TaskState,
     /// 原因码（`None` = 成功/无原因）
     pub reason_code: Option<String>,
+    /// 本次传输**耗时毫秒**（F-FT-54 的快照要含"耗时与速度信息"）。
+    ///
+    /// `serde(default)` 同 `kind`/`chars`：老历史没有这个字段，
+    /// 缺字段会让**整份 JSON 解析失败** ⇒ 退化成空历史 ⇒ 用户旧记录被静默丢掉。
+    #[serde(default)]
+    pub duration_ms: u64,
+    /// **平均速度**（字节/秒）；判不出来时为 `None`（界面显示"—"）。
+    ///
+    /// 🔴 未完成/未传输的条目**不给速度**：给一个失败的任务报"平均速度"，
+    /// 等于把没发生的事说成发生了（见 [`average_speed_bps`]）。
+    #[serde(default)]
+    pub avg_speed_bps: Option<u64>,
     /// 完成时刻（Unix 毫秒）
     pub finished_at_ms: i64,
 }
@@ -129,6 +141,19 @@ pub fn format_time(ms: i64) -> String {
                 .to_string()
         },
     )
+}
+
+/// 平均速度（字节/秒）；耗时不足 1 秒或没传字节时返回 `None`（F-FT-54）。
+///
+/// 🔴 与台账那边同一口径（见 [`super::tasks::TransferTask::speed_bps`]）：
+/// 样本太小、或压根没传，就**不给数字**——界面显示"—"比给一个会乱跳
+/// 或凭空捏造的"平均速度"诚实得多。
+#[must_use]
+pub fn average_speed_bps(bytes: u64, duration_ms: u64) -> Option<u64> {
+    if duration_ms < 1000 || bytes == 0 {
+        return None;
+    }
+    Some(bytes.saturating_mul(1000) / duration_ms)
 }
 
 /// 按 RFC 4180 转义一个 CSV 字段。

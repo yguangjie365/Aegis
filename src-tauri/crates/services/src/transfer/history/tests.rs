@@ -14,10 +14,48 @@ fn entry(id: &str, file_name: &str, state: TaskState, reason: Option<&str>) -> H
         file_name: file_name.to_owned(),
         file_size: 3112,
         chars: 0,
+        duration_ms: 0,
+        avg_speed_bps: None,
         state,
         reason_code: reason.map(str::to_owned),
         finished_at_ms: 1_700_000_000_000,
     }
+}
+
+/// F-FT-54 的平均速度：**样本不足或没传字节就不给数字**。
+///
+/// 🔴 后半条是关键：给"已跳过/失败"的条目报一个平均速度，
+/// 等于把没发生的事说成发生了。
+#[test]
+fn average_speed_is_unknown_for_tiny_or_empty_transfers() {
+    assert_eq!(
+        average_speed_bps(10 * 1024 * 1024, 10_000),
+        Some(1024 * 1024)
+    );
+    assert_eq!(average_speed_bps(1024, 500), None, "不足 1 秒 ⇒ 不给");
+    assert_eq!(average_speed_bps(0, 10_000), None, "一个字节都没传 ⇒ 不给");
+    assert_eq!(
+        average_speed_bps(1024, 0),
+        None,
+        "耗时 0 ⇒ 不给（不能除零）"
+    );
+}
+
+/// 老历史文件缺 `duration_ms`/`avg_speed_bps` 也要能读出来（同 `kind`/`chars` 的迁移纪律）。
+#[test]
+fn an_old_history_file_without_duration_still_loads() {
+    let dir = std::env::temp_dir().join(format!("aegis-hist-dur-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(HISTORY_FILE_NAME);
+    let old_json = r#"[{"id":"old2","direction":"send","peerLabel":"10.0.0.9:18889",
+             "fileName":"老记录2.bin","fileSize":12,"state":"completed",
+             "reasonCode":null,"finishedAtMs":1700000000000}]"#;
+    std::fs::write(&path, old_json.as_bytes()).unwrap();
+    let loaded = History::load(&path).expect("老格式必须能读出来");
+    let only = loaded.entries().front().expect("有一条");
+    assert_eq!(only.duration_ms, 0);
+    assert_eq!(only.avg_speed_bps, None);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// 🔴 **迁移测试**：文本通道落地**之前**写下的历史文件里**没有 `kind` 字段**。
