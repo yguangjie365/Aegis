@@ -342,9 +342,16 @@ function formatSpeed(bytesPerSecond: number | null): string {
   return `${bytesPerSecond} B/s`;
 }
 
-/** 剩余毫秒 → hh:mm:ss；判不出来就"—"（F-FT-25 允许）。 */
+/**
+ * 毫秒 → 时长串；判不出来就"—"（F-FT-25 / F-FT-54 都允许）。
+ *
+ * 🔴 **不足 1 秒要按毫秒显示**：本机回环传 20 MB 只用了 368 ms，
+ * 若一律 `hh:mm:ss`，界面会显示成 `00:00:00` —— **把真实耗时抹成 0**，
+ * 看起来像"没花时间"，其实是格式化粒度不够。实测撞到过。
+ */
 function formatDuration(ms: number | null): string {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
   const total = Math.floor(ms / 1000);
   const hh = String(Math.floor(total / 3600)).padStart(2, "0");
   const mm = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
