@@ -251,6 +251,7 @@ fn end_to_end_transfer_with_pairing_over_a_real_service() {
         Some(&code),
         "task-e2e-1",
         &cancel,
+        |_| {},
     )
     .expect("带正确配对码应成功");
     assert_eq!(outcome, SendOutcome::Delivered);
@@ -268,6 +269,7 @@ fn end_to_end_transfer_with_pairing_over_a_real_service() {
         None,
         "task-e2e-2",
         &cancel,
+        |_| {},
     )
     .expect("同一地址本次运行期免码");
     assert_eq!(outcome, SendOutcome::Delivered);
@@ -307,6 +309,7 @@ fn wrong_or_missing_pair_code_is_rejected_with_a_readable_reason() {
         Some("ZZZZZZ"),
         "task-bad",
         &cancel,
+        |_| {},
     ) {
         Err(SendFailure::Transport(TransportError::Rejected { reason_code })) => {
             assert_eq!(reason_code, reasons::PAIRING_INVALID);
@@ -321,6 +324,7 @@ fn wrong_or_missing_pair_code_is_rejected_with_a_readable_reason() {
         None,
         "task-nocode",
         &cancel,
+        |_| {},
     ) {
         Err(SendFailure::Transport(TransportError::Rejected { reason_code })) => {
             assert_eq!(reason_code, reasons::PAIRING_INVALID);
@@ -349,7 +353,8 @@ fn wrong_or_missing_pair_code_is_rejected_with_a_readable_reason() {
             crate::transfer::chunk::DEFAULT_CHUNK_SIZE,
             Some(&code),
             "task-good",
-            &cancel
+            &cancel,
+            |_| {}
         )
         .expect("正确码应成功"),
         SendOutcome::Delivered
@@ -389,6 +394,7 @@ fn unknown_peer_is_rejected_when_the_whitelist_is_on() {
         Some(&code),
         "task-wl",
         &cancel,
+        |_| {},
     ) {
         Err(SendFailure::Transport(TransportError::Rejected { reason_code })) => {
             assert_eq!(reason_code, reasons::PEER_NOT_DISCOVERED, "应卡在白名单关");

@@ -419,6 +419,7 @@ fn send_impl(payload: &SendFilePayload) -> Result<SendResultDto, TransferErrorDt
                 payload.pair_code.as_deref(),
                 &task_id,
                 &cancel,
+                |_| {},
             ),
         }
     };

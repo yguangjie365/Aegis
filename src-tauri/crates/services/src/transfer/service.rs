@@ -500,7 +500,24 @@ impl TransferService {
             super::sink::now_unix_ms(),
         );
 
-        let outcome = send_to(peer, path, chunk_size, pair_code, &id, cancel);
+        let mut progress = super::tasks::ProgressThrottle::default();
+        // 🔴 绝不能把台账锁 held 在**阻塞的网络发送**期间：同进程的接收线程也要锁台账，
+        //    那会直接死锁（本批真被测试抓到，33 秒正好是传输 IO 超时）。
+        //    改为在闭包里**短暂**加锁——节流后最多 10 次/秒，代价可忽略。
+        let outcome = send_to(
+            peer,
+            path,
+            chunk_size,
+            pair_code,
+            &id,
+            cancel,
+            // 每块如实报一次，按 100ms 合并后写台账（与接收侧同口径）
+            |transferred| {
+                if progress.should_report(super::sink::now_unix_ms()) {
+                    self.ctx.lock_tasks().advance(&id, transferred);
+                }
+            },
+        );
 
         let (state, reason) = match &outcome {
             Ok(SendOutcome::Delivered) => (TaskState::Completed, None),
@@ -660,10 +677,12 @@ fn handle_connection(
     // "完整文件大小 + 128 MB 安全余量"，握手之前根本不知道要留多少空间。
     // 探测与判档都在闭包里做，`disk` 只作入参传给准入闸门。
     //
-    // 任务 id 的回传槽：闭包在握手后登记任务，收尾时按实际结果写终态。
-    // 🔴 用 `Cell` 而不是 `Mutex`：闭包与收尾在**同一线程**（`receive_file` 是阻塞调用），
-    //    跨线程共享既无必要，也会掩盖"这段逻辑本该是单线程"这个事实。
-    let task_id_slot: std::cell::Cell<Option<String>> = std::cell::Cell::new(None);
+    // 任务 id 的回传槽：准入闭包在握手后登记任务并写入，**进度闭包**在每块之后读它。
+    // 🔴 用 `RefCell` 而不是 `Cell`：进度闭包要按引用读（`Cell` 只能整体 take，
+    //    那会把 id 从槽里拿走，后续的块就没得读了）。同一线程，无跨线程顾虑。
+    let task_id_slot: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
+    // 本次接收的进度节流器（01 分册 §3.1：建议 ≥100ms 合并一次）
+    let mut progress = super::tasks::ProgressThrottle::default();
     // 本次接收的冲突策略：初值取设置，但准入闭包可在**用户裁决之后**就地覆盖它
     // （弹窗里的「同名文件」三个选项只作用于本次，不写设置）
     let mut policy = ctx.settings.conflict_policy;
@@ -730,17 +749,27 @@ fn handle_connection(
                     facts.file_size,
                     super::sink::now_unix_ms(),
                 );
-                task_id_slot.set(Some(id));
+                task_id_slot.replace(Some(id));
             }
             verdict
         },
         cancel,
+        // 分块进度：🔴 每块如实报一次，但**按 100ms 合并**后才写台账——
+        // 2 MiB 的块在千兆网上每秒几十次，逐次写会既费锁又让界面抖。
+        |transferred| {
+            if !progress.should_report(super::sink::now_unix_ms()) {
+                return;
+            }
+            if let Some(id) = task_id_slot.borrow().as_deref() {
+                ctx.lock_tasks().advance(id, transferred);
+            }
+        },
     );
 
     // ── 收尾：把**实际结果**写成终态（🔴 R-16：写进去就不再改） ──
-    // 🟠 本批进度是**粗粒度**的（0% → 终结时一次性到位）：分块进度需要
-    //    `receive_file` 提供回调，属独立改动，已登记。终态与原因码是本批的要点。
-    if let Some(id) = task_id_slot.take() {
+    // 进度已在过程中按 100ms 合并上报；此处只收尾，并让最后一帧不被节流吞掉。
+    progress.force_next();
+    if let Some(id) = task_id_slot.borrow_mut().take() {
         let (state, reason) = match &outcome {
             Ok(ReceiveOutcome::Committed { .. }) => (TaskState::Completed, None),
             Ok(ReceiveOutcome::Skipped) => (TaskState::Skipped, Some(reasons::CONFLICT_SKIP)),
@@ -877,6 +906,8 @@ pub fn send_to(
     pair_code: Option<&str>,
     task_id: &str,
     cancel: &CancellationToken,
+    // 每块发成功后的进度回调（累计字节）。🔴 节流由调用方负责。
+    on_progress: impl FnMut(u64),
 ) -> Result<SendOutcome, SendFailure> {
     if !path.is_file() {
         return Err(SendFailure::NotAFile);
@@ -903,6 +934,7 @@ pub fn send_to(
         modified_at_ms,
         pair_code,
         cancel,
+        on_progress,
     )
     .map_err(SendFailure::Transport)
 }

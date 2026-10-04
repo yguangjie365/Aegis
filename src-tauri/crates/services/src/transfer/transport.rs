@@ -304,6 +304,11 @@ pub fn send_file(
     file_modified_at_ms: Option<i64>,
     pair_code: Option<&str>,
     cancel: &CancellationToken,
+    // 每块发成功后的进度回调（**累计已发送字节数**）。
+    //
+    // 🔴 节流由调用方负责：本层"每块如实报一次"，
+    // 合并频率是界面的事（见 [`super::tasks::ProgressThrottle`]）。
+    mut on_progress: impl FnMut(u64),
 ) -> Result<SendOutcome, TransportError> {
     let mut writer = stream;
     let mut reader = FrameReader::new(stream);
@@ -372,6 +377,9 @@ pub fn send_file(
                     },
                     &chunk.bytes,
                 )?;
+                // 进度回调：**发成功之后**才报（写失败时不该报"已发出"）。
+                // 节流由调用方负责——本层只管"每块如实报一次"。
+                on_progress(chunk.offset + chunk.bytes.len() as u64);
             }
             None => break,
         }
@@ -523,6 +531,10 @@ pub fn receive_file(
     policy: &mut ConflictPolicy,
     admit: impl FnOnce(&HandshakeFacts<'_>, &mut ConflictPolicy) -> Admission,
     cancel: &CancellationToken,
+    // 每块落盘成功后的进度回调（**累计已接收字节数**）。
+    //
+    // 🔴 与发送侧同口径：本层每块如实报一次，节流由调用方负责。
+    mut on_progress: impl FnMut(u64),
 ) -> Result<ReceiveOutcome, TransportError> {
     let mut writer = stream;
     let mut reader = FrameReader::new(stream);
@@ -562,6 +574,8 @@ pub fn receive_file(
         match message {
             TransferMessage::Chunk { offset, .. } => {
                 sink.append(offset, &body)?;
+                // 进度回调：**落盘成功之后**才报（append 失败时不该报"已收到"）
+                on_progress(offset + body.len() as u64);
             }
             TransferMessage::Complete { file_hash, .. } => {
                 // 🔴 两次声明的摘要必须一致：不一致 = 对端文件中途被改动

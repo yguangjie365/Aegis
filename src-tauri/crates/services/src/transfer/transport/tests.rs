@@ -185,13 +185,23 @@ fn send_and_receive_round_trip_over_tcp() {
             &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
+            |_| {},
         )
     });
 
     let (mut source, hash, _) = prepare(&send_dir, &payload, 256);
     let stream = connect(addr);
     let cancel = CancellationToken::new();
-    let sent = send_file(&stream, &mut source, &hash, "task-1", None, None, &cancel);
+    let sent = send_file(
+        &stream,
+        &mut source,
+        &hash,
+        "task-1",
+        None,
+        None,
+        &cancel,
+        |_| {},
+    );
 
     let received = server.join().expect("接收线程");
     assert_eq!(sent.unwrap(), SendOutcome::Delivered);
@@ -227,13 +237,23 @@ fn rejected_handshake_creates_no_file_and_tells_the_sender_why() {
                 reason: crate::transfer::reasons::PEER_NOT_DISCOVERED,
             },
             &cancel,
+            |_| {},
         )
     });
 
     let (mut source, hash, _) = prepare(&send_dir, &payload, 256);
     let stream = connect(addr);
     let cancel = CancellationToken::new();
-    let sent = send_file(&stream, &mut source, &hash, "task-2", None, None, &cancel);
+    let sent = send_file(
+        &stream,
+        &mut source,
+        &hash,
+        "task-2",
+        None,
+        None,
+        &cancel,
+        |_| {},
+    );
 
     // 发送方拿到明确拒收与原因码
     match sent {
@@ -318,6 +338,7 @@ fn interrupted_transfer_resumes_on_a_second_connection() {
             &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
+            |_| {},
         )
     });
 
@@ -325,7 +346,16 @@ fn interrupted_transfer_resumes_on_a_second_connection() {
     let (mut source, hash, _) = prepare(&send_dir, &payload, 128);
     let stream = connect(addr);
     let cancel = CancellationToken::new();
-    let first = send_file(&stream, &mut source, &hash, "task-3", None, None, &cancel);
+    let first = send_file(
+        &stream,
+        &mut source,
+        &hash,
+        "task-3",
+        None,
+        None,
+        &cancel,
+        |_| {},
+    );
     assert!(first.is_err(), "断连必须报错，实得 {first:?}");
 
     // 未完成文件应留在盘上（R-21 的前提）
@@ -344,7 +374,16 @@ fn interrupted_transfer_resumes_on_a_second_connection() {
     // 第二段：重新连接，接收方报告真实进度，发送方从那里接上
     let stream = connect(addr);
     let mut source = SendSource::open(&send_dir.join("payload.bin"), 128).unwrap();
-    let second = send_file(&stream, &mut source, &hash, "task-4", None, None, &cancel);
+    let second = send_file(
+        &stream,
+        &mut source,
+        &hash,
+        "task-4",
+        None,
+        None,
+        &cancel,
+        |_| {},
+    );
 
     let results = server.join().unwrap();
     assert_eq!(second.unwrap(), SendOutcome::Delivered, "续传应成功");
@@ -375,6 +414,7 @@ fn hash_mismatch_is_reported_to_both_sides_and_leaves_nothing() {
             &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
+            |_| {},
         )
     });
 
@@ -383,7 +423,16 @@ fn hash_mismatch_is_reported_to_both_sides_and_leaves_nothing() {
     let cancel = CancellationToken::new();
     // 故意给一个错的摘要（模拟"对端文件与声明不符"）
     let wrong = "0".repeat(64);
-    let sent = send_file(&stream, &mut source, &wrong, "task-5", None, None, &cancel);
+    let sent = send_file(
+        &stream,
+        &mut source,
+        &wrong,
+        "task-5",
+        None,
+        None,
+        &cancel,
+        |_| {},
+    );
 
     let outcome = server.join().unwrap().into_iter().next().unwrap().unwrap();
     assert_eq!(outcome, ReceiveOutcome::HashMismatch);
@@ -418,13 +467,23 @@ fn conflict_skip_is_reported_as_skipped_not_delivered() {
             &mut ConflictPolicy::Skip,
             always_admit,
             &cancel,
+            |_| {},
         )
     });
 
     let (mut source, hash, _) = prepare(&send_dir, &payload, 256);
     let stream = connect(addr);
     let cancel = CancellationToken::new();
-    let sent = send_file(&stream, &mut source, &hash, "task-6", None, None, &cancel);
+    let sent = send_file(
+        &stream,
+        &mut source,
+        &hash,
+        "task-6",
+        None,
+        None,
+        &cancel,
+        |_| {},
+    );
 
     let outcome = server.join().unwrap().into_iter().next().unwrap().unwrap();
     assert_eq!(outcome, ReceiveOutcome::Skipped);
@@ -462,6 +521,7 @@ fn cancel_notifies_the_peer_and_keeps_the_partial_file() {
             &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
+            |_| {},
         )
     });
 
@@ -469,7 +529,16 @@ fn cancel_notifies_the_peer_and_keeps_the_partial_file() {
     let stream = connect(addr);
     let cancel = CancellationToken::new();
     cancel.cancel(); // 会话开始前就取消：第一轮循环即中止
-    let sent = send_file(&stream, &mut source, &hash, "task-7", None, None, &cancel);
+    let sent = send_file(
+        &stream,
+        &mut source,
+        &hash,
+        "task-7",
+        None,
+        None,
+        &cancel,
+        |_| {},
+    );
 
     assert!(
         matches!(sent, Err(TransportError::Aborted)),
@@ -513,6 +582,7 @@ fn garbage_on_the_wire_is_rejected_without_panicking() {
             &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
+            |_| {},
         )
     });
 
@@ -549,6 +619,7 @@ fn peer_that_never_speaks_is_cut_off_by_the_read_timeout() {
             &mut ConflictPolicy::Rename,
             always_admit,
             &cancel,
+            |_| {},
         )
     });
 
