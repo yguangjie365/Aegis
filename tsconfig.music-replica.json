@@ -1,0 +1,31 @@
+{
+  "//": "阶段一 100% 复刻 · 音乐域 TypeScript 豁免配置（2026-10-03 用户裁决）",
+  "//1": "依据 Docs/功能规格/07-音乐管理.md 〇·0.4 第 3 条：NexBox 为 strict:false，Aegis 为 strict:true。",
+  "//2": "阶段一照搬 NexBox 音乐前端代码时，其 strictNullChecks / noUncheckedIndexedAccess 相关写法",
+  "//3": "（大量 string|undefined 传参、数组下标直取）会被 Aegis 门禁判为错误，故按目录精确豁免。",
+  "//4": "本配置覆盖 features/MusicManager 全域（NexBox 原样搬入的页面/组件/store/lib/hooks/contexts），",
+  "//5": "其余 strict 子项（strictFunctionTypes / noImplicitThis 等）仍生效，类型安全未整体放弃。",
+  "//6": "noImplicitAny / noUnusedLocals 亦豁免：NexBox 原文大量 .catch(() => []) 与未用类型导入。",
+  "//7": "noUnusedParameters 同理（NexBox 原件含未使用的形参，如 theme-color-context 的 target）。",
+  "//8": "阶段二换皮时若已把 NexBox 代码改写为 strict 兼容形态，可删除本文件。",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "strictNullChecks": false,
+    "noUncheckedIndexedAccess": false,
+    "noImplicitAny": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "composite": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "outDir": "./node_modules/.tmp/music-replica-types"
+  },
+  "include": [
+    "src/features/MusicManager/**/*.ts",
+    "src/features/MusicManager/**/*.tsx",
+    "src/types/music.ts"
+  ],
+  "exclude": []
+}

@@ -1,6 +1,7 @@
 //! 登录窗口域逻辑（移植自 NexBox `music_api/mod.rs`「登录窗口 - 多平台」段，GPL-3.0 同源衍生）。
 //!
-//! 只承接纯逻辑（宿主窗口编排在 app crate `music_login.rs`）：
+//! 只承接纯逻辑（**多平台开窗编排本体在 `music_api::mod`（`open_*_login_window`
+//! + `attach_login_popup_handler` + 轮询收口），本文件不参与窗口创建**）：
 //! - 平台 cookie 优先级表与域名判定（决定 webview cookie 的取舍与拼接顺序）
 //! - 从 webview Cookie 列表构建 cookie 字符串
 //! - 第三方登录弹窗完成判定（OAuth 回跳到平台域名 = 授权走完）

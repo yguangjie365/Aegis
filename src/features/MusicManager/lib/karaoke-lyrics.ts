@@ -181,7 +181,7 @@ function finalizeLineDurations(lines: KaraokeLine[]): KaraokeLine[] {
 export function getLineProgress(
   line: KaraokeLine | undefined,
   nextLine: KaraokeLine | undefined,
-  currentTime: number
+  currentTime: number,
 ): number {
   if (!line) return 0;
 
@@ -206,9 +206,7 @@ export function getLineProgress(
 
   // 无逐字数据：行级线性插值 + smoothstep 缓动
   const nextT =
-    nextLine && nextLine.time > line.time
-      ? nextLine.time
-      : line.time + (line.duration || 4.8);
+    nextLine && nextLine.time > line.time ? nextLine.time : line.time + (line.duration || 4.8);
   const span = Math.max(0.75, nextT - line.time);
   const prog = Math.max(0, Math.min(1, (now - line.time) / span));
   return prog * prog * (3 - 2 * prog); // smoothstep
@@ -232,7 +230,7 @@ export function calculateScrollOffset(progress: number, limit: number): number {
 
   const p = Math.max(0, Math.min(1, progress));
   const startGate = 0.08; // 前8%静止
-  const endGate = 0.78;   // 78%时到达最远
+  const endGate = 0.78; // 78%时到达最远
 
   if (p < startGate) return 0;
   if (p >= endGate) return -limit;
