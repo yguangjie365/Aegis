@@ -775,6 +775,7 @@ impl TransferService {
             peer_label: peer.to_string(),
             file_name,
             file_size,
+            chars: 0, // 文件条目按字节显示（F-FT-35 的"共 N 字"只针对文本）
             state,
             reason_code: reason.map(str::to_owned),
             finished_at_ms,
@@ -855,6 +856,7 @@ impl TransferService {
             // 🔴 历史里**只留预览**，绝不留正文（F-FT-35 隐私要求）
             file_name: super::text::preview(text),
             file_size: super::text::byte_count(text) as u64,
+            chars: super::text::char_count(text) as u64,
             state,
             reason_code: reason.map(str::to_owned),
             finished_at_ms,
@@ -1193,6 +1195,7 @@ fn handle_connection(
                 peer_label: peer.to_string(),
                 file_name: preview,
                 file_size: super::text::byte_count(text) as u64,
+                chars: super::text::char_count(text) as u64,
                 state,
                 reason_code: reason.map(str::to_owned),
                 finished_at_ms,
@@ -1275,6 +1278,7 @@ fn handle_connection(
                 peer_label: task.peer_label,
                 file_name: task.file_name,
                 file_size: task.file_size,
+                chars: 0,
                 state,
                 reason_code: reason,
                 finished_at_ms,

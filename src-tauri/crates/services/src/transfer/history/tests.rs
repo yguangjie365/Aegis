@@ -13,6 +13,7 @@ fn entry(id: &str, file_name: &str, state: TaskState, reason: Option<&str>) -> H
         peer_label: "192.168.1.24:18889".to_owned(),
         file_name: file_name.to_owned(),
         file_size: 3112,
+        chars: 0,
         state,
         reason_code: reason.map(str::to_owned),
         finished_at_ms: 1_700_000_000_000,
@@ -42,6 +43,10 @@ fn an_old_history_file_without_kind_still_loads_as_file() {
         only.kind,
         HistoryKind::File,
         "老记录确实都是文件，默认成文件是符合事实的"
+    );
+    assert_eq!(
+        only.chars, 0,
+        "老记录也没有 chars 字段 ⇒ 同样要靠 serde 默认值兜住，否则整份历史解析失败"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

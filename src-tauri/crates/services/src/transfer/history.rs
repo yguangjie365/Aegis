@@ -69,6 +69,13 @@ pub struct HistoryEntry {
     pub peer_label: String,
     pub file_name: String,
     pub file_size: u64,
+    /// 文本条目的**字符数**（F-FT-35：大小列显示"共 N 字"）。
+    ///
+    /// 文件条目恒为 0（它们按字节显示）。`serde(default)` 同 `kind`：
+    /// 文本通道之前写下的历史没有这个字段，缺字段会让**整份 JSON 解析失败**
+    /// ⇒ 退化成空历史 ⇒ 用户旧记录被静默丢掉。
+    #[serde(default)]
+    pub chars: u64,
     pub state: TaskState,
     /// 原因码（`None` = 成功/无原因）
     pub reason_code: Option<String>,

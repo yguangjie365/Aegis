@@ -200,6 +200,7 @@
     "exportFailed": "导出失败：{{reason}}",
     "kindFile": "文件",
     "kindText": "文本",
+    "charCount": "共 {{count}} 字",
     "dir": {
       "send": "发送",
       "receive": "接收"

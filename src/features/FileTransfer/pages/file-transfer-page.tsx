@@ -1369,7 +1369,10 @@ export function FileTransferPage() {
                 <span style={{ flex: 1, fontSize: 13, minWidth: 0 }}>{entry.fileName}</span>
                 <MonoInput readOnly value={entry.peerLabel} style={{ width: 130 }} />
                 <span style={{ width: 80, fontSize: 12, textAlign: "right" }}>
-                  {formatBytes(entry.fileSize)}
+                  {/* 🔴 F-FT-35：文本条目的大小列显示"共 N 字"，不是字节 */}
+                  {entry.kind === "text"
+                    ? t("history.charCount", { count: entry.chars })
+                    : formatBytes(entry.fileSize)}
                 </span>
                 <span style={{ width: 60, fontSize: 12 }}>{t(`tasks.state.${entry.state}`)}</span>
                 {/* 🔴 失败/跳过/取消必须带原因——R-29：不摆无解释的红字 */}

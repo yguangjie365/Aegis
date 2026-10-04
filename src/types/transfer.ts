@@ -169,6 +169,8 @@ export interface TransferHistoryEntry {
   peerLabel: string;
   fileName: string;
   fileSize: number;
+  /** 文本条目的字符数（F-FT-35：大小列显示"共 N 字"；文件条目为 0） */
+  chars: number;
   state: TransferTaskState;
   reasonCode: string | null;
   /** 原因说明（🔴 未知码原样回显，不硬翻——F-FT-31 末句） */

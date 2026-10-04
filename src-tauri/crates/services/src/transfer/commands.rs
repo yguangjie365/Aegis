@@ -1020,6 +1020,8 @@ pub struct TransferHistoryEntryDto {
     pub peer_label: String,
     pub file_name: String,
     pub file_size: u64,
+    /// 文本条目的字符数（F-FT-35：大小列显示"共 N 字"；文件条目恒为 0）
+    pub chars: u64,
     /// `completed` | `skipped` | `failed` | `cancelled`
     pub state: String,
     pub reason_code: Option<String>,
@@ -1131,6 +1133,7 @@ fn history_impl() -> Vec<TransferHistoryEntryDto> {
                 peer_label: entry.peer_label,
                 file_name: entry.file_name,
                 file_size: entry.file_size,
+                chars: entry.chars,
                 state: entry.state.as_str().to_owned(),
                 reason_code: entry.reason_code,
                 reason_text,
