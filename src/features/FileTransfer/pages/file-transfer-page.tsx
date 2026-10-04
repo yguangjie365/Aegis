@@ -21,6 +21,8 @@ import {
   useCancelTransferTask,
   useExportTransferHistory,
   useTransferHistory,
+  useSendText,
+  useReadClipboard,
 } from "../hooks/use-transfer";
 import type { TransferTaskState } from "@/types/transfer";
 import { asTransferError } from "@/lib/tauri/transfer";
@@ -437,6 +439,14 @@ export function FileTransferPage() {
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const send = useSendTransferFile();
+  // 文本通道（F-FT-33）：读剪贴板 + 发送。🔴 发送后**不清空输入框**（便于改一改再发），
+  // 故下面任何一处都不得调用 `setText("")`。
+  const pasteFromClipboard = useReadClipboard();
+  const sendTextMutation = useSendText();
+  const selectedPeer = useMemo(
+    () => peers.find((candidate) => candidate.deviceId === selectedPeerId) ?? null,
+    [peers, selectedPeerId],
+  );
   const pickFiles = usePickFilesToSend();
 
   // ── 接收确认（F-FT-14 / R-8；布局经用户 2026-10-04 确认） ──
@@ -1051,11 +1061,25 @@ export function FileTransferPage() {
         <CardHead>
           <CardTitle>{t("text.title")}</CardTitle>
           <Acts>
-            <AppButton variant="secondary" size="sm">
+            <AppButton
+              variant="secondary"
+              size="sm"
+              disabled={pasteFromClipboard.isPending}
+              onClick={() =>
+                pasteFromClipboard.mutate(undefined, {
+                  onSuccess: (value) => setText(value),
+                })
+              }
+            >
               {t("text.paste")}
             </AppButton>
           </Acts>
         </CardHead>
+        {/* 读剪贴板的三档失败分开说（F-FT-33）：被占用 / 里面没有文本 / 操作失败，
+            用户能做的事各不相同 */}
+        {pasteFromClipboard.error !== null && (
+          <Hint span>{asTransferError(pasteFromClipboard.error).message}</Hint>
+        )}
         <TextArea
           value={text}
           placeholder={t("text.placeholder")}
@@ -1063,10 +1087,44 @@ export function FileTransferPage() {
         />
         <PriceRow>
           <Hint>{sizeLine(textValidation)}</Hint>
-          <AppButton variant="primary" size="sm" style={{ marginLeft: "auto" }}>
+          <AppButton
+            variant="primary"
+            size="sm"
+            style={{ marginLeft: "auto" }}
+            // 🔴 空文本后端会拒（F-FT-32），这里先挡住；超限不在前端拦，
+            //    由后端回 TEXT_TOO_LONG 并给出"N KB / 上限 256 KB"的原话。
+            disabled={text.trim() === "" || selectedPeer === null || sendTextMutation.isPending}
+            onClick={() => {
+              if (selectedPeer === null) return;
+              sendTextMutation.mutate({
+                peer: `${selectedPeer.ip}:${selectedPeer.port}`,
+                text,
+              });
+            }}
+          >
             {t("text.send")}
           </AppButton>
         </PriceRow>
+        {/* 🔴 结果措辞按 F-FT-34：`delivered` 的含义是**对方剪贴板写入成功**，
+            绝不写成"已发送"——那会在对端没写进去时骗人。 */}
+        {sendTextMutation.error !== null && (
+          <Hint span>
+            {t("text.sendFailed", { reason: asTransferError(sendTextMutation.error).message })}
+          </Hint>
+        )}
+        {sendTextMutation.data !== undefined &&
+          (sendTextMutation.data.delivered ? (
+            <Hint span>{t("text.delivered")}</Hint>
+          ) : (
+            <Hint span>
+              {t("text.notDelivered", {
+                reason:
+                  sendTextMutation.data.reasonText ||
+                  sendTextMutation.data.reasonCode ||
+                  t("text.unknownReason"),
+              })}
+            </Hint>
+          ))}
         <SectionDivider>
           {/* F-FT-36 / F-FT-51：依赖 Web 通道，属片2 → 禁用并标注去向，而非点击报错 */}
           <AppButton variant="secondary" size="sm" disabled title="片2 交付">

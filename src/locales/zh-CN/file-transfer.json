@@ -148,6 +148,10 @@
     "placeholder": "输入或粘贴要发送的文本；上限 256 KB（UTF-8 字节）",
     "size": "{{chars}} 字（UTF-8 {{bytes}} B）",
     "send": "发送文本",
+    "delivered": "对方已收到并写入剪贴板。",
+    "notDelivered": "未交付：{{reason}}",
+    "unknownReason": "对端未给出原因",
+    "sendFailed": "发送失败：{{reason}}",
     "sendToMobile": "发文本到手机",
     "sendFileToMobile": "发文件到手机"
   },
