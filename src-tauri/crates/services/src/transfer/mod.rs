@@ -41,6 +41,7 @@ pub mod service;
 pub mod settings;
 pub mod sink;
 pub mod source;
+pub mod tasks;
 pub mod text;
 pub mod transport;
 
