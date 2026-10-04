@@ -1061,10 +1061,24 @@ fn handle_connection(
                         .is_ok_and(|path| path.exists()),
                 });
                 let (decision, chosen_policy) = ctx.confirm.await_decision(&id);
+                // 🔴 F-FT-16：**到期**与**用户拒绝**必须给对端不同的原因码。
+                //    都回 USER_REJECT 的话，发送方会把"对方没来得及点"读成"对方明确拒绝"。
                 if decision == confirm::Decision::Reject {
                     return Admission::Rejected {
                         gate: admission::Gate::Confirm,
                         reason: reasons::USER_REJECT,
+                    };
+                }
+                if decision == confirm::Decision::TimedOut {
+                    return Admission::Rejected {
+                        gate: admission::Gate::Confirm,
+                        reason: reasons::CONFIRM_TIMEOUT,
+                    };
+                }
+                if decision == confirm::Decision::TimedOut {
+                    return Admission::Rejected {
+                        gate: admission::Gate::Confirm,
+                        reason: reasons::CONFIRM_TIMEOUT,
                     };
                 }
                 // 用户在这次弹窗里选了别的冲突策略：就地覆盖（只作用本次）
@@ -1130,6 +1144,12 @@ fn handle_connection(
                     return Admission::Rejected {
                         gate: admission::Gate::Confirm,
                         reason: reasons::USER_REJECT,
+                    };
+                }
+                if decision == confirm::Decision::TimedOut {
+                    return Admission::Rejected {
+                        gate: admission::Gate::Confirm,
+                        reason: reasons::CONFIRM_TIMEOUT,
                     };
                 }
             }

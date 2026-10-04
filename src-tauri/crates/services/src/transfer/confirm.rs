@@ -43,6 +43,12 @@ pub enum Decision {
     #[default]
     Reject,
     Accept,
+    /// 🔴 到期没人回答（F-FT-16：**必须与"用户拒绝"区分**）。
+    ///
+    /// 两者在**本端**的处理相同（都按拒绝），但对端收到的原因码不同：
+    /// 用户拒绝 ⇒ `USER_REJECT`；到期 ⇒ `CONFIRM_TIMEOUT`（"对方没响应"，不是"对方不要"）。
+    /// 不区分的话，发送方会把"对方没来得及点"误读成"对方明确拒绝了"。
+    TimedOut,
 }
 
 /// 待决确认的对外快照（命令层拿它渲染弹窗；F-FT-14 要求展示的那些字段）。
@@ -186,9 +192,10 @@ impl ConfirmGate {
             }
             let now = std::time::Instant::now();
             if now >= deadline {
-                // 🔴 超时按拒绝（R-8 四条路径之一），并清理待决
+                // 🔴 超时按拒绝（R-8 四条路径之一），并清理待决。
+                //    返回独立变体：本端同样按拒绝，但**对端要用 CONFIRM_TIMEOUT** 而不是 USER_REJECT。
                 map.remove(id);
-                return (Decision::Reject, None);
+                return (Decision::TimedOut, None);
             }
             let (guard, timeout_result) = self
                 .signal

@@ -83,7 +83,11 @@ fn timeout_denies_by_default() {
     gate.ask(snapshot("t1"));
     let started = std::time::Instant::now();
     let (decision, _) = gate.await_decision("t1");
-    assert_eq!(decision, Decision::Reject, "没人回答必须判拒绝");
+    assert_eq!(
+        decision,
+        Decision::TimedOut,
+        "没人回答 ⇒ 到期（本端同样按拒绝），但变体必须与「用户拒绝」区分开：对端要收到 CONFIRM_TIMEOUT"
+    );
     assert!(
         started.elapsed() >= Duration::from_millis(15),
         "应当真的等过（而不是立刻返回）"
@@ -166,7 +170,11 @@ fn re_asking_the_same_id_overwrites_the_old_slot() {
 fn timeout_rejects_even_if_a_decision_arrives_immediately_after() {
     let gate = ConfirmGate::new(Duration::from_millis(20));
     gate.ask(snapshot("t1"));
-    assert_eq!(gate.await_decision("t1").0, Decision::Reject);
+    assert_eq!(
+        gate.await_decision("t1").0,
+        Decision::TimedOut,
+        "到期才判的：即使裁决紧接着到达，也已经过点了（对端要收到 CONFIRM_TIMEOUT）"
+    );
     // 迟到很久的"接收"没有对象可改（那条待决已被清理）
     assert!(!gate.resolve("t1", Decision::Accept));
 }
