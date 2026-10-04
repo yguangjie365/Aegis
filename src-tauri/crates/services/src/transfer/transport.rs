@@ -166,8 +166,18 @@ pub enum ReceiveOutcome {
     Rejected { reason_code: String },
 }
 
-/// 给流设读超时（对 `TcpStream` 生效；其它 `Read` 实现忽略失败）。
+/// 等**握手回执**的上限。
 ///
+/// 🔴 它必须**严格大于**接收端的"接收前询问"窗口（[`super::confirm::CONFIRM_TIMEOUT`]）。
+/// 理由是结构性的而不是拍脑袋的：接收端的 `HandshakeAck` 是在**用户裁决之后**才发出的，
+/// 所以发送方这一侧的等待要覆盖「接收端问用户（30 秒）+ 之后真正收发（常规 IO 超时）」。
+/// 若沿用 [`IO_TIMEOUT`]（同为 30 秒），开启确认时发送方会几乎必然先超时——
+/// 真机端到端跑出来过：发送方报 `PEER_DISCONNECTED（对端长时间无数据）`，
+/// 而接收端的确认弹窗刚刚弹出，**两端结论不一致**。
+pub const HANDSHAKE_WAIT: Duration =
+    Duration::from_secs(super::confirm::CONFIRM_TIMEOUT.as_secs() + IO_TIMEOUT.as_secs());
+
+/// 给流设读超时（对 `TcpStream` 生效；其它 `Read` 实现忽略失败）。///
 /// # Errors
 /// 设置失败时返回底层错误——不静默忽略，否则"防死对端"的保证就成了空话。
 pub fn configure_timeout(stream: &TcpStream, timeout: Duration) -> std::io::Result<()> {
@@ -328,7 +338,17 @@ pub fn send_file(
     )?;
 
     // ── 握手回执：拿到续传起点与最终块大小 ──
-    let (message, _) = reader.read_frame()?;
+    //
+    // 🔴 这次读取必须**放宽**到 [`HANDSHAKE_WAIT`]：接收端是在**用户裁决之后**
+    // 才发 `HandshakeAck` 的（F-FT-14 的"接收前询问"），若这里沿用 `IO_TIMEOUT`（同为 30 秒），
+    // 发送方会几乎必然先读超时，而接收端还在等用户点按钮 ⇒ **两端结论不一致**。
+    // 真机端到端跑出来的现象就是：发送方报 `PEER_DISCONNECTED 对端长时间无数据`，
+    // 而接收端的确认弹窗刚刚弹出。
+    let _ = stream.set_read_timeout(Some(HANDSHAKE_WAIT));
+    let handshake_read = reader.read_frame();
+    // 无论成败都恢复常规超时：后续的块传输不该享有这个宽限
+    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
+    let (message, _) = handshake_read?;
     let (resume_from, chunk_size) = match message {
         TransferMessage::HandshakeAck {
             accepted,

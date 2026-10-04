@@ -55,6 +55,26 @@ fn always_admit(_facts: &HandshakeFacts<'_>, _policy: &mut ConflictPolicy) -> Ad
     }
 }
 
+/// 🔴 回归闸：等回执的上限**必须严格大于**接收端的"接收前询问"窗口。
+///
+/// 这条不变式是真机端到端跑出来的教训：两者曾同为 30 秒，
+/// 于是开启"接收前确认"（Q-15 默认开）时发送方必然先读超时，
+/// 而接收端还在等用户点按钮——两端给出**互相矛盾**的结论。
+/// 它靠肉眼很难发现（两个常量在不同文件里），故用测试钉住。
+#[test]
+fn handshake_wait_outlasts_the_receive_confirmation_window() {
+    assert!(
+        HANDSHAKE_WAIT > crate::transfer::confirm::CONFIRM_TIMEOUT,
+        "HANDSHAKE_WAIT({HANDSHAKE_WAIT:?}) 必须严格大于 CONFIRM_TIMEOUT({:?})，否则开启接收确认时发送方会先超时",
+        crate::transfer::confirm::CONFIRM_TIMEOUT
+    );
+    // 也不能只多一点点：要留出「问完用户之后真正收发」的余地
+    assert!(
+        HANDSHAKE_WAIT >= crate::transfer::confirm::CONFIRM_TIMEOUT + IO_TIMEOUT,
+        "握手宽限应覆盖「询问窗口 + 一次常规 IO 超时」"
+    );
+}
+
 /// 备好"源文件 + 摘要 + SendSource"三件套。
 fn prepare(dir: &Path, payload: &[u8], chunk_size: u64) -> (SendSource, String, PathBuf) {
     let path = dir.join("payload.bin");
