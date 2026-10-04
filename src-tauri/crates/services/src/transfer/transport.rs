@@ -465,8 +465,10 @@ fn admit_handshake<R: Read, W: Write>(
     writer: &mut W,
     policy: &mut ConflictPolicy,
     admit: impl FnOnce(&HandshakeFacts<'_>, &mut ConflictPolicy) -> Admission,
+    // 🔴 首帧由调用方读好传进来：接收侧要先看**第一帧是什么**才能决定
+    //    走文件事务还是文本事务（F-FT-33），读掉就还不回去了。
+    (message, _body): (TransferMessage, Vec<u8>),
 ) -> Result<HandshakePhase, TransportError> {
-    let (message, _) = reader.read_frame()?;
     let (task_id, file_name, file_size, declared_hash, declared_chunk, pair_code) = match message {
         TransferMessage::Handshake {
             task_id,
@@ -546,6 +548,37 @@ pub fn receive_file(
     stream: &TcpStream,
     root: &Path,
     peer_token: &str,
+    policy: &mut ConflictPolicy,
+    admit: impl FnOnce(&HandshakeFacts<'_>, &mut ConflictPolicy) -> Admission,
+    cancel: &CancellationToken,
+    on_progress: impl FnMut(u64),
+) -> Result<ReceiveOutcome, TransportError> {
+    // 🔴 先读掉首帧再交给 `_with_first`：`FrameReader` **恰好**读一帧的字节
+    //    （13 字节前缀 + body），不预读，故新建一个 reader 能从原位置继续。
+    let first = FrameReader::new(stream).read_frame()?;
+    receive_file_with_first(
+        stream,
+        root,
+        peer_token,
+        policy,
+        admit,
+        cancel,
+        on_progress,
+        first,
+    )
+}
+
+/// 同 [`receive_file`]，但**首帧已由调用方读出**（见 [`admit_handshake`] 的同名参数）。
+///
+/// 存在的理由：接收侧必须在读第一帧时就分辨"这是文件还是文本"（F-FT-33），
+/// 而读掉的帧还不回去。
+///
+/// # Errors
+/// 同 [`receive_file`]。
+pub fn receive_file_with_first(
+    stream: &TcpStream,
+    root: &Path,
+    peer_token: &str,
     // 🔴 &mut 而不是按值：准入闭包要在**拿到用户裁决之后**就地覆盖本次的冲突策略
     //    （「同名文件」三个选项只在本次生效，不该改动持久设置）
     policy: &mut ConflictPolicy,
@@ -555,12 +588,13 @@ pub fn receive_file(
     //
     // 🔴 与发送侧同口径：本层每块如实报一次，节流由调用方负责。
     mut on_progress: impl FnMut(u64),
+    first: (TransferMessage, Vec<u8>),
 ) -> Result<ReceiveOutcome, TransportError> {
     let mut writer = stream;
     let mut reader = FrameReader::new(stream);
 
     // ── 握手 + 准入裁决（已抽出，见 `admit_handshake`） ──
-    let admitted = match admit_handshake(&mut reader, &mut writer, policy, admit)? {
+    let admitted = match admit_handshake(&mut reader, &mut writer, policy, admit, first)? {
         HandshakePhase::Admitted(admitted) => admitted,
         // 🔴 拒收即不建任何文件（R-13 的顺序：闸门在"建未完成文件"之前）
         HandshakePhase::Rejected(outcome) => return Ok(outcome),
@@ -754,10 +788,24 @@ pub fn receive_text(
     commit: impl FnOnce(&str) -> Result<(), String>,
     cancel: &CancellationToken,
 ) -> Result<TextOutcome, TransportError> {
-    let mut writer = stream;
-    let mut reader = FrameReader::new(stream);
+    // 🔴 与 `receive_file` 同款：先读首帧，再交给 `_with_first`（FrameReader 不预读）
+    let first = FrameReader::new(stream).read_frame()?;
+    receive_text_with_first(stream, admit, commit, cancel, first)
+}
 
-    let (message, body) = reader.read_frame()?;
+/// 同 [`receive_text`]，但**首帧已由调用方读出**（见 [`receive_any`] 的分流）。
+///
+/// # Errors
+/// 读帧失败、写回执失败。业务性拒绝走 `Ok(TextOutcome::Rejected { .. })`。
+pub fn receive_text_with_first(
+    stream: &TcpStream,
+    admit: impl FnOnce(&TextFacts<'_>) -> Admission,
+    commit: impl FnOnce(&str) -> Result<(), String>,
+    cancel: &CancellationToken,
+    (message, body): (TransferMessage, Vec<u8>),
+) -> Result<TextOutcome, TransportError> {
+    let mut writer = stream;
+
     let TransferMessage::Text {
         task_id,
         chars,
@@ -832,6 +880,53 @@ pub fn receive_text(
             })
         }
     }
+}
+
+/// 连接的第一帧决定走哪条事务。
+#[derive(Debug)]
+pub enum AnyOutcome {
+    File(ReceiveOutcome),
+    Text(TextOutcome),
+}
+
+/// **按首帧分流**：`Text` 走文本事务（F-FT-33），其余按文件事务交给 `admit_file`。
+///
+/// 🔴 这是接收侧唯一的分流点。之所以要在这里分：`Text` 是**顶层消息**（与 `Handshake`
+/// 平级，见 [`TransferMessage`]），故文本连接根本**没有文件握手**——
+/// 不能让文件路径先把首帧读掉再报"首帧必须是 Handshake"。
+///
+/// `commit_text` 是文本的"落交付"动作（电脑通道上是写剪贴板，见 [`receive_text`]）。
+///
+/// # Errors
+/// 读首帧失败、或两条事务各自的失败。
+#[allow(clippy::too_many_arguments)]
+pub fn receive_any(
+    stream: &TcpStream,
+    root: &Path,
+    peer_token: &str,
+    policy: &mut ConflictPolicy,
+    admit_file: impl FnOnce(&HandshakeFacts<'_>, &mut ConflictPolicy) -> Admission,
+    admit_text: impl FnOnce(&TextFacts<'_>) -> Admission,
+    commit_text: impl FnOnce(&str) -> Result<(), String>,
+    cancel: &CancellationToken,
+    on_progress: impl FnMut(u64),
+) -> Result<AnyOutcome, TransportError> {
+    let first = FrameReader::new(stream).read_frame()?;
+    if matches!(first.0, TransferMessage::Text { .. }) {
+        return receive_text_with_first(stream, admit_text, commit_text, cancel, first)
+            .map(AnyOutcome::Text);
+    }
+    receive_file_with_first(
+        stream,
+        root,
+        peer_token,
+        policy,
+        admit_file,
+        cancel,
+        on_progress,
+        first,
+    )
+    .map(AnyOutcome::File)
 }
 
 #[cfg(test)]
