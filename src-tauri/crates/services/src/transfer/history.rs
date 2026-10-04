@@ -188,9 +188,27 @@ impl History {
     }
 
     /// 从落盘内容恢复；超容量的**只保留最新的 200 条**（截尾，不报错）。
+    ///
+    /// 🔴 顺带做一次**数据修复**：把 `duration_ms == Some(0)` 规范成 `None`。
+    ///
+    /// 为什么需要它：`duration_ms` 曾经是 `u64`（`serde(default) = 0`），
+    /// 那一版在记录**新**条目时会重写整份历史 ⇒ 把老条目的"缺字段"**物化成了字面量 0**
+    /// 写回盘上（真机目验抓到：老条目与一条 368 ms 的真实记录都显示 `0 ms`）。
+    /// 于是光把类型改成 `Option` 不够——**盘上的脏数据也得修**。
+    ///
+    /// 判据是可靠的：台账时间戳就是**毫秒**级，任何真实传输都跨过至少 1 ms，
+    /// 所以"恰好 0 毫秒"在事实上等于"没记到"。
     #[must_use]
     pub fn from_entries(entries: impl IntoIterator<Item = HistoryEntry>) -> Self {
-        let mut list: VecDeque<HistoryEntry> = entries.into_iter().collect();
+        let mut list: VecDeque<HistoryEntry> = entries
+            .into_iter()
+            .map(|mut entry| {
+                if entry.duration_ms == Some(0) {
+                    entry.duration_ms = None;
+                }
+                entry
+            })
+            .collect();
         while list.len() > HISTORY_CAPACITY {
             list.pop_front();
         }

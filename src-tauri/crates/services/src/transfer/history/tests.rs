@@ -14,7 +14,8 @@ fn entry(id: &str, file_name: &str, state: TaskState, reason: Option<&str>) -> H
         file_name: file_name.to_owned(),
         file_size: 3112,
         chars: 0,
-        duration_ms: Some(0),
+        // 🔴 用**非零**的真实值：0 会被载入时的数据修复规范化成 None（见 from_entries）
+        duration_ms: Some(1234),
         avg_speed_bps: None,
         state,
         reason_code: reason.map(str::to_owned),
@@ -400,6 +401,39 @@ fn cleared_history_stays_cleared_after_a_round_trip() {
         History::load(&path).expect("读回").len(),
         0,
         "清空后落盘必须也是空的，否则重启会复活"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 🔴 **数据修复**：盘上已有的 `durationMs: 0`（中间版本物化出来的脏值）要载入成 `None`。
+///
+/// 光把类型改成 `Option` 不够 —— 那一版 `u64` 代码在记录新条目时重写整份历史，
+/// 把老条目的"缺字段"写成了**字面量 0**。真机目验里，老条目与一条 368 ms 的记录
+/// 都显示 `0 ms`，就是这来的。
+#[test]
+fn a_polluted_zero_duration_is_repaired_to_unknown_on_load() {
+    let dir = std::env::temp_dir().join(format!("aegis-hist-fix-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(HISTORY_FILE_NAME);
+    let polluted = r#"[{"id":"p1","direction":"receive","peerLabel":"10.0.0.9:18889",
+             "fileName":"被污染.bin","fileSize":12,"state":"completed","reasonCode":null,
+             "durationMs":0,"avgSpeedBps":null,"finishedAtMs":1700000000000}]"#;
+    std::fs::write(&path, polluted.as_bytes()).unwrap();
+    let loaded = History::load(&path).expect("必须能读出来");
+    assert_eq!(
+        loaded.entries().front().expect("有一条").duration_ms,
+        None,
+        "字面量 0 是中间版本物化的脏值 ⇒ 载入时应修成「不知道」"
+    );
+    // 真实耗时不受影响：368 ms 仍是 368
+    let mut live = History::new();
+    let mut e = entry("x", "x.bin", TaskState::Completed, None);
+    e.duration_ms = Some(368);
+    live.push(e);
+    assert_eq!(
+        live.entries().front().expect("有一条").duration_ms,
+        Some(368),
+        "真实耗时不被动"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
