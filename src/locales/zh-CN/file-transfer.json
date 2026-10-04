@@ -59,6 +59,15 @@
     "expiresIn": "{{time}} 后轮换",
     "expiringSoon": "即将轮换"
   },
+  "pairDialog": {
+    "title": "输入配对码",
+    "prompt": "请输入 {{peer}} 上显示的 6 位配对码。",
+    "remember": "本次运行期内不再询问此设备（免码，仅本次）",
+    "cancel": "取消",
+    "send": "发送",
+    "retry": "重试",
+    "sending": "正在发送 {{count}} 个文件…"
+  },
   "conflict": {
     "rename": "自动改名（推荐）",
     "ask": "每次询问",

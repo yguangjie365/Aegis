@@ -4,6 +4,7 @@ import styled from "@emotion/styled";
 import { AppButton } from "@/ui/components/app-button";
 import { PageHeader } from "@/ui/components/page-header";
 import { log, newCorrelationId } from "@/lib/logging";
+import { PairCodeDialog } from "../components/pair-code-dialog";
 import { useTransferDrop } from "../hooks/use-transfer-drop";
 import {
   usePickFilesToSend,
@@ -313,6 +314,15 @@ const Badge = styled.span<{ on?: boolean }>`
   color: ${(p) => (p.on ? "#2d6200" : "#8f1212")};
 `;
 
+/** 挂起中的发送请求（配对码通过后才真正发出）。 */
+interface PendingSend {
+  ip: string;
+  port: number;
+  /** 对端展示串，形如 `书房台式机（192.168.1.24:18889）` */
+  label: string;
+  paths: string[];
+}
+
 export function FileTransferPage() {
   const { t } = useTranslation("fileTransfer");
 
@@ -391,6 +401,76 @@ export function FileTransferPage() {
   const send = useSendTransferFile();
   const pickFiles = usePickFilesToSend();
 
+  // ── 配对码对话框与发送编排（布局经用户 2026-10-04 确认，方案 A） ──
+  // 三条发送路径（拖放 / 已知设备行 / 所选设备按钮）**都经 `requestSend`**：
+  // 需要码就挂起并弹框，不需要码就直接发。
+  const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
+  const [pairError, setPairError] = useState<string | null>(null);
+  /** 本次运行期免问的设备 IP。🔴 这只是"少问一次"，**不是**授权——授权在后端 `PairingGuard` */
+  const skipPairPrompt = useRef(new Set<string>());
+  /** 最近一次真正发过的请求：失败（码错/节流）时用它重新弹框 */
+  const lastAttempt = useRef<PendingSend | null>(null);
+
+  const doSend = useCallback(
+    (request: PendingSend, code: string | undefined): void => {
+      lastAttempt.current = request;
+      for (const path of request.paths) {
+        const name = path.split(/[\\/]/).pop() ?? path;
+        // F-FT-11 的原文日志："入队发送：{文件名} → {ip}:{端口}"
+        log({
+          level: "info",
+          module: "Transfer",
+          action: "transferSendFile",
+          result: "Success",
+          correlationId: newCorrelationId(),
+        });
+        setNotice(t("send.queued", { name, peer: `${request.ip}:${request.port}` }));
+        send.mutate({ ip: request.ip, port: request.port, path, pairCode: code });
+      }
+    },
+    [send, t],
+  );
+
+  const requestSend = useCallback(
+    (target: { ip: string; port: number; label: string }, paths: string[]): void => {
+      if (paths.length === 0) return;
+      const request: PendingSend = { ...target, paths };
+      if (skipPairPrompt.current.has(target.ip)) {
+        doSend(request, undefined);
+        return;
+      }
+      setPairError(null);
+      setPendingSend(request);
+    },
+    [doSend],
+  );
+
+  const confirmPair = useCallback(
+    (code: string, remember: boolean): void => {
+      if (pendingSend === null) return;
+      if (remember) skipPairPrompt.current.add(pendingSend.ip);
+      setPairError(null);
+      const request = pendingSend;
+      setPendingSend(null);
+      doSend(request, code);
+    },
+    [pendingSend, doSend],
+  );
+
+  // 🔴 码错/被节流时**重新弹框**并把后端的原因显示出来——否则用户点一次失败就没下文，
+  //    只能反复点"发送"而不知道要改什么。同时清掉免问记录（那条记录已被证明无效）。
+  useEffect(() => {
+    const failure = send.error;
+    if (failure === null) return;
+    const info = asTransferError(failure);
+    if (info.code !== "PAIRING_INVALID") return;
+    const request = lastAttempt.current;
+    if (request === null) return;
+    skipPairPrompt.current.delete(request.ip);
+    setPairError(info.message);
+    setPendingSend(request);
+  }, [send.error]);
+
   // 设备行的 DOM 引用（拖放命中测试用；每次事件现取，避免与列表变化脱节）
   const rowRefs = useRef(new Map<string, HTMLElement>());
 
@@ -422,22 +502,12 @@ export function FileTransferPage() {
         setNotice(t("send.targetMissing"));
         return;
       }
-      const peerLabel = `${peer.ip}:${peer.port}`;
-      for (const path of paths) {
-        const name = path.split(/[\\/]/).pop() ?? path;
-        // F-FT-11 的原文日志："入队发送：{文件名} → {ip}:{端口}"
-        log({
-          level: "info",
-          module: "Transfer",
-          action: "transferSendFile",
-          result: "Success",
-          correlationId: newCorrelationId(),
-        });
-        setNotice(t("send.queued", { name, peer: peerLabel }));
-        send.mutate({ ip: peer.ip, port: peer.port, path });
-      }
+      requestSend(
+        { ip: peer.ip, port: peer.port, label: `${peer.deviceName}（${peer.ip}:${peer.port}）` },
+        paths,
+      );
     },
-    [peers, send, t],
+    [peers, requestSend, t],
   );
 
   const drop = useTransferDrop({
@@ -472,20 +542,12 @@ export function FileTransferPage() {
     async (peer: KnownPeer): Promise<void> => {
       const paths = await pickFiles();
       if (paths.length === 0) return;
-      for (const path of paths) {
-        const name = path.split(/[\\/]/).pop() ?? path;
-        log({
-          level: "info",
-          module: "Transfer",
-          action: "transferSendFile",
-          result: "Success",
-          correlationId: newCorrelationId(),
-        });
-        setNotice(t("send.queued", { name, peer: `${peer.ip}:${peer.port}` }));
-        send.mutate({ ip: peer.ip, port: peer.port, path });
-      }
+      requestSend(
+        { ip: peer.ip, port: peer.port, label: `${peer.name}（${peer.ip}:${peer.port}）` },
+        paths,
+      );
     },
-    [pickFiles, send, t],
+    [pickFiles, requestSend],
   );
 
   /** 「加入已知」（F-FT-10：按 IP+端口去重；重复加入只提示"已加入"）。 */
@@ -929,7 +991,9 @@ export function FileTransferPage() {
           </EditRow>
           {/* 发送与目标选择的提示都在这里（R-7 的"请拖到目标设备行上"、入队回执、失败原因） */}
           {notice !== null && <Hint span>{notice}</Hint>}
-          {send.error !== null && (
+          {/* 🔴 码错/节流的失败由对话框就地显示（见下方 `PairCodeDialog` 的 error），
+              此处只在**没有**对话框时兜底，避免同一句话出现两遍 */}
+          {send.error !== null && pendingSend === null && (
             <Hint span>{t("send.failed", { reason: asTransferError(send.error).message })}</Hint>
           )}
         </Card>
@@ -1039,6 +1103,19 @@ export function FileTransferPage() {
         </LogBar>
         {logOpen ? <LogBox /> : null}
       </div>
+      {/* 配对码对话框（布局经用户 2026-10-04 确认，方案 A：发送前弹、带免码勾选、多文件只问一次） */}
+      <PairCodeDialog
+        open={pendingSend !== null}
+        peerLabel={pendingSend?.label ?? ""}
+        busy={send.isPending}
+        error={pairError}
+        sendingCount={pendingSend?.paths.length ?? 0}
+        onCancel={() => {
+          setPendingSend(null);
+          setPairError(null);
+        }}
+        onConfirm={confirmPair}
+      />
     </Wrap>
   );
 }
