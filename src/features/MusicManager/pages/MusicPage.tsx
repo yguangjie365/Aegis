@@ -5,7 +5,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import { useLocation } from "react-router-dom";
 import { useAppStartup } from "@/features/MusicManager/contexts/app-startup-context";
-import { useAdaptiveTextColor } from "@/features/MusicManager/hooks/use-adaptive-text-color";
+// 🔴 2026-10-05 删除 useAdaptiveTextColor 的 import：唯一使用点（页内「音乐播放器」标题）
+//    已移入品牌区。hook 本身保留 —— GameManager/SteamPage 仍在用。
 import {
   Box,
   VStack,
@@ -25,7 +26,7 @@ import {
   MenuList,
   MenuItem,
   Image as ChakraImage,
-  Heading,
+  // 🔴 2026-10-05 删除 Heading 的 import：唯一使用点是页内「音乐播放器」标题，已移入品牌区。
   Portal,
   Fade,
   Popover,
@@ -4166,9 +4167,61 @@ const SearchBox = memo(function SearchBox({ onUnifiedSearch, onArtistClick }: Se
 // ═══════════════════════════════════════════════
 // Main MusicPage
 // ═══════════════════════════════════════════════
+/* ═══════════════════════════════════════════════
+   品牌区注入（portal 通道）
+   ═══════════════════════════════════════════════
+   🔴 为什么走 portal 而不是 useRegisterBrand：
+     `tsconfig.music-replica.json` 的 include 只有「音乐域 + types/music.ts」，
+     任何壳层 import 都撞 TS6307（`@/shell/brand-bar` 与 `@/shared` 两条路都试过，
+     连门面本身都不在清单内）⇒ 音乐域**不得依赖壳层**。
+   🔴 portal 为何不违反 TS6307：只依赖 **react-dom**（第三方）+ 一个**字符串 id**，
+     不 import 任何本仓文件 ⇒ 类型系统看不到跨域依赖。
+   ⚠️ id 字符串与 `brand-bar.tsx` 的 `BRAND_PORTAL_ID` / `BRAND_SUB_PORTAL_ID` 必须一致
+     （复制而非 import）。 */
+const BRAND_PORTAL_ID = "aegis-brand-portal";
+const BRAND_SUB_PORTAL_ID = "aegis-brand-sub-portal";
+
+/** 把品牌区内容投影进壳层的槽位。
+ *  🔴🔴 三次失败才总结出正确写法（前两次都只拿到 null）：
+ *   ① `useEffect + setState`：**首次渲染 slot=null ⇒ createPortal(null) 被静默丢弃**，
+ *      之后 setNode 虽然触发重渲染，但**惰性分支已经求过值**，React 不会补挂。
+ *      实测 vstack 子元素只有 2 个（主内容 + 播放器），portal 内容凭空消失。
+ *   ② `display: contents` 的槽位：浏览器把子节点**提升到父级** ⇒
+ *      `slot.children.length === 0`，DOM 上看不到内容（已弃用）。
+ *   ③ `useState` 惰性初始化：只跑一次，壳层槽位若晚一帧挂上就永远拿不到。
+ *
+ * 正确做法：**渲染期直接查 + 命中即投，查不到就 rAF 轮询重试**。
+ * ⚠️ **两个槽位要一起等**：任一缺失都会导致对应内容永久丢失（同 ① 的丢弃语义）。 */
+function useBrandPortal(id: string): HTMLElement | null {
+  const [node, setNode] = useState<HTMLElement | null>(() =>
+    typeof document === "undefined" ? null : document.getElementById(id),
+  );
+  useEffect(() => {
+    if (node) return;
+    let raf = 0;
+    let tries = 0;
+    const probe = () => {
+      const el = document.getElementById(id);
+      if (el) {
+        setNode(el);
+        return;
+      }
+      if (++tries > 30) return; // 1s 还没出现就放弃（安全失败 = 品牌区不显示）
+      raf = requestAnimationFrame(probe);
+    };
+    raf = requestAnimationFrame(probe);
+    return () => cancelAnimationFrame(raf);
+  }, [id, node]);
+  return node;
+}
+
 export default function MusicPage() {
-  // ── 使用独立选择器，每个字段用 Object.is 比较 ──
-  // 比 useShallow 更可靠：播放时 timeupdate 只改 currentTime，
+  /* 品牌区内容通过 portal 投进壳层：副标题走 sub 位（标题下方），
+     平台标签 + 账号区走 actions 位（右侧靠右）。见上方 portal 通道说明。 */
+  const brandSubSlot = useBrandPortal(BRAND_SUB_PORTAL_ID);
+  const brandSlot = useBrandPortal(BRAND_PORTAL_ID);
+
+  // ── 使用独立选择器，每个字段用 Object.is 比较 ──  // 比 useShallow 更可靠：播放时 timeupdate 只改 currentTime,
   // 这些选择器都不会触发重渲染
   const currentSong = useMusicStore((s) => s.currentSong);
   const isPlaying = useMusicStore((s) => s.isPlaying);
@@ -4363,7 +4416,9 @@ export default function MusicPage() {
 
   const borderColor = useColorModeValue("gray.200", "aegis.hairline");
   const textColor = useColorModeValue("gray.800", "aegis.ink");
-  const adaptiveTitle = useAdaptiveTextColor();
+  // 🔴 2026-10-05 删除 adaptiveTitle（useAdaptiveTextColor）：它只服务于页内的
+  //    「音乐播放器」标题，而该标题已随页面标题统一移入品牌区 ⇒ 成了死变量。
+  //    ⚠️ hook 本身**不能删** —— GameManager 的 SteamPage 仍在用。
   const subTextColor = useColorModeValue("gray.500", "aegis.mute");
   const itemHoverBg = useColorModeValue("gray.50", "aegis.surface-soft");
   const itemActiveBg = useColorModeValue(`${activeColor}22`, "rgba(255,255,255,0.08)");
@@ -6557,808 +6612,956 @@ export default function MusicPage() {
   // 主视图
   // ═══════════════════════════════════════════════
   return (
-    <VStack
-      spacing={4}
-      align="stretch"
-      w="100%"
-      h="100%"
-      overflow="hidden"
-      sx={{ maxWidth: "100%", overflowX: "hidden", position: "relative" }}
-    >
-      {/* 标题 + 登录 */}
-      <HStack justify="space-between" w="100%" flexShrink={0}>
-        <HStack spacing={3}>
-          <MusicIcon size={24} color={activeColor} />
-          <Heading size="md" color={adaptiveTitle.text} textShadow={adaptiveTitle.shadow}>
-            音乐播放器
-          </Heading>
-          <Box
-            px={2.5}
-            py={0.5}
-            borderRadius="var(--aegis-radius-sm)"
-            bg={useColorModeValue("gray.100", "aegis.surface-soft")}
-            border="1px solid"
-            borderColor={useColorModeValue("gray.200", "aegis.hairline")}
+    <>
+      {/* 🔴 2026-10-05 用户裁决：**删除**页内「音乐播放器」图标 + 文字，
+          并把「MusicManager 副标题 + 当前平台标签 + 账号区（头像/添加平台/退出登录）」
+          搬到**品牌区**靠右。
+          原因：壳层垂直迁移已把「页面标题」交给品牌区统一渲染，页内再放一份就是**重复标题**。
+          ⚠️ 这是本页与壳层之间**唯一**的耦合点：靠一个 **DOM id 字符串**（不能 import 壳层，
+             否则撞 TS6307，见 useBrandPortal 注释）。
+          🔴 放在 VStack **之外**（Fragment 顶层）—— 放在里面会被计入 VStack 的子元素、
+             干扰它的 spacing/flex 布局。 */}
+      {brandSubSlot ? createPortal(<span>MusicManager</span>, brandSubSlot) : null}
+      {brandSlot
+        ? createPortal(
+            <HStack spacing={3} align="center" justify="flex-end" flex="none">
+              {/* 🔴🔴 2026-10-05 颜色改用 **CSS 变量**，不再用 useColorModeValue。
+               * 现象：品牌区里这个标签渲染成 **浅色底深色字**（实测像素 #EDF2F7 / #1A202C
+               *      = Chakra gray.100 / gray.800，**都是浅色包的值**），
+               *      而页面其余部分是 dark（body 背景、标题都正常）⇒
+               *      **portal 出去的子树丢了 ColorModeContext**，
+               *      useColorModeValue 判成 light 分支。
+               * 为什么不能用 useColorModeValue：它是 React hook，依赖 ThemeProvider 的
+               *      context；portal 虽然仍在 React 树内，但本项目的 colorMode 是靠
+               *      **CSS 类 + CSS 变量**驱动的（body.chakra-ui-dark + --aegis-*），
+               *      hook 分支判断与 CSS 变量脱钩 ⇒ 取到浅色分支的字面色。
+               * 为什么 CSS 变量可靠：主题包把 --aegis-* 写在 CSS 上，portal 出去的 DOM
+               *      仍在同一 document，**变量照常解析**（实测副标题槽就是用变量渲的，颜色正确）。 */}
+              <Box
+                px={2.5}
+                py={0.5}
+                borderRadius="var(--aegis-radius-sm)"
+                bg="var(--aegis-surface-soft)"
+                border="1px solid"
+                borderColor="var(--aegis-hairline)"
+              >
+                {/* 🔴 同上：用 CSS 变量而非 subTextColor（后者是 useColorModeValue 派生的，
+                    在 portal 子树里会取到浅色分支）。 */}
+                <Text
+                  fontSize="xs"
+                  color="var(--aegis-mute)"
+                  fontWeight="medium"
+                  whiteSpace="nowrap"
+                >
+                  当前平台：{providerName}
+                </Text>
+              </Box>
+              <MusicLoginSection />
+            </HStack>,
+            brandSlot,
+          )
+        : null}
+      <VStack
+        spacing={4}
+        align="stretch"
+        w="100%"
+        h="100%"
+        /* 🔴 flex:1 + minH:0 —— 外层包了 Fragment（为把 portal 提到 VStack 之外），
+           于是本组件不再是 Main 的唯一子元素，`shell-layout` 里
+           `Main > * { flex: 1 1 0 }` 的通配规则**匹配不到本 VStack**
+           （它匹配的是 Fragment 渲染出的节点）⇒ 必须自己声明，否则高度塌陷。 */
+        flex={1}
+        minH={0}
+        overflow="hidden"
+        sx={{ maxWidth: "100%", overflowX: "hidden", position: "relative" }}
+      >
+        {/* 主内容区：左右 50/50 */}
+        <HStack spacing={4} align="stretch" flex={1} w="100%" minH={0} overflow="hidden">
+          {/* ══ 左侧：我的音乐（本地导入 / 播放历史）/ 我的歌单 / 歌单曲目 ══ */}
+          <LiquidGlassCard
+            p={4}
+            flex={1}
+            display="flex"
+            flexDirection="column"
+            overflow="hidden"
+            minW={0}
           >
-            <Text fontSize="xs" color={subTextColor} fontWeight="medium" whiteSpace="nowrap">
-              当前平台：{providerName}
-            </Text>
-          </Box>
-        </HStack>
-        <MusicLoginSection />
-      </HStack>
-
-      {/* 主内容区：左右 50/50 */}
-      <HStack spacing={4} align="stretch" flex={1} w="100%" minH={0} overflow="hidden">
-        {/* ══ 左侧：我的音乐（本地导入 / 播放历史）/ 我的歌单 / 歌单曲目 ══ */}
-        <LiquidGlassCard
-          p={4}
-          flex={1}
-          display="flex"
-          flexDirection="column"
-          overflow="hidden"
-          minW={0}
-        >
-          {leftPanelView === "tracks" ? (
-            <>
-              {/* 歌单曲目视图 */}
-              <HStack spacing={2} mb={3} flexShrink={0}>
-                <Tooltip label="返回歌单列表">
-                  <IconButton
-                    aria-label="Back"
-                    icon={<ArrowLeft size={16} />}
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleBackToPlaylists}
-                    sx={{ color: activeColor, _hover: { bg: hoverBg } }}
-                  />
-                </Tooltip>
-                <Text fontSize="sm" fontWeight="bold" color={textColor} noOfLines={1}>
-                  {leftPlaylistMeta?.name || "曲目列表"}
-                </Text>
-                <Text color={subTextColor} fontSize="xs" flexShrink={0}>
-                  ({displayedLeftTracks.length} 首)
-                </Text>
-                <Box flex={1} />
-                <Button
-                  size="xs"
-                  leftIcon={<PlayBtn size={12} />}
-                  variant="solid"
-                  bg={activeColor}
-                  color={contrastText}
-                  isDisabled={displayedLeftTracks.length === 0}
-                  _hover={{ opacity: 0.9 }}
-                  _active={{ transform: "scale(0.97)" }}
-                  onClick={handlePlayAllLeft}
-                >
-                  播放全部
-                </Button>
-              </HStack>
-              {/* 歌单内搜索：固定于列表上方，不随曲目滚动 */}
-              <HStack spacing={2} mb={2} flexShrink={0}>
-                <InputGroup size="sm">
-                  <InputLeftElement pointerEvents="none">
-                    <Search size={14} style={{ color: subTextColor }} />
-                  </InputLeftElement>
-                  <Input
-                    placeholder="搜索歌单内歌曲"
-                    value={playlistKeyword}
-                    onChange={(e) => handlePlaylistSearchChange(e.target.value)}
-                    borderRadius="var(--aegis-radius-sm)"
-                    focusBorderColor={activeColor}
-                    sx={{
-                      bg: liquidGlassEnabled ? itemActiveBg : "transparent",
-                      borderColor: liquidGlassEnabled ? getBorderColor() : borderColor,
-                      fontSize: "sm",
-                    }}
-                  />
-                  {playlistKeyword !== "" && (
-                    <InputRightElement width="2rem">
-                      <IconButton
-                        aria-label="清除歌单内搜索"
-                        icon={<X size={14} />}
-                        size="xs"
-                        variant="ghost"
-                        onClick={() => handlePlaylistSearchChange("")}
-                        sx={{ color: subTextColor, _hover: { bg: hoverBg } }}
-                      />
-                    </InputRightElement>
+            {leftPanelView === "tracks" ? (
+              <>
+                {/* 歌单曲目视图 */}
+                <HStack spacing={2} mb={3} flexShrink={0}>
+                  <Tooltip label="返回歌单列表">
+                    <IconButton
+                      aria-label="Back"
+                      icon={<ArrowLeft size={16} />}
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleBackToPlaylists}
+                      sx={{ color: activeColor, _hover: { bg: hoverBg } }}
+                    />
+                  </Tooltip>
+                  <Text fontSize="sm" fontWeight="bold" color={textColor} noOfLines={1}>
+                    {leftPlaylistMeta?.name || "曲目列表"}
+                  </Text>
+                  <Text color={subTextColor} fontSize="xs" flexShrink={0}>
+                    ({displayedLeftTracks.length} 首)
+                  </Text>
+                  <Box flex={1} />
+                  <Button
+                    size="xs"
+                    leftIcon={<PlayBtn size={12} />}
+                    variant="solid"
+                    bg={activeColor}
+                    color={contrastText}
+                    isDisabled={displayedLeftTracks.length === 0}
+                    _hover={{ opacity: 0.9 }}
+                    _active={{ transform: "scale(0.97)" }}
+                    onClick={handlePlayAllLeft}
+                  >
+                    播放全部
+                  </Button>
+                </HStack>
+                {/* 歌单内搜索：固定于列表上方，不随曲目滚动 */}
+                <HStack spacing={2} mb={2} flexShrink={0}>
+                  <InputGroup size="sm">
+                    <InputLeftElement pointerEvents="none">
+                      <Search size={14} style={{ color: subTextColor }} />
+                    </InputLeftElement>
+                    <Input
+                      placeholder="搜索歌单内歌曲"
+                      value={playlistKeyword}
+                      onChange={(e) => handlePlaylistSearchChange(e.target.value)}
+                      borderRadius="var(--aegis-radius-sm)"
+                      focusBorderColor={activeColor}
+                      sx={{
+                        bg: liquidGlassEnabled ? itemActiveBg : "transparent",
+                        borderColor: liquidGlassEnabled ? getBorderColor() : borderColor,
+                        fontSize: "sm",
+                      }}
+                    />
+                    {playlistKeyword !== "" && (
+                      <InputRightElement width="2rem">
+                        <IconButton
+                          aria-label="清除歌单内搜索"
+                          icon={<X size={14} />}
+                          size="xs"
+                          variant="ghost"
+                          onClick={() => handlePlaylistSearchChange("")}
+                          sx={{ color: subTextColor, _hover: { bg: hoverBg } }}
+                        />
+                      </InputRightElement>
+                    )}
+                  </InputGroup>
+                  {leftPlaylistLoadingAll && (
+                    <HStack spacing={1.5} color={subTextColor} flexShrink={0} pr={1}>
+                      <Spinner size="xs" sx={{ color: activeColor }} />
+                      <Text fontSize="xs">加载全部曲目中...</Text>
+                    </HStack>
                   )}
-                </InputGroup>
-                {leftPlaylistLoadingAll && (
-                  <HStack spacing={1.5} color={subTextColor} flexShrink={0} pr={1}>
-                    <Spinner size="xs" sx={{ color: activeColor }} />
-                    <Text fontSize="xs">加载全部曲目中...</Text>
-                  </HStack>
-                )}
-              </HStack>
-              <VirtualList
-                items={displayedLeftTracks}
-                itemHeight={60}
-                renderItem={searchingPlaylist ? renderFilteredLeftTrackItem : renderLeftTrackItem}
-                getKey={(song, i) => `${song.provider}-${song.id}-${i}`}
-                loading={loadingLeftTracks}
-                loadingText="加载曲目中..."
-                emptyText={searchingPlaylist ? "未找到匹配的歌曲" : "暂无曲目"}
-                resetKey={
-                  leftPlaylistMeta?.id
-                    ? `${leftPlaylistMeta.id}|${playlistKeyword}`
-                    : playlistKeyword
-                }
-                scrollbarSx={memoScrollbarSx}
-                onEndReached={
-                  searchingPlaylist ? () => {} : () => storeActions.loadMoreLeftPlaylistTracks()
-                }
-                hasMore={
-                  searchingPlaylist
-                    ? false
-                    : (leftPlaylistMeta?.track_count ?? 0) > leftPlaylistTracks.length
-                }
-              />
-            </>
-          ) : leftPanelView === "local" ? (
-            <>
-              {/* 本地歌曲视图 */}
-              <HStack spacing={2} mb={3} flexShrink={0}>
-                <Tooltip label="返回歌单列表">
-                  <IconButton
-                    aria-label="Back"
-                    icon={<ArrowLeft size={16} />}
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleBackToPlaylists}
-                    sx={{ color: activeColor, _hover: { bg: hoverBg } }}
-                  />
-                </Tooltip>
-                <Text fontSize="sm" fontWeight="bold" color={textColor} noOfLines={1}>
-                  本地音乐
-                </Text>
-                <Text color={subTextColor} fontSize="xs" flexShrink={0}>
-                  ({localSongs.length} 首)
-                </Text>
-                <Box flex={1} />
-                <Button
-                  size="xs"
-                  leftIcon={<PlayBtn size={12} />}
-                  variant="solid"
-                  bg={activeColor}
-                  color={contrastText}
-                  isDisabled={localSongs.length === 0}
-                  _hover={{ opacity: 0.9 }}
-                  _active={{ transform: "scale(0.97)" }}
-                  onClick={() => playAll(localSongs)}
-                >
-                  播放全部
-                </Button>
-                <Tooltip label="导入本地歌曲">
-                  <IconButton
-                    aria-label="导入本地歌曲"
-                    icon={importingLocal ? <Spinner size="xs" /> : <FolderOpen size={15} />}
-                    size="sm"
-                    variant="ghost"
+                </HStack>
+                <VirtualList
+                  items={displayedLeftTracks}
+                  itemHeight={60}
+                  renderItem={searchingPlaylist ? renderFilteredLeftTrackItem : renderLeftTrackItem}
+                  getKey={(song, i) => `${song.provider}-${song.id}-${i}`}
+                  loading={loadingLeftTracks}
+                  loadingText="加载曲目中..."
+                  emptyText={searchingPlaylist ? "未找到匹配的歌曲" : "暂无曲目"}
+                  resetKey={
+                    leftPlaylistMeta?.id
+                      ? `${leftPlaylistMeta.id}|${playlistKeyword}`
+                      : playlistKeyword
+                  }
+                  scrollbarSx={memoScrollbarSx}
+                  onEndReached={
+                    searchingPlaylist ? () => {} : () => storeActions.loadMoreLeftPlaylistTracks()
+                  }
+                  hasMore={
+                    searchingPlaylist
+                      ? false
+                      : (leftPlaylistMeta?.track_count ?? 0) > leftPlaylistTracks.length
+                  }
+                />
+              </>
+            ) : leftPanelView === "local" ? (
+              <>
+                {/* 本地歌曲视图 */}
+                <HStack spacing={2} mb={3} flexShrink={0}>
+                  <Tooltip label="返回歌单列表">
+                    <IconButton
+                      aria-label="Back"
+                      icon={<ArrowLeft size={16} />}
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleBackToPlaylists}
+                      sx={{ color: activeColor, _hover: { bg: hoverBg } }}
+                    />
+                  </Tooltip>
+                  <Text fontSize="sm" fontWeight="bold" color={textColor} noOfLines={1}>
+                    本地音乐
+                  </Text>
+                  <Text color={subTextColor} fontSize="xs" flexShrink={0}>
+                    ({localSongs.length} 首)
+                  </Text>
+                  <Box flex={1} />
+                  <Button
+                    size="xs"
+                    leftIcon={<PlayBtn size={12} />}
+                    variant="solid"
+                    bg={activeColor}
+                    color={contrastText}
+                    isDisabled={localSongs.length === 0}
+                    _hover={{ opacity: 0.9 }}
+                    _active={{ transform: "scale(0.97)" }}
+                    onClick={() => playAll(localSongs)}
+                  >
+                    播放全部
+                  </Button>
+                  <Tooltip label="导入本地歌曲">
+                    <IconButton
+                      aria-label="导入本地歌曲"
+                      icon={importingLocal ? <Spinner size="xs" /> : <FolderOpen size={15} />}
+                      size="sm"
+                      variant="ghost"
+                      isDisabled={importingLocal}
+                      onClick={handleImportLocal}
+                      sx={{ color: activeColor, _hover: { bg: hoverBg } }}
+                    />
+                  </Tooltip>
+                  <Tooltip label="导入歌曲文件夹">
+                    <IconButton
+                      aria-label="导入歌曲文件夹"
+                      icon={importingLocal ? <Spinner size="xs" /> : <FolderPlus size={15} />}
+                      size="sm"
+                      variant="ghost"
+                      isDisabled={importingLocal}
+                      onClick={handleImportLocalFolder}
+                      sx={{ color: activeColor, _hover: { bg: hoverBg } }}
+                    />
+                  </Tooltip>
+                  {localSongs.length > 0 && (
+                    <Tooltip label="清空本地音乐">
+                      <IconButton
+                        aria-label="清空本地音乐"
+                        icon={<Trash2 size={15} />}
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleClearLocalSongs}
+                        sx={{ color: subTextColor, _hover: { bg: hoverBg, color: "#e53e3e" } }}
+                      />
+                    </Tooltip>
+                  )}
+                </HStack>
+                <VirtualList
+                  items={localSongs}
+                  itemHeight={60}
+                  renderItem={renderLocalTrackItem}
+                  getKey={(song, i) => `local-${song.id}-${i}`}
+                  loading={false}
+                  loadingText="加载中..."
+                  emptyText="暂无本地歌曲，点击右上角导入"
+                  resetKey="local"
+                  scrollbarSx={memoScrollbarSx}
+                />
+              </>
+            ) : leftPanelView === "history" ? (
+              <>
+                {/* 播放历史视图：跨平台完整播放时间线，行内带平台标签；列表内播放不重排，退出再进才刷新 */}
+                <HStack spacing={2} mb={3} flexShrink={0}>
+                  <Tooltip label="返回歌单列表">
+                    <IconButton
+                      aria-label="Back"
+                      icon={<ArrowLeft size={16} />}
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleBackToPlaylists}
+                      sx={{ color: activeColor, _hover: { bg: hoverBg } }}
+                    />
+                  </Tooltip>
+                  <Text fontSize="sm" fontWeight="bold" color={textColor} noOfLines={1}>
+                    播放历史
+                  </Text>
+                  <Text color={subTextColor} fontSize="xs" flexShrink={0}>
+                    ({historyQueueSongs.length} 首 / {historyViewList.length} 条)
+                  </Text>
+                  <Box flex={1} />
+                  <Button
+                    size="xs"
+                    leftIcon={<PlayBtn size={12} />}
+                    variant="solid"
+                    bg={activeColor}
+                    color={contrastText}
+                    isDisabled={historyQueueSongs.length === 0}
+                    _hover={{ opacity: 0.9 }}
+                    _active={{ transform: "scale(0.97)" }}
+                    onClick={() => playAll(historyQueueSongs)}
+                  >
+                    播放全部
+                  </Button>
+                  {historyViewList.length > 0 && (
+                    <Tooltip label="清空播放历史">
+                      <IconButton
+                        aria-label="清空播放历史"
+                        icon={<Trash2 size={15} />}
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleClearPlayHistory}
+                        sx={{ color: subTextColor, _hover: { bg: hoverBg, color: "#e53e3e" } }}
+                      />
+                    </Tooltip>
+                  )}
+                </HStack>
+                <VirtualList
+                  items={historyViewList}
+                  itemHeight={60}
+                  renderItem={renderHistoryRow}
+                  getKey={(entry) => `${entry.song.provider}-${entry.song.id}`}
+                  loading={false}
+                  emptyText="暂无播放历史，播放歌曲后自动记录"
+                  resetKey="history"
+                  scrollbarSx={memoScrollbarSx}
+                />
+              </>
+            ) : (
+              <>
+                {/* 顶部：我的音乐（本地导入入口 + 导入按钮，始终显示） */}
+                <HStack spacing={2} mb={2} flexShrink={0}>
+                  <ListMusic size={16} color={activeColor} />
+                  <Text fontSize="sm" fontWeight="bold" color={textColor} flex={1} noOfLines={1}>
+                    我的音乐
+                  </Text>
+                  <Text color={subTextColor} fontSize="xs" flexShrink={0}>
+                    {localSongs.length} 首
+                  </Text>
+                  <Button
+                    size="xs"
+                    leftIcon={importingLocal ? <Spinner size="xs" /> : <FolderOpen size={14} />}
+                    variant="solid"
+                    flexShrink={0}
+                    bg={activeColor}
+                    color={contrastText}
+                    isLoading={importingLocal}
+                    loadingText="导入中..."
                     isDisabled={importingLocal}
+                    _hover={{ opacity: 0.9 }}
+                    _active={{ transform: "scale(0.97)" }}
                     onClick={handleImportLocal}
-                    sx={{ color: activeColor, _hover: { bg: hoverBg } }}
-                  />
-                </Tooltip>
-                <Tooltip label="导入歌曲文件夹">
-                  <IconButton
-                    aria-label="导入歌曲文件夹"
-                    icon={importingLocal ? <Spinner size="xs" /> : <FolderPlus size={15} />}
-                    size="sm"
-                    variant="ghost"
+                  >
+                    本地导入
+                  </Button>
+                  <Button
+                    size="xs"
+                    leftIcon={importingLocal ? <Spinner size="xs" /> : <FolderPlus size={14} />}
+                    variant="outline"
+                    flexShrink={0}
+                    borderColor={activeColor}
+                    color={activeColor}
+                    isLoading={importingLocal}
+                    loadingText="导入中..."
                     isDisabled={importingLocal}
+                    _hover={{ opacity: 0.9 }}
+                    _active={{ transform: "scale(0.97)" }}
                     onClick={handleImportLocalFolder}
-                    sx={{ color: activeColor, _hover: { bg: hoverBg } }}
-                  />
-                </Tooltip>
-                {localSongs.length > 0 && (
-                  <Tooltip label="清空本地音乐">
-                    <IconButton
-                      aria-label="清空本地音乐"
-                      icon={<Trash2 size={15} />}
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleClearLocalSongs}
-                      sx={{ color: subTextColor, _hover: { bg: hoverBg, color: "#e53e3e" } }}
-                    />
-                  </Tooltip>
-                )}
-              </HStack>
-              <VirtualList
-                items={localSongs}
-                itemHeight={60}
-                renderItem={renderLocalTrackItem}
-                getKey={(song, i) => `local-${song.id}-${i}`}
-                loading={false}
-                loadingText="加载中..."
-                emptyText="暂无本地歌曲，点击右上角导入"
-                resetKey="local"
-                scrollbarSx={memoScrollbarSx}
-              />
-            </>
-          ) : leftPanelView === "history" ? (
-            <>
-              {/* 播放历史视图：跨平台完整播放时间线，行内带平台标签；列表内播放不重排，退出再进才刷新 */}
-              <HStack spacing={2} mb={3} flexShrink={0}>
-                <Tooltip label="返回歌单列表">
-                  <IconButton
-                    aria-label="Back"
-                    icon={<ArrowLeft size={16} />}
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleBackToPlaylists}
-                    sx={{ color: activeColor, _hover: { bg: hoverBg } }}
-                  />
-                </Tooltip>
-                <Text fontSize="sm" fontWeight="bold" color={textColor} noOfLines={1}>
-                  播放历史
-                </Text>
-                <Text color={subTextColor} fontSize="xs" flexShrink={0}>
-                  ({historyQueueSongs.length} 首 / {historyViewList.length} 条)
-                </Text>
-                <Box flex={1} />
-                <Button
-                  size="xs"
-                  leftIcon={<PlayBtn size={12} />}
-                  variant="solid"
-                  bg={activeColor}
-                  color={contrastText}
-                  isDisabled={historyQueueSongs.length === 0}
-                  _hover={{ opacity: 0.9 }}
-                  _active={{ transform: "scale(0.97)" }}
-                  onClick={() => playAll(historyQueueSongs)}
-                >
-                  播放全部
-                </Button>
-                {historyViewList.length > 0 && (
-                  <Tooltip label="清空播放历史">
-                    <IconButton
-                      aria-label="清空播放历史"
-                      icon={<Trash2 size={15} />}
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleClearPlayHistory}
-                      sx={{ color: subTextColor, _hover: { bg: hoverBg, color: "#e53e3e" } }}
-                    />
-                  </Tooltip>
-                )}
-              </HStack>
-              <VirtualList
-                items={historyViewList}
-                itemHeight={60}
-                renderItem={renderHistoryRow}
-                getKey={(entry) => `${entry.song.provider}-${entry.song.id}`}
-                loading={false}
-                emptyText="暂无播放历史，播放歌曲后自动记录"
-                resetKey="history"
-                scrollbarSx={memoScrollbarSx}
-              />
-            </>
-          ) : (
-            <>
-              {/* 顶部：我的音乐（本地导入入口 + 导入按钮，始终显示） */}
-              <HStack spacing={2} mb={2} flexShrink={0}>
-                <ListMusic size={16} color={activeColor} />
-                <Text fontSize="sm" fontWeight="bold" color={textColor} flex={1} noOfLines={1}>
-                  我的音乐
-                </Text>
-                <Text color={subTextColor} fontSize="xs" flexShrink={0}>
-                  {localSongs.length} 首
-                </Text>
-                <Button
-                  size="xs"
-                  leftIcon={importingLocal ? <Spinner size="xs" /> : <FolderOpen size={14} />}
-                  variant="solid"
-                  flexShrink={0}
-                  bg={activeColor}
-                  color={contrastText}
-                  isLoading={importingLocal}
-                  loadingText="导入中..."
-                  isDisabled={importingLocal}
-                  _hover={{ opacity: 0.9 }}
-                  _active={{ transform: "scale(0.97)" }}
-                  onClick={handleImportLocal}
-                >
-                  本地导入
-                </Button>
-                <Button
-                  size="xs"
-                  leftIcon={importingLocal ? <Spinner size="xs" /> : <FolderPlus size={14} />}
-                  variant="outline"
-                  flexShrink={0}
-                  borderColor={activeColor}
-                  color={activeColor}
-                  isLoading={importingLocal}
-                  loadingText="导入中..."
-                  isDisabled={importingLocal}
-                  _hover={{ opacity: 0.9 }}
-                  _active={{ transform: "scale(0.97)" }}
-                  onClick={handleImportLocalFolder}
-                >
-                  导入文件夹
-                </Button>
-              </HStack>
-              <Box
-                p={2}
-                borderRadius="var(--aegis-radius-sm)"
-                cursor="pointer"
-                mb={3}
-                _hover={{ bg: liquidGlassEnabled ? hoverBg : itemHoverBg }}
-                onClick={() => setLeftPanelView("local")}
-                transition="background 0.15s"
-                flexShrink={0}
-              >
-                <HStack spacing={3}>
-                  <Box
-                    w="44px"
-                    h="44px"
-                    borderRadius="var(--aegis-radius-sm)"
-                    flexShrink={0}
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="center"
-                    bg={useColorModeValue(`${activeColor}1a`, `${activeColor}26`)}
                   >
-                    <FileMusic size={22} color={activeColor} />
-                  </Box>
-                  <VStack spacing={0} align="start" flex={1} minW={0}>
-                    <Text color={textColor} fontSize="sm" fontWeight="medium" noOfLines={1}>
-                      本地导入的歌单
-                    </Text>
-                    <Text color={subTextColor} fontSize="xs">
-                      {localSongs.length > 0 ? `${localSongs.length} 首歌曲` : "导入本地音频文件"}
-                    </Text>
-                  </VStack>
-                  <ChevronRight size={16} color={subTextColor} />
+                    导入文件夹
+                  </Button>
                 </HStack>
-              </Box>
-
-              {/* 播放历史入口：不依赖登录，本地播放也会记 */}
-              <Box
-                p={2}
-                borderRadius="var(--aegis-radius-sm)"
-                cursor="pointer"
-                mb={3}
-                _hover={{ bg: liquidGlassEnabled ? hoverBg : itemHoverBg }}
-                onClick={openHistoryView}
-                transition="background 0.15s"
-                flexShrink={0}
-              >
-                <HStack spacing={3}>
-                  <Box
-                    w="44px"
-                    h="44px"
-                    borderRadius="var(--aegis-radius-sm)"
-                    flexShrink={0}
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="center"
-                    bg={useColorModeValue(`${activeColor}1a`, `${activeColor}26`)}
-                  >
-                    <History size={22} color={activeColor} />
-                  </Box>
-                  <VStack spacing={0} align="start" flex={1} minW={0}>
-                    <Text color={textColor} fontSize="sm" fontWeight="medium" noOfLines={1}>
-                      播放历史
-                    </Text>
-                    <Text color={subTextColor} fontSize="xs" noOfLines={1}>
-                      {playHistoryList.length > 0
-                        ? `${playHistoryList.length} 条 · 最近 ${formatCommentTime(playHistoryList[0].playedAt)}`
-                        : "播放歌曲后自动记录"}
-                    </Text>
-                  </VStack>
-                  <ChevronRight size={16} color={subTextColor} />
-                </HStack>
-              </Box>
-
-              {/* 登录后的歌单列表 */}
-              {loginInfo?.logged_in ? (
-                <>
-                  {/* 汽水签名依赖缺失引导：需下载 Node 包才能播「听歌模式」与 VIP 全曲 */}
-                  {playbackSource === "qishui" && qishuiDeps.checked && !qishuiDeps.ready && (
+                <Box
+                  p={2}
+                  borderRadius="var(--aegis-radius-sm)"
+                  cursor="pointer"
+                  mb={3}
+                  _hover={{ bg: liquidGlassEnabled ? hoverBg : itemHoverBg }}
+                  onClick={() => setLeftPanelView("local")}
+                  transition="background 0.15s"
+                  flexShrink={0}
+                >
+                  <HStack spacing={3}>
                     <Box
-                      mb={3}
-                      p={3}
+                      w="44px"
+                      h="44px"
                       borderRadius="var(--aegis-radius-sm)"
                       flexShrink={0}
-                      bg={liquidGlassEnabled ? undefined : qishuiNoticeBg}
-                      border="1px solid"
-                      borderColor={qishuiNoticeBorder}
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="center"
+                      bg={useColorModeValue(`${activeColor}1a`, `${activeColor}26`)}
                     >
-                      <HStack spacing={2} mb={1}>
-                        <AlertCircle size={16} color={activeColor} />
-                        <Text fontSize="sm" fontWeight="bold" color={textColor}>
-                          当前无法播放
-                        </Text>
-                      </HStack>
-                      <Text fontSize="xs" color={subTextColor} mb={2}>
-                        需下载 Node 包（node.exe + bdms.node +
-                        metasecml.dll）后才能播放「听歌模式」推荐流与 VIP
-                        全曲；免费歌曲与歌单不受影响。
+                      <FileMusic size={22} color={activeColor} />
+                    </Box>
+                    <VStack spacing={0} align="start" flex={1} minW={0}>
+                      <Text color={textColor} fontSize="sm" fontWeight="medium" noOfLines={1}>
+                        本地导入的歌单
                       </Text>
-                      {qishuiDeps.downloading ? (
-                        <Progress
-                          value={qishuiDeps.progress}
-                          size="xs"
-                          borderRadius="4px"
-                          sx={{ "& > div": { background: activeColor } }}
-                        />
-                      ) : (
-                        <Button
-                          size="xs"
-                          bg={activeColor}
-                          color={contrastText}
-                          _hover={{ opacity: 0.9 }}
-                          onClick={() => storeActions.downloadQishuiDeps()}
-                        >
-                          下载 Node 包
-                        </Button>
-                      )}
-                      {qishuiDeps.error && (
-                        <Text fontSize="2xs" color="aegis.error" mt={1} wordBreak="break-all">
-                          {qishuiDeps.error}
+                      <Text color={subTextColor} fontSize="xs">
+                        {localSongs.length > 0 ? `${localSongs.length} 首歌曲` : "导入本地音频文件"}
+                      </Text>
+                    </VStack>
+                    <ChevronRight size={16} color={subTextColor} />
+                  </HStack>
+                </Box>
+
+                {/* 播放历史入口：不依赖登录，本地播放也会记 */}
+                <Box
+                  p={2}
+                  borderRadius="var(--aegis-radius-sm)"
+                  cursor="pointer"
+                  mb={3}
+                  _hover={{ bg: liquidGlassEnabled ? hoverBg : itemHoverBg }}
+                  onClick={openHistoryView}
+                  transition="background 0.15s"
+                  flexShrink={0}
+                >
+                  <HStack spacing={3}>
+                    <Box
+                      w="44px"
+                      h="44px"
+                      borderRadius="var(--aegis-radius-sm)"
+                      flexShrink={0}
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="center"
+                      bg={useColorModeValue(`${activeColor}1a`, `${activeColor}26`)}
+                    >
+                      <History size={22} color={activeColor} />
+                    </Box>
+                    <VStack spacing={0} align="start" flex={1} minW={0}>
+                      <Text color={textColor} fontSize="sm" fontWeight="medium" noOfLines={1}>
+                        播放历史
+                      </Text>
+                      <Text color={subTextColor} fontSize="xs" noOfLines={1}>
+                        {playHistoryList.length > 0
+                          ? `${playHistoryList.length} 条 · 最近 ${formatCommentTime(playHistoryList[0].playedAt)}`
+                          : "播放歌曲后自动记录"}
+                      </Text>
+                    </VStack>
+                    <ChevronRight size={16} color={subTextColor} />
+                  </HStack>
+                </Box>
+
+                {/* 登录后的歌单列表 */}
+                {loginInfo?.logged_in ? (
+                  <>
+                    {/* 汽水签名依赖缺失引导：需下载 Node 包才能播「听歌模式」与 VIP 全曲 */}
+                    {playbackSource === "qishui" && qishuiDeps.checked && !qishuiDeps.ready && (
+                      <Box
+                        mb={3}
+                        p={3}
+                        borderRadius="var(--aegis-radius-sm)"
+                        flexShrink={0}
+                        bg={liquidGlassEnabled ? undefined : qishuiNoticeBg}
+                        border="1px solid"
+                        borderColor={qishuiNoticeBorder}
+                      >
+                        <HStack spacing={2} mb={1}>
+                          <AlertCircle size={16} color={activeColor} />
+                          <Text fontSize="sm" fontWeight="bold" color={textColor}>
+                            当前无法播放
+                          </Text>
+                        </HStack>
+                        <Text fontSize="xs" color={subTextColor} mb={2}>
+                          需下载 Node 包（node.exe + bdms.node +
+                          metasecml.dll）后才能播放「听歌模式」推荐流与 VIP
+                          全曲；免费歌曲与歌单不受影响。
                         </Text>
+                        {qishuiDeps.downloading ? (
+                          <Progress
+                            value={qishuiDeps.progress}
+                            size="xs"
+                            borderRadius="4px"
+                            sx={{ "& > div": { background: activeColor } }}
+                          />
+                        ) : (
+                          <Button
+                            size="xs"
+                            bg={activeColor}
+                            color={contrastText}
+                            _hover={{ opacity: 0.9 }}
+                            onClick={() => storeActions.downloadQishuiDeps()}
+                          >
+                            下载 Node 包
+                          </Button>
+                        )}
+                        {qishuiDeps.error && (
+                          <Text fontSize="2xs" color="aegis.error" mt={1} wordBreak="break-all">
+                            {qishuiDeps.error}
+                          </Text>
+                        )}
+                      </Box>
+                    )}
+                    <Text fontSize="sm" fontWeight="bold" color={textColor} mb={2} flexShrink={0}>
+                      我的歌单
+                    </Text>
+                    <Box flex={1} overflowY="auto" sx={memoScrollbarSx}>
+                      {loadingPlaylists ? (
+                        <VStack py={6}>
+                          <Spinner size="sm" sx={{ color: activeColor }} />
+                        </VStack>
+                      ) : userPlaylists.length > 0 ? (
+                        <motion.div
+                          variants={listContainerVariants}
+                          initial="hidden"
+                          animate="visible"
+                          style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+                        >
+                          {userPlaylists.map((pl) => (
+                            <motion.div key={pl.id} variants={listItemVariants}>
+                              {renderPlaylistRow(pl)}
+                            </motion.div>
+                          ))}
+                        </motion.div>
+                      ) : (
+                        <VStack py={4} spacing={2}>
+                          <Text color={subTextColor} fontSize="xs" textAlign="center">
+                            {userPlaylistsError ? "歌单获取失败" : "暂无歌单"}
+                          </Text>
+                          {userPlaylistsError ? (
+                            <>
+                              <Text
+                                color={subTextColor}
+                                fontSize="2xs"
+                                textAlign="center"
+                                wordBreak="break-all"
+                                px={2}
+                              >
+                                {userPlaylistsError}
+                              </Text>
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                color={activeColor}
+                                onClick={() =>
+                                  useMusicStore.getState().openLoginWindow(playbackSource)
+                                }
+                                alignSelf="center"
+                              >
+                                重新登录
+                              </Button>
+                            </>
+                          ) : null}
+                        </VStack>
                       )}
                     </Box>
-                  )}
-                  <Text fontSize="sm" fontWeight="bold" color={textColor} mb={2} flexShrink={0}>
-                    我的歌单
-                  </Text>
+                  </>
+                ) : (
+                  <VStack flex={1} spacing={3} justify="center">
+                    <MusicIcon size={32} color={subTextColor} />
+                    <Text color={subTextColor} fontSize="sm" textAlign="center">
+                      登录后查看云端歌单
+                    </Text>
+                  </VStack>
+                )}
+              </>
+            )}
+          </LiquidGlassCard>
+
+          {/* ══ 右侧：搜索 + 推荐 ══ */}
+          <VStack spacing={4} align="stretch" flex={1} minW={0} overflow="hidden">
+            {/* 搜索框 — 独立 memo 组件，播放时不会因重渲染而失焦 */}
+            <SearchBox onUnifiedSearch={handleUnifiedSearch} onArtistClick={handleArtistClick} />
+
+            {/* 推荐歌单 / 推荐歌单曲目 */}
+            <LiquidGlassCard p={4} flex={1} display="flex" flexDirection="column" overflow="hidden">
+              {rightPanelView === "daily" ? (
+                <>
+                  {/* 每日推荐曲目视图 */}
+                  <HStack spacing={2} mb={3} flexShrink={0}>
+                    <Tooltip label="返回推荐歌单">
+                      <IconButton
+                        aria-label="Back"
+                        icon={<ArrowLeft size={16} />}
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleBackToRecommendations}
+                        sx={{ color: activeColor, _hover: { bg: hoverBg } }}
+                      />
+                    </Tooltip>
+                    <Text fontSize="sm" fontWeight="bold" color={textColor} noOfLines={1}>
+                      每日推荐
+                    </Text>
+                    <Text color={subTextColor} fontSize="xs" flexShrink={0}>
+                      ({recommendSongs.length} 首)
+                    </Text>
+                    <Box flex={1} />
+                    <Button
+                      size="xs"
+                      leftIcon={<PlayBtn size={12} />}
+                      variant="solid"
+                      bg={activeColor}
+                      color={contrastText}
+                      isDisabled={recommendSongs.length === 0}
+                      _hover={{ opacity: 0.9 }}
+                      _active={{ transform: "scale(0.97)" }}
+                      onClick={() => playAll(recommendSongs)}
+                    >
+                      播放全部
+                    </Button>
+                  </HStack>
+                  <VirtualList
+                    items={recommendSongs}
+                    itemHeight={60}
+                    renderItem={renderDailyTrackItem}
+                    getKey={(song, i) => `${song.provider}-${song.id}-${i}`}
+                    loading={false}
+                    loadingText="加载推荐中..."
+                    emptyText="每日推荐无法获取（请确认已登录网易云）"
+                    resetKey="daily"
+                    scrollbarSx={memoScrollbarSx}
+                    hasMore={false}
+                  />
+                </>
+              ) : rightPanelView === "tracks" ? (
+                <>
+                  {/* 推荐歌单曲目视图 */}
+                  <HStack spacing={2} mb={3} flexShrink={0}>
+                    <Tooltip label="返回推荐歌单">
+                      <IconButton
+                        aria-label="Back"
+                        icon={<ArrowLeft size={16} />}
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleBackToRecommendations}
+                        sx={{ color: activeColor, _hover: { bg: hoverBg } }}
+                      />
+                    </Tooltip>
+                    <Text fontSize="sm" fontWeight="bold" color={textColor} noOfLines={1}>
+                      {rightPlaylistMeta?.name || "曲目列表"}
+                    </Text>
+                    <Text color={subTextColor} fontSize="xs" flexShrink={0}>
+                      ({rightPlaylistTracks.length} 首)
+                    </Text>
+                    <Box flex={1} />
+                    <Button
+                      size="xs"
+                      leftIcon={<PlayBtn size={12} />}
+                      variant="solid"
+                      bg={activeColor}
+                      color={contrastText}
+                      isDisabled={rightPlaylistTracks.length === 0}
+                      _hover={{ opacity: 0.9 }}
+                      _active={{ transform: "scale(0.97)" }}
+                      onClick={() => playAll(rightPlaylistTracks)}
+                    >
+                      播放全部
+                    </Button>
+                  </HStack>
+                  <VirtualList
+                    items={rightPlaylistTracks}
+                    itemHeight={60}
+                    renderItem={renderRightTrackItem}
+                    getKey={(song, i) => `${song.provider}-${song.id}-${i}`}
+                    loading={loadingRightTracks}
+                    loadingText="加载曲目中..."
+                    emptyText="暂无曲目"
+                    resetKey={rightPlaylistMeta?.id}
+                    scrollbarSx={memoScrollbarSx}
+                    onEndReached={() => storeActions.loadMoreRightPlaylistTracks()}
+                    hasMore={(rightPlaylistMeta?.track_count ?? 0) > rightPlaylistTracks.length}
+                  />
+                </>
+              ) : playbackSource === "qishui" ? (
+                <>
+                  {/* 汽水无推荐歌单接口：右侧展示官方「听歌模式」，点击即起播推荐流 */}
+                  <HStack justify="space-between" mb={3} flexShrink={0}>
+                    <HStack spacing={2}>
+                      <Sparkles size={16} color={activeColor} />
+                      <Text fontSize="sm" fontWeight="bold" color={textColor}>
+                        听歌模式
+                      </Text>
+                    </HStack>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={loadQishuiFeedModes}
+                      sx={{ color: activeColor, _hover: { bg: hoverBg } }}
+                    >
+                      刷新
+                    </Button>
+                  </HStack>
                   <Box flex={1} overflowY="auto" sx={memoScrollbarSx}>
-                    {loadingPlaylists ? (
-                      <VStack py={6}>
-                        <Spinner size="sm" sx={{ color: activeColor }} />
-                      </VStack>
-                    ) : userPlaylists.length > 0 ? (
-                      <motion.div
-                        variants={listContainerVariants}
-                        initial="hidden"
-                        animate="visible"
-                        style={{ display: "flex", flexDirection: "column", gap: "4px" }}
-                      >
-                        {userPlaylists.map((pl) => (
-                          <motion.div key={pl.id} variants={listItemVariants}>
-                            {renderPlaylistRow(pl)}
-                          </motion.div>
-                        ))}
-                      </motion.div>
-                    ) : (
-                      <VStack py={4} spacing={2}>
-                        <Text color={subTextColor} fontSize="xs" textAlign="center">
-                          {userPlaylistsError ? "歌单获取失败" : "暂无歌单"}
+                    {!loginInfo?.logged_in ? (
+                      <VStack py={8} spacing={3}>
+                        <MusicIcon size={32} color={subTextColor} />
+                        <Text color={subTextColor} fontSize="sm" textAlign="center">
+                          登录后查看听歌模式
                         </Text>
-                        {userPlaylistsError ? (
+                      </VStack>
+                    ) : !qishuiFeedModes || qishuiFeedModes.length === 0 ? (
+                      <VStack py={8} spacing={3}>
+                        <Sparkles size={32} color={subTextColor} />
+                        {qishuiDeps.checked && !qishuiDeps.ready ? (
                           <>
-                            <Text
-                              color={subTextColor}
-                              fontSize="2xs"
-                              textAlign="center"
-                              wordBreak="break-all"
-                              px={2}
-                            >
-                              {userPlaylistsError}
+                            <Text color={subTextColor} fontSize="sm" textAlign="center">
+                              需下载 Node 包后可播放「听歌模式」
+                            </Text>
+                            {qishuiDeps.downloading ? (
+                              <Progress
+                                value={qishuiDeps.progress}
+                                size="xs"
+                                w="120px"
+                                borderRadius="4px"
+                                sx={{ "& > div": { background: activeColor } }}
+                              />
+                            ) : (
+                              <Button
+                                size="xs"
+                                bg={activeColor}
+                                color={contrastText}
+                                _hover={{ opacity: 0.9 }}
+                                onClick={() => storeActions.downloadQishuiDeps()}
+                              >
+                                下载 Node 包
+                              </Button>
+                            )}
+                          </>
+                        ) : qishuiFeedModes ? (
+                          <>
+                            <Text color={subTextColor} fontSize="sm" textAlign="center">
+                              听歌模式获取失败（可能需要重新登录）
                             </Text>
                             <Button
                               size="xs"
                               variant="ghost"
                               color={activeColor}
-                              onClick={() =>
-                                useMusicStore.getState().openLoginWindow(playbackSource)
-                              }
-                              alignSelf="center"
+                              onClick={loadQishuiFeedModes}
                             >
-                              重新登录
+                              重新加载
                             </Button>
                           </>
-                        ) : null}
+                        ) : (
+                          <Text color={subTextColor} fontSize="sm">
+                            加载听歌模式中…
+                          </Text>
+                        )}
                       </VStack>
+                    ) : (
+                      <SimpleGrid columns={4} spacing={2}>
+                        {qishuiFeedModes.map((mode, i) => {
+                          const ModeIcon = QISHUI_FEED_ICONS[i % QISHUI_FEED_ICONS.length];
+                          return (
+                            <VStack
+                              key={`${mode.block}-${mode.name}-${mode.sceneModeId}`}
+                              spacing={1.5}
+                              px={1.5}
+                              py={3}
+                              borderRadius="var(--aegis-radius-sm)"
+                              border="1px solid"
+                              borderColor={borderColor}
+                              bg="transparent"
+                              cursor="pointer"
+                              transition="border-color 0.15s, background-color 0.15s"
+                              _hover={{ borderColor: `${activeColor}88`, bg: `${activeColor}12` }}
+                              onClick={() =>
+                                storeActions.playQishuiFeed(mode.sceneModeId, mode.subQueueType)
+                              }
+                            >
+                              {mode.name.includes("抖音") ? (
+                                <img
+                                  src="/icons/douyin.webp"
+                                  alt=""
+                                  style={{
+                                    width: 16,
+                                    height: 16,
+                                    objectFit: "contain",
+                                    display: "block",
+                                  }}
+                                  draggable={false}
+                                />
+                              ) : (
+                                <Box color={activeColor} display="flex">
+                                  <ModeIcon size={16} />
+                                </Box>
+                              )}
+                              <Text
+                                color={textColor}
+                                fontSize="xs"
+                                fontWeight="medium"
+                                noOfLines={1}
+                                textAlign="center"
+                                w="100%"
+                              >
+                                {mode.name}
+                              </Text>
+                            </VStack>
+                          );
+                        })}
+                      </SimpleGrid>
                     )}
                   </Box>
                 </>
               ) : (
-                <VStack flex={1} spacing={3} justify="center">
-                  <MusicIcon size={32} color={subTextColor} />
-                  <Text color={subTextColor} fontSize="sm" textAlign="center">
-                    登录后查看云端歌单
-                  </Text>
-                </VStack>
-              )}
-            </>
-          )}
-        </LiquidGlassCard>
-
-        {/* ══ 右侧：搜索 + 推荐 ══ */}
-        <VStack spacing={4} align="stretch" flex={1} minW={0} overflow="hidden">
-          {/* 搜索框 — 独立 memo 组件，播放时不会因重渲染而失焦 */}
-          <SearchBox onUnifiedSearch={handleUnifiedSearch} onArtistClick={handleArtistClick} />
-
-          {/* 推荐歌单 / 推荐歌单曲目 */}
-          <LiquidGlassCard p={4} flex={1} display="flex" flexDirection="column" overflow="hidden">
-            {rightPanelView === "daily" ? (
-              <>
-                {/* 每日推荐曲目视图 */}
-                <HStack spacing={2} mb={3} flexShrink={0}>
-                  <Tooltip label="返回推荐歌单">
-                    <IconButton
-                      aria-label="Back"
-                      icon={<ArrowLeft size={16} />}
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleBackToRecommendations}
-                      sx={{ color: activeColor, _hover: { bg: hoverBg } }}
-                    />
-                  </Tooltip>
-                  <Text fontSize="sm" fontWeight="bold" color={textColor} noOfLines={1}>
-                    每日推荐
-                  </Text>
-                  <Text color={subTextColor} fontSize="xs" flexShrink={0}>
-                    ({recommendSongs.length} 首)
-                  </Text>
-                  <Box flex={1} />
-                  <Button
-                    size="xs"
-                    leftIcon={<PlayBtn size={12} />}
-                    variant="solid"
-                    bg={activeColor}
-                    color={contrastText}
-                    isDisabled={recommendSongs.length === 0}
-                    _hover={{ opacity: 0.9 }}
-                    _active={{ transform: "scale(0.97)" }}
-                    onClick={() => playAll(recommendSongs)}
-                  >
-                    播放全部
-                  </Button>
-                </HStack>
-                <VirtualList
-                  items={recommendSongs}
-                  itemHeight={60}
-                  renderItem={renderDailyTrackItem}
-                  getKey={(song, i) => `${song.provider}-${song.id}-${i}`}
-                  loading={false}
-                  loadingText="加载推荐中..."
-                  emptyText="每日推荐无法获取（请确认已登录网易云）"
-                  resetKey="daily"
-                  scrollbarSx={memoScrollbarSx}
-                  hasMore={false}
-                />
-              </>
-            ) : rightPanelView === "tracks" ? (
-              <>
-                {/* 推荐歌单曲目视图 */}
-                <HStack spacing={2} mb={3} flexShrink={0}>
-                  <Tooltip label="返回推荐歌单">
-                    <IconButton
-                      aria-label="Back"
-                      icon={<ArrowLeft size={16} />}
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleBackToRecommendations}
-                      sx={{ color: activeColor, _hover: { bg: hoverBg } }}
-                    />
-                  </Tooltip>
-                  <Text fontSize="sm" fontWeight="bold" color={textColor} noOfLines={1}>
-                    {rightPlaylistMeta?.name || "曲目列表"}
-                  </Text>
-                  <Text color={subTextColor} fontSize="xs" flexShrink={0}>
-                    ({rightPlaylistTracks.length} 首)
-                  </Text>
-                  <Box flex={1} />
-                  <Button
-                    size="xs"
-                    leftIcon={<PlayBtn size={12} />}
-                    variant="solid"
-                    bg={activeColor}
-                    color={contrastText}
-                    isDisabled={rightPlaylistTracks.length === 0}
-                    _hover={{ opacity: 0.9 }}
-                    _active={{ transform: "scale(0.97)" }}
-                    onClick={() => playAll(rightPlaylistTracks)}
-                  >
-                    播放全部
-                  </Button>
-                </HStack>
-                <VirtualList
-                  items={rightPlaylistTracks}
-                  itemHeight={60}
-                  renderItem={renderRightTrackItem}
-                  getKey={(song, i) => `${song.provider}-${song.id}-${i}`}
-                  loading={loadingRightTracks}
-                  loadingText="加载曲目中..."
-                  emptyText="暂无曲目"
-                  resetKey={rightPlaylistMeta?.id}
-                  scrollbarSx={memoScrollbarSx}
-                  onEndReached={() => storeActions.loadMoreRightPlaylistTracks()}
-                  hasMore={(rightPlaylistMeta?.track_count ?? 0) > rightPlaylistTracks.length}
-                />
-              </>
-            ) : playbackSource === "qishui" ? (
-              <>
-                {/* 汽水无推荐歌单接口：右侧展示官方「听歌模式」，点击即起播推荐流 */}
-                <HStack justify="space-between" mb={3} flexShrink={0}>
-                  <HStack spacing={2}>
-                    <Sparkles size={16} color={activeColor} />
-                    <Text fontSize="sm" fontWeight="bold" color={textColor}>
-                      听歌模式
-                    </Text>
-                  </HStack>
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    onClick={loadQishuiFeedModes}
-                    sx={{ color: activeColor, _hover: { bg: hoverBg } }}
-                  >
-                    刷新
-                  </Button>
-                </HStack>
-                <Box flex={1} overflowY="auto" sx={memoScrollbarSx}>
-                  {!loginInfo?.logged_in ? (
-                    <VStack py={8} spacing={3}>
-                      <MusicIcon size={32} color={subTextColor} />
-                      <Text color={subTextColor} fontSize="sm" textAlign="center">
-                        登录后查看听歌模式
-                      </Text>
-                    </VStack>
-                  ) : !qishuiFeedModes || qishuiFeedModes.length === 0 ? (
-                    <VStack py={8} spacing={3}>
-                      <Sparkles size={32} color={subTextColor} />
-                      {qishuiDeps.checked && !qishuiDeps.ready ? (
-                        <>
-                          <Text color={subTextColor} fontSize="sm" textAlign="center">
-                            需下载 Node 包后可播放「听歌模式」
-                          </Text>
-                          {qishuiDeps.downloading ? (
-                            <Progress
-                              value={qishuiDeps.progress}
-                              size="xs"
-                              w="120px"
-                              borderRadius="4px"
-                              sx={{ "& > div": { background: activeColor } }}
-                            />
-                          ) : (
-                            <Button
-                              size="xs"
-                              bg={activeColor}
-                              color={contrastText}
-                              _hover={{ opacity: 0.9 }}
-                              onClick={() => storeActions.downloadQishuiDeps()}
-                            >
-                              下载 Node 包
-                            </Button>
-                          )}
-                        </>
-                      ) : qishuiFeedModes ? (
-                        <>
-                          <Text color={subTextColor} fontSize="sm" textAlign="center">
-                            听歌模式获取失败（可能需要重新登录）
-                          </Text>
+                <>
+                  {loginInfo?.logged_in &&
+                    playbackSource !== "kugou" &&
+                    playbackSource !== "qqmusic" && (
+                      <>
+                        <HStack justify="space-between" mb={3} flexShrink={0}>
+                          <HStack spacing={2}>
+                            <Sparkles size={16} color={activeColor} />
+                            <Text fontSize="sm" fontWeight="bold" color={textColor}>
+                              推荐歌单
+                            </Text>
+                          </HStack>
                           <Button
                             size="xs"
                             variant="ghost"
-                            color={activeColor}
-                            onClick={loadQishuiFeedModes}
+                            onClick={() => storeActions.loadRecommendations()}
+                            sx={{ color: activeColor, _hover: { bg: hoverBg } }}
                           >
-                            重新加载
+                            刷新
                           </Button>
-                        </>
-                      ) : (
-                        <Text color={subTextColor} fontSize="sm">
-                          加载听歌模式中…
-                        </Text>
-                      )}
-                    </VStack>
-                  ) : (
-                    <SimpleGrid columns={4} spacing={2}>
-                      {qishuiFeedModes.map((mode, i) => {
-                        const ModeIcon = QISHUI_FEED_ICONS[i % QISHUI_FEED_ICONS.length];
-                        return (
-                          <VStack
-                            key={`${mode.block}-${mode.name}-${mode.sceneModeId}`}
-                            spacing={1.5}
-                            px={1.5}
-                            py={3}
-                            borderRadius="var(--aegis-radius-sm)"
-                            border="1px solid"
-                            borderColor={borderColor}
-                            bg="transparent"
-                            cursor="pointer"
-                            transition="border-color 0.15s, background-color 0.15s"
-                            _hover={{ borderColor: `${activeColor}88`, bg: `${activeColor}12` }}
-                            onClick={() =>
-                              storeActions.playQishuiFeed(mode.sceneModeId, mode.subQueueType)
-                            }
-                          >
-                            {mode.name.includes("抖音") ? (
-                              <img
-                                src="/icons/douyin.webp"
-                                alt=""
-                                style={{
-                                  width: 16,
-                                  height: 16,
-                                  objectFit: "contain",
-                                  display: "block",
-                                }}
-                                draggable={false}
-                              />
-                            ) : (
-                              <Box color={activeColor} display="flex">
-                                <ModeIcon size={16} />
-                              </Box>
-                            )}
-                            <Text
-                              color={textColor}
-                              fontSize="xs"
-                              fontWeight="medium"
-                              noOfLines={1}
-                              textAlign="center"
-                              w="100%"
-                            >
-                              {mode.name}
-                            </Text>
-                          </VStack>
-                        );
-                      })}
-                    </SimpleGrid>
-                  )}
-                </Box>
-              </>
-            ) : (
-              <>
-                {loginInfo?.logged_in &&
-                  playbackSource !== "kugou" &&
-                  playbackSource !== "qqmusic" && (
-                    <>
-                      <HStack justify="space-between" mb={3} flexShrink={0}>
-                        <HStack spacing={2}>
-                          <Sparkles size={16} color={activeColor} />
-                          <Text fontSize="sm" fontWeight="bold" color={textColor}>
-                            推荐歌单
-                          </Text>
                         </HStack>
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          onClick={() => storeActions.loadRecommendations()}
-                          sx={{ color: activeColor, _hover: { bg: hoverBg } }}
-                        >
-                          刷新
-                        </Button>
-                      </HStack>
-                    </>
-                  )}
+                      </>
+                    )}
 
-                {/* 官方榜单 */}
-                {loginInfo?.logged_in && (
-                  <VStack
-                    spacing={2}
-                    align="stretch"
-                    mb={2}
-                    flexShrink={chartIsGrid ? undefined : 0}
-                    flex={chartIsGrid ? 1 : undefined}
-                    overflowY={chartIsGrid ? "auto" : undefined}
-                    sx={chartIsGrid ? memoScrollbarSx : undefined}
-                  >
-                    <HStack spacing={1.5}>
-                      <TrendingUp size={13} color={activeColor} />
-                      <Text fontSize="2xs" fontWeight="bold" color={subTextColor}>
-                        官方榜单
-                      </Text>
-                    </HStack>
-                    {chartIsGrid ? (
-                      /* 酷狗/QQ: 网格布局铺满面板 */
-                      <Box>
-                        <SimpleGrid columns={3} spacing={2}>
+                  {/* 官方榜单 */}
+                  {loginInfo?.logged_in && (
+                    <VStack
+                      spacing={2}
+                      align="stretch"
+                      mb={2}
+                      flexShrink={chartIsGrid ? undefined : 0}
+                      flex={chartIsGrid ? 1 : undefined}
+                      overflowY={chartIsGrid ? "auto" : undefined}
+                      sx={chartIsGrid ? memoScrollbarSx : undefined}
+                    >
+                      <HStack spacing={1.5}>
+                        <TrendingUp size={13} color={activeColor} />
+                        <Text fontSize="2xs" fontWeight="bold" color={subTextColor}>
+                          官方榜单
+                        </Text>
+                      </HStack>
+                      {chartIsGrid ? (
+                        /* 酷狗/QQ: 网格布局铺满面板 */
+                        <Box>
+                          <SimpleGrid columns={3} spacing={2}>
+                            {officialCharts.length > 0 ? (
+                              officialCharts.map((chart) => (
+                                <VStack
+                                  key={chart.id}
+                                  spacing={0.5}
+                                  cursor="pointer"
+                                  onClick={() =>
+                                    playbackSource === "qqmusic"
+                                      ? handleChartClick(chart)
+                                      : handleRecPlaylistClick(chart)
+                                  }
+                                  _hover={{ transform: "scale(1.04)" }}
+                                  transition="transform 0.15s"
+                                >
+                                  <Box
+                                    w="100%"
+                                    borderRadius="var(--aegis-radius-sm)"
+                                    overflow="hidden"
+                                    sx={{ aspectRatio: "1 / 1" }}
+                                  >
+                                    <ChakraImage
+                                      src={coverProxyUrl(chart.cover, proxyPort)}
+                                      alt=""
+                                      w="100%"
+                                      h="100%"
+                                      objectFit="cover"
+                                      fallback={
+                                        <Box
+                                          w="100%"
+                                          h="100%"
+                                          bg="aegis.surface-soft"
+                                          display="flex"
+                                          alignItems="center"
+                                          justifyContent="center"
+                                        >
+                                          <TrendingUp size={14} color={subTextColor} />
+                                        </Box>
+                                      }
+                                    />
+                                  </Box>
+                                  <Text
+                                    color={textColor}
+                                    fontSize="xs"
+                                    fontWeight="medium"
+                                    noOfLines={1}
+                                    textAlign="center"
+                                    w="100%"
+                                  >
+                                    {chart.name}
+                                  </Text>
+                                </VStack>
+                              ))
+                            ) : (
+                              <>
+                                {[0, 1, 2, 3, 4, 5].map((i) => (
+                                  <Box
+                                    key={i}
+                                    borderRadius="var(--aegis-radius-sm)"
+                                    bg={itemHoverBg}
+                                    sx={{ aspectRatio: "1 / 1" }}
+                                  />
+                                ))}
+                              </>
+                            )}
+                          </SimpleGrid>
+                        </Box>
+                      ) : (
+                        /* 网易云: 横向滚动 */
+                        <HStack
+                          spacing={1.5}
+                          minW={0}
+                          overflowX="auto"
+                          sx={memoScrollbarSx}
+                          onWheel={(e) => {
+                            e.currentTarget.scrollLeft += e.deltaY;
+                          }}
+                        >
+                          {/* 每日推荐入口（网易云） */}
+                          {playbackSource === "netease" && (
+                            <VStack
+                              spacing={0.5}
+                              cursor="pointer"
+                              minW="60px"
+                              maxW="70px"
+                              flexShrink={0}
+                              onClick={handleDailyRecommendClick}
+                              _hover={{ transform: "scale(1.04)" }}
+                              transition="transform 0.15s"
+                            >
+                              <Box
+                                w="100%"
+                                borderRadius="var(--aegis-radius-sm)"
+                                overflow="hidden"
+                                sx={{ aspectRatio: "1 / 1" }}
+                              >
+                                <Box
+                                  w="100%"
+                                  h="100%"
+                                  bgGradient="linear(135deg, #f6b26b 0%, #e06666 100%)"
+                                  display="flex"
+                                  alignItems="center"
+                                  justifyContent="center"
+                                >
+                                  <Sparkles size={16} color="#fff" />
+                                </Box>
+                              </Box>
+                              <Text
+                                color={textColor}
+                                fontSize="xs"
+                                fontWeight="medium"
+                                noOfLines={1}
+                                textAlign="center"
+                              >
+                                每日推荐
+                              </Text>
+                            </VStack>
+                          )}
                           {officialCharts.length > 0 ? (
                             officialCharts.map((chart) => (
                               <VStack
                                 key={chart.id}
                                 spacing={0.5}
                                 cursor="pointer"
-                                onClick={() =>
-                                  playbackSource === "qqmusic"
-                                    ? handleChartClick(chart)
-                                    : handleRecPlaylistClick(chart)
-                                }
+                                minW="60px"
+                                maxW="70px"
+                                flexShrink={0}
+                                onClick={() => handleChartClick(chart)}
                                 _hover={{ transform: "scale(1.04)" }}
                                 transition="transform 0.15s"
                               >
@@ -7368,25 +7571,51 @@ export default function MusicPage() {
                                   overflow="hidden"
                                   sx={{ aspectRatio: "1 / 1" }}
                                 >
-                                  <ChakraImage
-                                    src={coverProxyUrl(chart.cover, proxyPort)}
-                                    alt=""
-                                    w="100%"
-                                    h="100%"
-                                    objectFit="cover"
-                                    fallback={
-                                      <Box
-                                        w="100%"
-                                        h="100%"
-                                        bg="aegis.surface-soft"
-                                        display="flex"
-                                        alignItems="center"
-                                        justifyContent="center"
+                                  {playbackSource === "migu" ? (
+                                    /* 咪咕: 榜单无可用封面，直接把榜单名写在主题色渐变卡片上 */
+                                    <Box
+                                      w="100%"
+                                      h="100%"
+                                      display="flex"
+                                      alignItems="center"
+                                      justifyContent="center"
+                                      p={1}
+                                      bg={`linear-gradient(160deg, ${activeColor}55 0%, ${activeColor}18 100%)`}
+                                    >
+                                      <Text
+                                        fontSize="2xs"
+                                        fontWeight="bold"
+                                        color={textColor}
+                                        noOfLines={3}
+                                        textAlign="center"
+                                        lineHeight="1.25"
                                       >
-                                        <TrendingUp size={14} color={subTextColor} />
-                                      </Box>
-                                    }
-                                  />
+                                        {chart.name}
+                                      </Text>
+                                    </Box>
+                                  ) : (
+                                    <ChakraImage
+                                      src={coverProxyUrl(chart.cover, proxyPort)}
+                                      alt=""
+                                      w="100%"
+                                      h="100%"
+                                      objectFit="cover"
+                                      fallback={
+                                        <Box
+                                          w="100%"
+                                          h="100%"
+                                          bg="aegis.surface-soft"
+                                          display="flex"
+                                          alignItems="center"
+                                          justifyContent="center"
+                                        >
+                                          <Text fontSize="lg" fontWeight="bold" color="#fff">
+                                            {chart.name.slice(0, 1)}
+                                          </Text>
+                                        </Box>
+                                      }
+                                    />
+                                  )}
                                 </Box>
                                 <Text
                                   color={textColor}
@@ -7394,7 +7623,6 @@ export default function MusicPage() {
                                   fontWeight="medium"
                                   noOfLines={1}
                                   textAlign="center"
-                                  w="100%"
                                 >
                                   {chart.name}
                                 </Text>
@@ -7405,6 +7633,9 @@ export default function MusicPage() {
                               {[0, 1, 2, 3, 4, 5].map((i) => (
                                 <Box
                                   key={i}
+                                  minW="60px"
+                                  maxW="70px"
+                                  flexShrink={0}
                                   borderRadius="var(--aegis-radius-sm)"
                                   bg={itemHoverBg}
                                   sx={{ aspectRatio: "1 / 1" }}
@@ -7412,208 +7643,65 @@ export default function MusicPage() {
                               ))}
                             </>
                           )}
-                        </SimpleGrid>
-                      </Box>
-                    ) : (
-                      /* 网易云: 横向滚动 */
-                      <HStack
-                        spacing={1.5}
-                        minW={0}
-                        overflowX="auto"
-                        sx={memoScrollbarSx}
-                        onWheel={(e) => {
-                          e.currentTarget.scrollLeft += e.deltaY;
-                        }}
-                      >
-                        {/* 每日推荐入口（网易云） */}
-                        {playbackSource === "netease" && (
-                          <VStack
-                            spacing={0.5}
-                            cursor="pointer"
-                            minW="60px"
-                            maxW="70px"
-                            flexShrink={0}
-                            onClick={handleDailyRecommendClick}
-                            _hover={{ transform: "scale(1.04)" }}
-                            transition="transform 0.15s"
-                          >
-                            <Box
-                              w="100%"
-                              borderRadius="var(--aegis-radius-sm)"
-                              overflow="hidden"
-                              sx={{ aspectRatio: "1 / 1" }}
-                            >
-                              <Box
-                                w="100%"
-                                h="100%"
-                                bgGradient="linear(135deg, #f6b26b 0%, #e06666 100%)"
-                                display="flex"
-                                alignItems="center"
-                                justifyContent="center"
-                              >
-                                <Sparkles size={16} color="#fff" />
-                              </Box>
-                            </Box>
-                            <Text
-                              color={textColor}
-                              fontSize="xs"
-                              fontWeight="medium"
-                              noOfLines={1}
-                              textAlign="center"
-                            >
-                              每日推荐
-                            </Text>
-                          </VStack>
-                        )}
-                        {officialCharts.length > 0 ? (
-                          officialCharts.map((chart) => (
-                            <VStack
-                              key={chart.id}
-                              spacing={0.5}
-                              cursor="pointer"
-                              minW="60px"
-                              maxW="70px"
-                              flexShrink={0}
-                              onClick={() => handleChartClick(chart)}
-                              _hover={{ transform: "scale(1.04)" }}
-                              transition="transform 0.15s"
-                            >
-                              <Box
-                                w="100%"
-                                borderRadius="var(--aegis-radius-sm)"
-                                overflow="hidden"
-                                sx={{ aspectRatio: "1 / 1" }}
-                              >
-                                {playbackSource === "migu" ? (
-                                  /* 咪咕: 榜单无可用封面，直接把榜单名写在主题色渐变卡片上 */
-                                  <Box
-                                    w="100%"
-                                    h="100%"
-                                    display="flex"
-                                    alignItems="center"
-                                    justifyContent="center"
-                                    p={1}
-                                    bg={`linear-gradient(160deg, ${activeColor}55 0%, ${activeColor}18 100%)`}
-                                  >
-                                    <Text
-                                      fontSize="2xs"
-                                      fontWeight="bold"
-                                      color={textColor}
-                                      noOfLines={3}
-                                      textAlign="center"
-                                      lineHeight="1.25"
-                                    >
-                                      {chart.name}
-                                    </Text>
-                                  </Box>
-                                ) : (
-                                  <ChakraImage
-                                    src={coverProxyUrl(chart.cover, proxyPort)}
-                                    alt=""
-                                    w="100%"
-                                    h="100%"
-                                    objectFit="cover"
-                                    fallback={
-                                      <Box
-                                        w="100%"
-                                        h="100%"
-                                        bg="aegis.surface-soft"
-                                        display="flex"
-                                        alignItems="center"
-                                        justifyContent="center"
-                                      >
-                                        <Text fontSize="lg" fontWeight="bold" color="#fff">
-                                          {chart.name.slice(0, 1)}
-                                        </Text>
-                                      </Box>
-                                    }
-                                  />
-                                )}
-                              </Box>
-                              <Text
-                                color={textColor}
-                                fontSize="xs"
-                                fontWeight="medium"
-                                noOfLines={1}
-                                textAlign="center"
-                              >
-                                {chart.name}
-                              </Text>
-                            </VStack>
-                          ))
-                        ) : (
-                          <>
-                            {[0, 1, 2, 3, 4, 5].map((i) => (
-                              <Box
-                                key={i}
-                                minW="60px"
-                                maxW="70px"
-                                flexShrink={0}
-                                borderRadius="var(--aegis-radius-sm)"
-                                bg={itemHoverBg}
-                                sx={{ aspectRatio: "1 / 1" }}
-                              />
-                            ))}
-                          </>
-                        )}
-                      </HStack>
-                    )}
-                  </VStack>
-                )}
+                        </HStack>
+                      )}
+                    </VStack>
+                  )}
 
-                {playbackSource !== "kugou" && playbackSource !== "qqmusic" && (
-                  <Box flex={1} overflowY="auto" sx={memoScrollbarSx}>
-                    {!loginInfo?.logged_in ? (
-                      <VStack py={8} spacing={3}>
-                        <MusicIcon size={32} color={subTextColor} />
-                        <Text color={subTextColor} fontSize="sm" textAlign="center">
-                          登录后查看推荐内容
-                        </Text>
-                      </VStack>
-                    ) : dailyRecommendPlaylists.length === 0 ? (
-                      <VStack py={8} spacing={3}>
-                        <Sparkles size={32} color={subTextColor} />
-                        <Text color={subTextColor} fontSize="sm" textAlign="center">
-                          点击刷新加载推荐
-                        </Text>
-                      </VStack>
-                    ) : (
-                      <motion.div
-                        variants={listContainerVariants}
-                        initial="hidden"
-                        animate="visible"
-                        style={{ display: "flex", flexDirection: "column", gap: "8px" }}
-                      >
-                        {dailyRecommendPlaylists.map((pl) => (
-                          <motion.div key={`rec-${pl.id}`} variants={listItemVariants}>
-                            {renderPlaylistRow(pl, "rec-", handleRecPlaylistClick)}
-                          </motion.div>
-                        ))}
-                      </motion.div>
-                    )}
-                  </Box>
-                )}
-              </>
-            )}
-          </LiquidGlassCard>
-        </VStack>
-      </HStack>
+                  {playbackSource !== "kugou" && playbackSource !== "qqmusic" && (
+                    <Box flex={1} overflowY="auto" sx={memoScrollbarSx}>
+                      {!loginInfo?.logged_in ? (
+                        <VStack py={8} spacing={3}>
+                          <MusicIcon size={32} color={subTextColor} />
+                          <Text color={subTextColor} fontSize="sm" textAlign="center">
+                            登录后查看推荐内容
+                          </Text>
+                        </VStack>
+                      ) : dailyRecommendPlaylists.length === 0 ? (
+                        <VStack py={8} spacing={3}>
+                          <Sparkles size={32} color={subTextColor} />
+                          <Text color={subTextColor} fontSize="sm" textAlign="center">
+                            点击刷新加载推荐
+                          </Text>
+                        </VStack>
+                      ) : (
+                        <motion.div
+                          variants={listContainerVariants}
+                          initial="hidden"
+                          animate="visible"
+                          style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+                        >
+                          {dailyRecommendPlaylists.map((pl) => (
+                            <motion.div key={`rec-${pl.id}`} variants={listItemVariants}>
+                              {renderPlaylistRow(pl, "rec-", handleRecPlaylistClick)}
+                            </motion.div>
+                          ))}
+                        </motion.div>
+                      )}
+                    </Box>
+                  )}
+                </>
+              )}
+            </LiquidGlassCard>
+          </VStack>
+        </HStack>
 
-      {/* 底部播放器 */}
-      <PlayerBar onExpand={handleExpandPlayer} hidden={expandedPlayer} />
-      <PlayQueueDrawer
-        activeColor={activeColor}
-        hoverBg={hoverBg}
-        itemActiveBg={itemActiveBg}
-        textColor={textColor}
-        subTextColor={subTextColor}
-        dropdownBg={dropdownBg}
-        borderColor={borderColor}
-        scrollbarSx={memoScrollbarSx}
-      />
+        {/* 底部播放器 */}
+        <PlayerBar onExpand={handleExpandPlayer} hidden={expandedPlayer} />
+        <PlayQueueDrawer
+          activeColor={activeColor}
+          hoverBg={hoverBg}
+          itemActiveBg={itemActiveBg}
+          textColor={textColor}
+          subTextColor={subTextColor}
+          dropdownBg={dropdownBg}
+          borderColor={borderColor}
+          scrollbarSx={memoScrollbarSx}
+        />
 
-      {/* 展开的播放器 */}
-      {expandedPlayer && <ExpandedPlayer onClose={handleCloseExpandedPlayer} />}
-    </VStack>
+        {/* 展开的播放器 */}
+        {expandedPlayer && <ExpandedPlayer onClose={handleCloseExpandedPlayer} />}
+      </VStack>
+    </>
   );
 }

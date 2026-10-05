@@ -41,6 +41,14 @@ export type {
 } from "@/features/MusicManager/components/dynamic-island";
 export { CustomSelect } from "@/features/MusicManager/components/custom-select";
 
+/* 🔴 2026-10-05 新增：迷你播放器经本门面供**壳层**挂载。
+ *
+ * 为什么不直接 import：壳层（`shell-layout.tsx`）若直接 import 复刻域组件，
+ * 虽然主 tsconfig（include: src）允许，但会形成「壳层 → 复刻域」的源码级耦合，
+ * 与本项目「跨 feature 共享一律走门面」的纪律不符（见文件头说明）。
+ * ⚠️ 方向说明：门面做 re-export，不含实现（与上面几条同口径）。 */
+export { MiniMusicPlayer } from "@/features/MusicManager/components/MiniMusicPlayer";
+
 // ── Contexts ──
 // 注：Provider 在 `src/main.tsx` 顶层挂载（BackgroundProvider > ThemeColorProvider），
 //     全应用单例，任何 feature 的页面均可消费。
@@ -55,3 +63,13 @@ export {
 
 // ── Hooks ──
 export { useAdaptiveTextColor } from "@/features/MusicManager/hooks/use-adaptive-text-color";
+
+/* 🔴 2026-10-05 新增：品牌区注册 hook 经本门面导出（供 **GameManager** 使用）。
+ *
+ * 🔴 **音乐域不可用此路径** —— `tsconfig.music-replica.json` 的 include 只有
+ *   「音乐域 + types/music.ts」，连本门面都不在清单内 ⇒ 音乐域 import 本门面也撞 TS6307。
+ *   实测两条路都失败（`@/shell/brand-bar` 与 `@/shared`），故音乐页**放弃注册品牌区**，
+ *   由 `brand-bar.tsx` 的归属校验保证它「不显示别人的副标题」（安全失败）。
+ *   GameManager **无独立 tsconfig**，故可正常走门面。 */
+export { useRegisterBrand } from "@/shell/brand-bar";
+export type { BrandContent } from "@/shell/brand-bar";

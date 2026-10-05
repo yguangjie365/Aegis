@@ -68,7 +68,14 @@ const CARD_TRACK_MAX = 420;
  */
 export function PageBody({ children, ...rest }: BoxProps & { children?: ReactNode }) {
   return (
-    <Box maxW="1400px" mx="auto" w="100%" px={{ base: 3, md: 5 }} pb={10} {...rest}>
+    /* 🔴 2026-10-05 用户指令④框架检查实测修正：px 归零（原 base:3/md:5）。
+       PageBody 盒本就 = Main 内容盒 [104, 1260]，再套 20px 横向 padding 会把页面
+       内容截短成 [124, 1240]（宽 1116）—— 与用户等式「品牌区宽度 = 内容区宽度 =
+       1280-20-64-20-20 = 1156」直接冲突：主标题/动作槽在 104 与 1260，
+       页面筛选器与卡片却在 124 与 1240，两侧各错 20px（CDP 实测，非推测）。
+       原 md:5 是 Q5 结案（shell 内缩统一 20）之前的旧口径残留，属双重内缩。
+       纵向 pb=10 保留 —— 只治横向对齐，不动垂直节奏。 */
+    <Box maxW="1400px" mx="auto" w="100%" px={0} pb={10} {...rest}>
       {children}
     </Box>
   );
@@ -79,6 +86,20 @@ export function PageBody({ children, ...rest }: BoxProps & { children?: ReactNod
 const cardEnter = keyframes`
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
+`;
+
+/**
+ * 筛选切换脉冲曲线：1 → 0.35（30% 落点 ≈ 36ms 压到最深）→ 1。
+ * 🔴 2026-10-05 动效优化（用户指令）：原实现用 `setTimeout(30ms) + transition 90ms`
+ * 的时序猜谜 —— 下降段只跑了 1/3 就被反弹截断，实际最低只压到 ~0.5，
+ * 且 90ms 硬编码不走令牌。改为**纯 CSS 一次性动画**：深度 0.35 精确达成、
+ * 播完自动停回常态（fill 默认 none），时长/缓动全走 motion 令牌。
+ * 纯 opacity = 合成器路径，不触发布局/重绘。
+ */
+const swapDip = keyframes`
+  0%   { opacity: 1; }
+  30%  { opacity: 0.35; }
+  100% { opacity: 1; }
 `;
 
 /**
@@ -116,7 +137,25 @@ const cardEnter = keyframes`
  * 而阻止折叠 —— 但我们把标题放在**另一个**同模板容器里，故两者轨道数恒等，
  * 对齐成立。`auto-fill` 保证轨道数只由宽度决定，标题与卡片必然同步。
  */
-export function StaggeredCards({ children }: { children: ReactNode }) {
+/**
+ * 卡片进场编排（stagger）。
+ *
+ * 🔴 2026-10-05 新增 `animate` 开关（修「切到本页卡顿一下」）：
+ * 页面改为**分批渲染**（首批 24 张 → 下一帧补齐），补齐批若也播进场动画，会让
+ * 下方卡片在首帧之后**再动一次**（nth-of-type 的 animationDelay 从 0 重新计时），
+ * 读成「闪一下 / 又弹一下」，比不播更糟。故补齐批（animate=false）直接静止呈现。
+ *
+ * 🔴 `animate` 默认 true = 保持原行为（首批进场照播），既有调用点无需改。
+ * 传入 `false` 时用 `animation: none` 而非「删掉 animation」—— 显式覆盖的优先级
+ * 高于 `> *` 那条通配规则，能确保子元素不会从别处继承到动画。
+ */
+export function StaggeredCards({
+  children,
+  animate = true,
+}: {
+  children: ReactNode;
+  animate?: boolean;
+}) {
   const { ref, track } = useCardTrack();
   return (
     <Box
@@ -124,7 +163,9 @@ export function StaggeredCards({ children }: { children: ReactNode }) {
       {...trackStyle(track)}
       sx={{
         "> *": {
-          animation: `${cardEnter} var(--aegis-motion-duration-normal) var(--aegis-motion-easing-decelerate) backwards`,
+          animation: animate
+            ? `${cardEnter} var(--aegis-motion-duration-normal) var(--aegis-motion-easing-decelerate) backwards`
+            : "none",
         },
         "& > *:nth-of-type(1)": { animationDelay: "0ms" },
         "& > *:nth-of-type(2)": { animationDelay: "40ms" },
@@ -148,14 +189,19 @@ export function StaggeredCards({ children }: { children: ReactNode }) {
 }
 
 /**
- * 筛选切换时的列表反馈：整块**短暂**回落再回位。
+ * 筛选切换时的列表反馈：整块一次「压暗回落」脉冲（fast 档 120ms 内完成）。
  *
  * 🔴 为什么不是逐张重播：库存可达上千张，筛选一次播上千个动画 = 持续抖动，
- * 反而看不出「变了什么」。整块一次回落 160ms 足以传达「列表已换」，
- * 且成本恒定（一次重绘）而非随卡片数线性增长。
+ * 反而看不出「变了什么」。整块一次脉冲成本恒定（合成器一次 opacity 过场），
+ * 不随卡片数线性增长。
+ *
+ * 🔴 2026-10-05 重构：不再用 opacity state 双段切换 —— dip 标记只负责
+ * 「挂上/摘下 animation」；动画本身 0→0.35→1 全程自洽，播完即回常态，
+ * JS 的 timeout 仅在**动画播完后**清标记（140ms ≥ duration-fast 120ms），
+ * 保证下一次 swapKey 变化时 `animation: none → swapDip` 能重新触发。
  */
 export function FilterSwap({ swapKey, children }: { swapKey: string; children: ReactNode }) {
-  const [visible, setVisible] = useState(true);
+  const [dip, setDip] = useState(false);
   const first = useRef(true);
 
   useEffect(() => {
@@ -163,18 +209,22 @@ export function FilterSwap({ swapKey, children }: { swapKey: string; children: R
       first.current = false;
       return;
     }
-    // 离场：先压暗，再回位
-    setVisible(false);
-    const t = window.setTimeout(() => setVisible(true), 30);
+    setDip(true);
+    const t = window.setTimeout(() => setDip(false), 140);
     return () => window.clearTimeout(t);
   }, [swapKey]);
 
   return (
     <Box
-      transition="opacity 90ms linear"
-      opacity={visible ? 1 : 0.35}
-      // reduced-motion：不做压暗（那是纯视觉反馈，筛���结果本身已由内容变化说明）
-      sx={{ "@media (prefers-reduced-motion: reduce)": { transition: "none" } }}
+      sx={{
+        ...(dip
+          ? {
+              animation: `${swapDip} var(--aegis-motion-duration-fast) var(--aegis-motion-easing-standard)`,
+            }
+          : {}),
+        // 规范 §8.3：压暗是纯视觉反馈，筛选结果本身已由内容变化说明
+        "@media (prefers-reduced-motion: reduce)": { animation: "none !important" },
+      }}
     >
       {children}
     </Box>

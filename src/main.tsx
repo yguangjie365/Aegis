@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { ChakraProvider } from "@chakra-ui/react";
+import { ChakraProvider, createLocalStorageManager } from "@chakra-ui/react";
 import { RouterProvider } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -30,9 +30,24 @@ import { LiquidGlassSvgFilter } from "@/features/MusicManager/components/liquid-
 // W0-15 完整装配（AbortSignal 透传 invoke）在途；此处先立 QueryClient 挂载点
 const queryClient = new QueryClient();
 
+// 🔴 2026-10-05 单主题硬裁决（纯 Nvidia 深色包，用户 2026-10-04 两轮定稿）：
+// ChakraProvider 默认 colorModeManager 会读 localStorage["chakra-ui-color-mode"]，
+// 遗留 "light"（历史版本或其他应用的同源污染）会覆盖 initialColorMode="dark"，
+// 使所有 useColorModeValue / colorScheme 组件走**浅色分支** —— CDP 假后端实测：
+// 商店页面按钮 / 用户名 / ⋯ 图标渲染成 rgb(26,32,44) 深字（深底上近乎隐身）、
+// 「未运行」徽章渲染成 gray.100 亮白底 pill（深色界面上全屏最亮的元素）。
+// 单主题下 colorMode 恒为 dark：基于官方 manager 覆盖 get/set —— get 忽略
+// localStorage 恒返回 "dark"，set 为 no-op（无可切换模式，不落存储；
+// CSS 变量 --aegis-* 本就不经 colorMode 分支，不受影响）。
+const darkOnlyColorModeManager = {
+  ...createLocalStorageManager("chakra-ui-color-mode"),
+  get: () => "dark" as const,
+  set: () => {},
+};
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <ChakraProvider theme={theme}>
+    <ChakraProvider theme={theme} colorModeManager={darkOnlyColorModeManager}>
       <QueryClientProvider client={queryClient}>
         {/* 音乐域 Provider 链（顺序对齐 NexBox main.tsx:123-138） */}
         <AppStartupProvider>

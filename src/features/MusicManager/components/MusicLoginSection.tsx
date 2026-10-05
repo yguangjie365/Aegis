@@ -20,7 +20,8 @@ import {
   MenuList,
   MenuItem,
   Spinner,
-  useColorModeValue,
+  // 🔴 2026-10-05 删除 useColorModeValue import：本组件全部颜色改用 CSS 变量
+  //    （该 hook 在品牌区 portal 子树里会取到**浅色分支**，详见 textColor 处注释）。
 } from "@chakra-ui/react";
 import { QRCodeSVG } from "qrcode.react";
 import { useDynamicIsland } from "@/features/MusicManager/components/dynamic-island";
@@ -186,13 +187,27 @@ export function MusicLoginSection() {
   const activeColor = getActiveColor();
   const contrastText = getContrastTextColor();
 
-  const textColor = useColorModeValue("gray.800", "aegis.ink");
-  const subTextColor = useColorModeValue("gray.500", "aegis.mute");
-  const modalBg = useColorModeValue("white", "#1a1a1a");
-  const modalBorder = useColorModeValue("gray.200", "aegis.hairline");
-  const menuBg = useColorModeValue("white", "#1a1a1a");
-  const menuBorder = useColorModeValue("gray.200", "aegis.hairline");
-  const menuHoverBg = useColorModeValue("gray.50", "aegis.surface-soft");
+  /* 🔴🔴 2026-10-05 文字色改用 **CSS 变量**（原 useColorModeValue("gray.800","aegis.ink") 等）。
+   *
+   * 现象：本组件渲染在**壳层品牌区的 portal 槽位**里，深色主题下却拿到**浅色分支**的值 ——
+   *      实测像素：昵称 #1A202C（= Chakra gray.800，浅色包正文色）、
+   *      平台标签底 #EDF2F7（= gray.100）、标签字 #1A202C ⇒ 在 #2e2e2e 底上几乎看不见。
+   *      而页面其余部分（body 背景、标题）**是正常的 dark**（body.chakra-ui-dark、
+   *      --aegis-ink=#e8e8e8 均正确）⇒ 不是主题没切，是**这个子树的问题**。
+   *
+   * 判据：**CSS 变量在 portal 出去的 DOM 上照常解析**（同 document），
+   *      而 useColorModeValue 的分支判断不跟随 ⇒ 一律用变量。
+   * 🔴 `ink` 深色值 #e8e8e8 在 canvas 上 15.16:1、`surface-soft` 上 13.45:1（安全）。 */
+  const textColor = "var(--aegis-ink)";
+  const subTextColor = "var(--aegis-mute)";
+  /* 🔴 弹窗/菜单的底与边框同样改用 CSS 变量 —— 它们由本组件在品牌区里触发
+   *   （下拉菜单、平台选择弹窗），若留 useColorModeValue 同样会取到浅色分支，
+   *   出现「白底黑字弹窗压在深色界面上」。原 #1a1a1a 与深色包 surface-soft 同族。 */
+  const modalBg = "var(--aegis-surface-soft)";
+  const modalBorder = "var(--aegis-hairline)";
+  const menuBg = "var(--aegis-surface-soft)";
+  const menuBorder = "var(--aegis-hairline)";
+  const menuHoverBg = "var(--aegis-chrome-elevated)";
 
   // 已登录的平台数量
   const loggedInProviders = PROVIDERS.filter((p) => !p.disabled && loginInfos[p.id]?.logged_in);
@@ -383,7 +398,7 @@ export function MusicLoginSection() {
                 as={Box}
                 cursor="pointer"
                 borderRadius="var(--aegis-radius-sm)"
-                _hover={{ bg: useColorModeValue("gray.100", "aegis.surface-soft") }}
+                _hover={{ bg: "var(--aegis-chrome-elevated)" }}
                 p={1}
               >
                 <HStack spacing={2}>
@@ -486,11 +501,15 @@ export function MusicLoginSection() {
           {!hasMultipleLoggedIn &&
             PROVIDERS.some((p) => !p.disabled && !loginInfos[p.id]?.logged_in) && (
               <Tooltip label="添加其他平台账号">
+                {/* 🔴 2026-10-05 显式给 color：ghost variant 的默认前景在深色下
+                    实测渲染为黑色（与深底 #2e2e2e 融在一起，看不清 —— 用户截图）。
+                    与昵称同源用 textColor，两处口径一致。 */}
                 <IconButton
                   aria-label="Add platform"
                   icon={<Plus size={16} />}
                   size="sm"
                   variant="ghost"
+                  color={textColor}
                   onClick={() => setIsSelecting(true)}
                 />
               </Tooltip>
@@ -498,11 +517,13 @@ export function MusicLoginSection() {
         </HStack>
 
         <Tooltip label="退出登录">
+          {/* 🔴 同上：显式 color，否则 ghost 默认前景在深色下是黑色。 */}
           <IconButton
             aria-label="Logout"
             icon={<LogOut size={16} />}
             size="sm"
             variant="ghost"
+            color={textColor}
             onClick={() => logout()}
           />
         </Tooltip>

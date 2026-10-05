@@ -117,19 +117,6 @@ const StaggerGrid = styled.div`
 // 详情卡按 kind 分流后逐行落位，同类多设备（如多显卡）自然并排，不留空槽。
 // （实现在下方 `DetailGrid`。）
 /**
- * 🟢 构建时刻标记样式：等宽小字 + 极低对比，视觉上不干扰但随时可查。
- * 放在页头下方而非嵌入标题行，避免与 `joinHeader` 的副标题串在一起。
- */
-const BuildStamp = styled.code`
-  align-self: flex-start;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.4;
-  color: var(--aegis-stone);
-  user-select: text;
-`;
-
-/**
  * 首拍在途的**轻量**占位：只一行小字，不是骨架屏。
  *
  * 🔴 为什么不显示骨架：本页是启动首屏，整页骨架会让应用看起来"卡住了"；
@@ -293,14 +280,12 @@ function BootPlaceholder() {
   );
 }
 
-/**
- * 🟢 构建时刻（由 `vite.config.ts` 的 `define` 在打包时注入为字面量，dev 下每次重启刷新）。
- *
- * 🔴 `import.meta.env.DEV` 守卫是**必需**的，不是洁癖：`define` 一旦被移除而本段未同步移除，
- * `as string` 的类型断言会把 `undefined` 变成字面量字符串直接渲染到界面上
- * （类型系统在这里帮不上忙 —— `as` 就是断言）。开发期诊断标记不得进入正式界面。
- */
-const BUILD_STAMP = import.meta.env.DEV ? (import.meta.env.VITE_BUILD_STAMP as string) : null;
+/* 🔴 2026-10-05 用户裁决删除「构建时刻标记」（原 `BUILD_STAMP` + `BuildStamp`）。
+   连带删除 `vite.config.ts` 的 `define: { VITE_BUILD_STAMP }`。
+   保留原因说明备查：它是开发期诊断件（仅 `import.meta.env.DEV` 渲染），
+   用于「一眼自证当前窗口跑的是哪次构建」；注释里本就写明「正式发布前连同 define 一并删除」，
+   现在提前执行。删 `define` 时**必须**连本段一起删 —— 否则 `as string` 断言会把
+   `undefined` 渲染成字面量字符串。*/
 
 export function OverviewPage() {
   const { t } = useTranslation("overview");
@@ -354,16 +339,10 @@ export function OverviewPage() {
     () => (
       <HeadTools>
         <LiveDot live={live} />
-        <AppButton
-          variant="primary"
-          size="sm"
-          type="button"
-          disabled={exportReport.exporting}
-          title={t("report.hint")}
-          onClick={exportReport.onClick}
-        >
-          {t(exportReport.exporting ? "report.exporting" : "report.button")}
-        </AppButton>
+        {/* 🔴 2026-10-05 用户裁决：**「导出报告」移到「立即刷新」右边**。
+            原来的顺序是「导出 → 刷新」，primary 按钮紧邻右边界；调换后
+            secondary 的「立即刷新」成为最右项，与品牌区右边框之间留 20
+            （padding-right，见 brand-bar.tsx）。 */}
         <AppButton
           variant="secondary"
           size="sm"
@@ -374,6 +353,16 @@ export function OverviewPage() {
         >
           {t("refresh.label")}
         </AppButton>
+        <AppButton
+          variant="primary"
+          size="sm"
+          type="button"
+          disabled={exportReport.exporting}
+          title={t("report.hint")}
+          onClick={exportReport.onClick}
+        >
+          {t(exportReport.exporting ? "report.exporting" : "report.button")}
+        </AppButton>
       </HeadTools>
     ),
     [live, exportReport.exporting, exportReport.onClick, t, busy, refreshAll],
@@ -382,11 +371,10 @@ export function OverviewPage() {
 
   return (
     <Page>
-      {/* 🟢 构建时刻标记（开发期诊断，2026-10-04）：连续三次「界面不是我改的那版」后加入。
-          连续出现时可用它一眼自证当前窗口跑的是哪次构建，不必靠猜 exe 时间戳。
-          🔴 仅 dev 渲染（见 BUILD_STAMP 处的守卫说明）；正式发布前连同
-          `vite.config.ts` 的 `define` 一并删除。*/}
-      {BUILD_STAMP ? <BuildStamp title={`构建 ${BUILD_STAMP}`}>{BUILD_STAMP}</BuildStamp> : null}
+      {/* 🔴 2026-10-05 用户裁决删除「构建时刻标记」（`BUILD_STAMP`，形如 `19:33:04`）。
+          它是开发期诊断件（仅 dev 渲染），本就该在发布前删掉 —— 现在提前执行。
+          🔴 `vite.config.ts` 的 `define: { VITE_BUILD_STAMP }` **同步删除**，
+             否则留着死代码。*/}
 
       {/* 🔴 F-12 / 用户 2026-10-04 裁决「启动后第一眼不能是加载态」：
           本机概览是程序启动后**第一个看见的页面**，故**不整页挂骨架屏**。

@@ -35,6 +35,9 @@
     "noTelemetry": "零遥测",
     "browserPreview": "浏览器预览模式 · 后端未接入（W0-02）"
   },
+  "a11y": {
+    "mainRegionLabel": "内容主区（可滚动）"
+  },
   "about": {
     "title": "关于",
     "sub": "版本与合规声明",

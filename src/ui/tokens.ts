@@ -291,45 +291,57 @@ export const nvidiaLight: ThemePack = {
  *
  * 🔴 **三处与浅色语义相反，改值前必读**：
  *
- * 1. canvas = #0d0d0d（不是纯黑）。四个候选 #000/#0d0d0d/#121212/#1a1a1a 实测**达标数
- *    完全相同（9/0）** ⇒ canvas 是**视觉层次**决策，不是对比度决策。选 #0d0d0d 的真实理由：
- *    与 chrome-dark #000 有 1.08:1 层级差（纯黑会完全同值、胶囊融掉）。
- * 2. **surface-soft（抬升）= 更亮 #1c1c1c，surface-inset（凹）= 更暗 #060606** ——
+ * 1. canvas = #131313（2026-10-05 抬底，原 #0d0d0d，10-04 裁决值）。
+ *    抬底理由：实测 NVIDIA App 底色 #191919（L 0.0097）**比我们原来的 #0d0d0d（L 0.0040）更亮**，
+ *    且它的导航与内容底**同色**、靠 1px 描边分界 ⇒ 「深黑」不是主因，**灰阶断层**才是。
+ *    抬底后全表 24 键重算（`.worknotes/verify-batch2.txt`）：文字类与非文本门禁**零失败**。
+ * 2. **surface-soft（抬升）= 更亮 #1f1f1f，surface-inset（凹）= 更暗 #0e0e0e** ——
  *    与浅色（soft 更深 / inset 更浅）**方向相反**。沿用浅色值会把卡片变成亮块。
  * 3. error 从 #e52020 提亮为 #ff5c5c：原值在 canvas 上仅 4.16:1，做错误提示文字不可读。
  *
- * ⚠️ 换 canvas 必须整表重算：本表所有对比度均以 canvas = #0d0d0d 为基准。
+ * 🔴 **chrome-dark 的关键不是"够不够黑"，而是必须比 canvas 亮**（2026-10-05 用户裁决）
+ * 原值 #000000 比 canvas 更暗 6 级 ⇒ 导航胶囊在视觉上是个「洞」，L 0.386 的流光环浮在
+ * L 0.0000 的虚空里没有依附面 ⇒ 用户判为「突兀、缺设计感」。
+ * 两步演进：#000000 →（一批）#1c1c1c →（二批，随 canvas 抬底）#212121。
+ * 每次抬 canvas 时**必须同抬 chrome**，否则胶囊边界被削弱（实测：canvas #131313 + chrome #1c1c1c
+ * 只有 1.090，弱于一批的 1.140）。
+ *
+ * ⚠️ 换 canvas 必须整表重算：本表所有对比度均以 canvas = #131313 为基准。
  */
 export const nvidiaDark: ThemePack = {
   name: "Nvidia.Dark",
   mode: "dark",
   colors: {
-    accent: "#76b900", // 8.06 (canvas) — 填充/图形；**禁作文字色**（见 03 规范 §二）
-    "accent-pressed": "#5f9a00", // 5.65 — 按下态，比 accent 略深
+    accent: "#76b900", // 7.71 (canvas) — 填充/图形；**禁作文字色**（见 03 规范 §二）
+    "accent-pressed": "#5f9a00", // 5.40 — 按下态，比 accent 略深
     // 🔴 Dark 下与 accent 同值（03 规范 §五明文）。**不得合并成一个键**：Light 下 strong
     // 是浅底合规的焦点环/文字色，角色不同。
     "accent-strong": "#76b900",
     "accent-on": "#000000", // 8.71（绿底黑字）
-    "focus-ring": "#76b900", // 8.06 — 浅底包用 accent-strong（5.18 白底），深底包用 accent
-    ink: "#e8e8e8", // 15.86 (canvas) / 13.91 (surface-soft)
-    canvas: "#0d0d0d", // 基准（页面底）
-    "surface-soft": "#1c1c1c", // 1.14 — 深色「抬升」= 更亮
-    "surface-inset": "#060606", // 1.04 — 深色「凹」= 更暗；靠 border-interactive 保证可见
-    hairline: "#3a3a3a", // 1.71 豁免（装饰线，沿用 03 规范 Dark 值）
-    "border-interactive": "#6e6e6e", // 3.81 (canvas) ✅ 非文本 3:1
-    mute: "#9a9a9a", // 6.91 (canvas) ✅
-    "mute-on-soft": "#a8a8a8", // 7.61 (surface-soft) ✅
-    stone: "#6e6e6e", // 3.81 — **门禁 3:1，仅图形/占位，禁文字**（与 border 同值但语义不同，刻意不合并）
-    disabled: "#555555", // 2.61 — 1.4.3 豁免；须比 mute 暗才不会成为视觉噪点
-    "chrome-dark": "#000000", // 1.08 (canvas) — 🔴 边界靠 1px 描边承担，不靠亮度差
-    "on-dark": "#ffffff", // 21.00 (chrome-dark)
-    "on-dark-mute": "#a8a8a8", // 8.83 (chrome-dark)
-    "chrome-elevated": "#2a2a2a", // 1.31 — 胶囊 hover 底
+    "focus-ring": "#76b900", // 7.71 — 浅底包用 accent-strong（5.18 白底），深底包用 accent
+    ink: "#e8e8e8", // 15.16 (canvas) / 13.45 (surface-soft)
+    canvas: "#131313", // 基准（页面底）— 2026-10-05 抬底，原 #0d0d0d
+    "surface-soft": "#1f1f1f", // 1.13 — 深色「抬升」= 更亮
+    "surface-inset": "#0e0e0e", // 1.04 — 深色「凹」= 更暗；靠 border-interactive 保证可见
+    hairline: "#3f3f3f", // 1.76 豁免（装饰线）
+    "border-interactive": "#6e6e6e", // 3.64 (canvas) ✅ 非文本 3:1
+    mute: "#9a9a9a", // 6.60 (canvas) ✅
+    "mute-on-soft": "#a8a8a8", // 6.93 (surface-soft) ✅
+    stone: "#6e6e6e", // 3.64 — **门禁 3:1，仅图形/占位，禁文字**（与 border 同值但语义不同，刻意不合并）
+    disabled: "#555555", // 2.49 — 1.4.3 豁免；须比 mute 暗才不会成为视觉噪点
+    // 🔴 chrome-dark 两步演进：#000000 →(2026-10-05 一批) #1c1c1c →(二批) #212121。
+    // 关键不是"够不够黑"，而是**必须比 canvas 亮** —— 纯黑时它比底暗 6 级、胶囊成了"洞"，
+    // 流光环浮在虚空里无依附面（用户判为"突兀"）。二批 canvas 抬到 #131313 后同步提亮，
+    // 保住 1.15:1 的层差（NVIDIA App 实测导航与内容底**同色**，1.000，靠 1px 描边分界）。
+    "chrome-dark": "#212121", // 1.15 (canvas) — 比底亮一级（浮起）
+    "on-dark": "#ffffff", // 15.98 (chrome-dark)
+    "on-dark-mute": "#a8a8a8", // 6.77 (chrome-dark)
+    "chrome-elevated": "#2e2e2e", // 1.21 — 胶囊 hover 底
     success: "#4fb500", // 7.35 (canvas) / 6.45 (surface-soft)
     warning: "#ef9100", // 8.07
     "warning-bright": "#ef9100", // 8.07 — 与 warning 同值（单主题下不再有「浅色面」场景）
     error: "#ff5c5c", // 6.42 (canvas) / 5.63 (surface-soft) — 🔴 由 #e52020 提亮
-    link: "#6cb0ff", // 8.60 (canvas) / 7.54 (surface-soft)
+    link: "#6cb0ff", // 8.22 (canvas) / 7.29 (surface-soft)
   },
   // typography / spacing / rounded / motion 是**结构维度**，与主题模态无关（字号、间距、
   // 圆角、动效时长不因深浅而改）⇒ 共用同一份对象。键集守卫仍会逐维校验，不因此放宽。
@@ -338,7 +350,7 @@ export const nvidiaDark: ThemePack = {
   rounded: nvidiaLight.rounded,
   elevation: {
     flat: "none",
-    // 描边语义不变，只是描边色跟随 hairline 键（深色下是 #3a3a3a 而非浅色 #cccccc）
+    // 描边语义不变，只是描边色跟随 hairline 键（深色下是 #3f3f3f 而非浅色 #cccccc）
     hairline: "0 0 0 1px var(--aegis-hairline)",
     // 🔴 深色下纯黑阴影落在近黑底上 = 不可见（这是 elevation 维度**唯一**需要按模态重定的地方）。
     // 处置：阴影加深 + 叠一道极弱亮边做边界，双保险。

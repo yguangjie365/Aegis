@@ -221,6 +221,10 @@ export const GameCover = memo(function GameCover({
   height?: number;
 }) {
   const [imgError, setImgError] = useState(false);
+  // 🔴 2026-10-05 动效优化（用户指令）：封面就绪后 120ms 淡入，替代「从占位瞬变」——
+  //    候选链逐个试错（onError 递进）时每次跳变都很刺眼。纯 opacity = 合成器路径；
+  //    视觉规格（尺寸/遮罩/占位）不变，SystemToolkit 只在此处新增一条加载过渡。
+  const [coverLoaded, setCoverLoaded] = useState(false);
   const [coverUrls, setCoverUrls] = useState<string[]>(() => getStaticCoverUrls(appId));
   const [urlIndex, setUrlIndex] = useState(0);
   const placeholderBg = useColorModeValue("gray.100", "aegis.surface-inset");
@@ -230,6 +234,7 @@ export const GameCover = memo(function GameCover({
     let cancelled = false;
     setUrlIndex(0);
     setImgError(false);
+    setCoverLoaded(false); // 换游戏 → 淡入状态归零，等新图 onLoad
     getGameCoverUrls(appId).then((urls) => {
       if (cancelled || urlIndex !== 0) return;
       if (urls[0] !== coverUrls[0]) setCoverUrls(urls);
@@ -246,6 +251,7 @@ export const GameCover = memo(function GameCover({
       setImgError(true); // 候选全失败 → 占位图
       return;
     }
+    setCoverLoaded(false); // 候选切换 → 新 key 重挂 img，淡入状态归零等新图
     setUrlIndex(next); // 加载下一个候选（appinfo 精确 → 新域 header → 竖版 → 旧域）
   };
 
@@ -261,9 +267,22 @@ export const GameCover = memo(function GameCover({
           h="100%"
           objectFit="cover"
           onError={advanceCover}
+          onLoad={() => setCoverLoaded(true)}
+          /* 缓存秒载防御：img 从缓存加载时 load 事件可能在 React 挂上 onLoad 之前
+             就已 complete —— 此时再等 onLoad 会永远 opacity:0（封面空白）。
+             ref 挂载点检查 complete + naturalWidth（broken 图走 onError，不误标）。 */
+          ref={(el: HTMLImageElement | null) => {
+            if (el && el.complete && el.naturalWidth > 0) setCoverLoaded(true);
+          }}
           loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
+          opacity={coverLoaded ? 1 : 0}
+          sx={{
+            transition:
+              "opacity var(--aegis-motion-duration-fast) var(--aegis-motion-easing-standard)",
+            "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+          }}
         />
       ) : (
         // 缺图占位：SystemToolkit 显示游戏名；此处按规格用 CardMeta 排版并叠 Gamepad 图标

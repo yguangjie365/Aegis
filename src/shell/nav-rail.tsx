@@ -86,10 +86,19 @@ const Rail = styled.nav`
   --slot-x: 10px;
   /* 26 → 30：胶囊更「鼓」（64px 宽时 30 已接近半圆，视觉更饱满） */
   border-radius: 30px;
-  /* 绿色流光：绕胶囊外缘旋转的亮环（纯几何两层，不用 mask）。
-     **本层只剩静止的盖底层** —— 发光的那一半（裁切层 + 旋转载具）已抽到下方
-     Ring 元素，改造理由与三层分工见其注释。
-     🔴 本注释位于模板字符串内部，**禁止出现反引号** —— 会提前终止 template literal 报 TS1005。 */
+  /* 绿色流光：静止的**盖底层**。职责有两条，缺一不可：
+     ① 遮住四条同心带（RingBand）伸进胶囊**内侧**的那一半 —— 每条带都是**填满**的
+        圆角矩形（不是描边，见 RingBand 注释：border-width 会走布局），
+        本层用不透明底色把内侧切掉，相减之后露出来的才正好是 1/2/3/4px 的环。
+        ⚠️ 这也是四条带**必须**画成填满矩形的原因：填充 + 盖底 = 描边，且只动 opacity。
+        ② 遮住 RingAura 的 8px 光晕**向内**溢出的那一半 —— box-shadow 的 blur 是双向的
+        （0 0 8px 从盒边向内外各洇 8px），不盖住的话胶囊内缘会染上一圈绿，
+        读起来像「胶囊内壁发绿」而不是「胶囊悬浮在面板之上」。向外那半正是要留给用户看的。
+     🔴 2026-10-05 动效改版前的理由是「盖掉旋转载具伸进内部的部分」，那个载具已随改版删除。
+     ⚠️ 因此本层不可删、不可调透明度：删了会看到内壁绿染 + 四条带糊成一坨实心绿，
+        调透明会让它失去盖底作用。
+     本注释在模板字符串内部，**禁止出现反引号** —— 会提前终止 template literal 报 TS1005
+     （本轮已因此踩坑两次；写降级/性能类注释时尤其容易带进来）。 */
   &::after {
     content: "";
     position: absolute;
@@ -117,99 +126,282 @@ const Rail = styled.nav`
 `;
 
 /**
- * 流光环的**裁切层 + 旋转载具**（2026-10-04 P1：把环搬进合成层）。
+ * 流光环：**宽度呼吸**（2026-10-05 用户指令「由内向外扩散加粗」第二轮改版）。
  *
- * 🔴 改的是什么：原先环画在 `Rail::before` 上，动画动的是 `@property --flow-angle`，
- * 而它被 `conic-gradient(from var(--flow-angle), …)` 消费。自定义属性必须经 `var()` 代入，
- * 代入发生在**样式计算**阶段 —— 合成器拿不到，于是只要窗口可见，就是 60fps 常驻的
- * 「样式重算 → 重绘整块 conic-gradient → 8px 光晕模糊」。失焦暂停只是兜底，前台仍全额付费。
+ * 【与上一版的区别】上一版是「一道亮弧绕胶囊转」（2026-10-04 P1 把 conic 渐变静态化 +
+ * 载具 rotate）；本版是**环本身由细变粗再回缩** —— 这是两种不同的动效，不是同一动的调参。
+ * 载具（正方形 + conic-gradient）与上一版 Ring 的 overflow:hidden 裁切**一并删除**。
  *
- * 🔴 改法：**渐变静态化，让一个载具旋转**。conic-gradient 的取值只取决于相对中心的角度，
- * 且新旧载具与胶囊**同心** ⇒ 同一角度上颜色完全相同；可见区又被裁成同一个轮廓，
- * 因此这是**逐像素等价**的改造，不是重新设计。
+ * 🔴 为什么不能直接「动宽度」：能改变可见宽度的属性都不是合成器属性 ——
+ *   border-width / inset / width 走**布局**（每帧重排）；box-shadow 的 spread 与
+ *   渐变尺寸走**重绘**；而 @property 注册的自定义属性被 var() 消费时，代入发生在
+ *   **样式计算**阶段，合成器仍然拿不到 ⇒ 退化成每帧「样式重算 → 重绘整块渐变」，
+ *   这正是 2026-10-04 P1 之前的病根（实测 RecalcStyleCount 300、单核 1.65% 常驻）。
+ *   ⇒ 只剩一条合规的路：**只动 opacity**。
  *
- * 三层分工：
- *   本层         —— 静止。`inset:-4px` + `overflow:hidden` 把载具裁成原 `::before` 的轮廓
- *                  （胶囊外扩 4px、圆角 30+4=34）。光晕也留在这一层：载具旋转后它的投影
- *                  会变成「一个大方块的投影」，不能跟着走。
- *   ::before     —— 载具。与胶囊同心的正方形，边长 ≥ 对角线故任意旋转角都覆盖整条胶囊；
- *                   只做 `rotate`（合成属性）。
- *   `Rail::after` —— 静止的盖底层，盖回胶囊内部；一减一留就是那 4px 的边缘环。
+ * 【本版做法】**四条同心带的 opacity 交叉淡入淡出**：
+ *   每层是一块**填满**的圆角矩形（不是描边），同心、依次内缩 1px；
+ *   内侧由 Rail::after（inset:0 的不透明盖底）挡住 ⇒ 每层露出来的正是一条 1px 宽的带。
+ *   于是「第 k 条带可见」= 把它 opacity 从 0 抬到 1，「四条全可见」= 4px 环。
  *
- * ⚠️ 为什么不直接给 `Rail` 加 `clip-path`（那样不必加元素）：`clip-path` 会把外扩约 8px 的
- * 光晕一并裁掉，环外的柔和轮廓消失 —— 那是可见回归。独立裁切层能同时保住环宽与光晕。
+ *   露宽 = inset 3 / 2 / 1 / 0 ⇒ 1 / 2 / 3 / 4px，圆角同步 31 / 32 / 33 / 34（始终同心）。
+ *   绘制顺序 = DOM 顺序，**由外向内**（band4 先画、band1 最后画）：
+ *   于是外侧那条带只由最外层决定、内侧依次被更内层盖住 ——
+ *   抬 opacity 时环真的「由内向外长厚」，而不是整圈一起变亮。
  *
- * ⚠️ `@keyframes` 必须定义在**使用它的元素**上（即本层），随 emotion 注入的是本层的样式块。
+ *   关键帧首尾同值 ⇒ 循环接缝在数学上不存在，不会闪。
+ *   缓动写在**每一帧**上（决定本帧→下一段；写在元素上会被整条动画统一覆盖），
+ *   四条带共用同一条 timing-function ⇒ 永远同相，1px 与 4px 两个极值都能真正走到。
+ *
+ * 【2026-10-05 第三轮打磨：两处相位/时序调整】
+ *   ① 四条带三帧 → **五帧**，峰值加 40%–60% 的**平台段**（0.72s）。
+ *      原三帧版里 4px 只有一帧，四件事（1px 塌下+ 三层浮起）挤在同一帧发生，
+ *      且 2px / 3px 中间态采样率不足读不出来 ⇒ 观感是「两态闪变」而非「由内向外推开」。
+ *   ② 外光晕（RingAura）峰值由 50% 挪到 **62%**，与环**错开相位**。
+ *      原本完全同相 ⇒ 最粗那一刻光晕也最亮，层次被拍平；错开后读成
+ *      「亮线 →（环达最粗、光晕仍在升）→ 粗暗环 → 余晖散尽」。
+ *      🔴 刻意**不用 animation-delay / Motion 的 stagger** 做相位错开：delay 会让首帧
+ *      不是最细态（要等offset 走完），且停帧后 offset 残留在 animation-delay 上不归零。
+ *      挪关键帧位置则首帧恒为最细态、停帧语义不受影响。
+ *
+ * 【为什么峰值时最内层反而要压暗】用户要「由亮转粗转暗」。若四层峰值都到 1，
+ *   最内层 85% 的亮绿会盖住外三层，总光通量比 1px 态还大 ⇒ 读成「变亮」而不是「变暗」。
+ *   故最内层峰值压到 0.62（0.62 × 85% ≈ 53%），峰值时由内向外 53 / 52 / 34 / 20%
+ *   单调递减 ⇒ 观感是「亮线化成暗绿柔边」，正是要的那种悬浮层次。
+ *
+ * 【颜色】一律 color-mix 配 var(--aegis-accent) 派生（2026-10-04 审查一般 8 的纪律）：
+ *   绿值不写死 rgba(118, 185, 0, …)，否则换主题时环与按钮的绿会漂成两种。
+ *
+ * 【性能】6 个元素、6 条 opacity 动画，全部走合成层；无 conic 渐变重绘、无布局属性
+ *   动画、无 filter。Rail 是 flex:none、不在任何滚动容器内 ⇒ 常驻合成层不绑滚动线程。
+ *
+ * 🟢 原「失焦/不可见时暂停动画」规则仍**不恢复**（用户 2026-10-04 裁决）。存档理由：
+ *   该规则的必要性来自 P1 之前每帧重算样式 + 重绘整块 conic 渐变与 8px 光晕；
+ *   现在只剩 opacity，暂停省下的基本归零，而代价是「应用可见但未聚焦（放副屏、
+ *   用户在别的窗口打字）时环停住，看起来像应用卡死」。即必要性被后续优化架空了。
+ *   🔴 下方 prefers-reduced-motion 那条**保留不动** —— 那是规范 §八 的无障碍要求，
+ *   与性能无关，且属用户系统偏好，不得以「省 CPU」为由削弱。
+ *
+ * ⚠️ @keyframes 必须定义在**使用它的元素**上（即本层），随 emotion 注入的是本层的样式块。
  */
 const Ring = styled.span`
   position: absolute;
   /* 🔴 2026-10-04 用户裁决：safe-x 20 量的是**胶囊本体**，环外缘距窗口边应为 16
-     ⇒ 外扩量 = 20 − 16 = 4px（原 3.5px 是按「环外缘 16.5 对 20」的老口径估的，
-     那时本该是 4 才对；16.5 这个数是从边框位置反推的近似，不是设计量）。
-     环外缘 → 光晕 8px → 距窗口边 8px ⇒ 光晕完整在框内，余量 8px。 */
+     ⇒ 外扩量 = 20 − 16 = 4px（16.5 那个数是从边框位置反推的近似，不是设计量）。
+     环外缘 → 光晕 8px → 距窗口边 8px ⇒ 光晕完整在框内，余量 8px。
+     ⚠️ 改这个值须同改 shell-layout.tsx 里 SAFE_LEFT / SAFE_RIGHT 的联动注释。 */
   inset: -4px;
-  border-radius: 34px; /* = 胶囊圆角 30 + 外扩 4，与胶囊同心 */
-  overflow: hidden;
+  /* 本层自身**不画任何颜色**（上一版这里承载 conic 渐变，已删）；它现在的职责只有两个：
+     ① 给子层提供「胶囊外扩 4px」的定位参照；② 用 z-index:0 把整组光环压到最底。
+     圆角随之定为 34（= 胶囊 30 + 外扩 4），子层按 inset 逐层递减保持同心。 */
+  border-radius: 34px;
   pointer-events: none;
-  /* 整圈 60%绿作底 + 实色 accent 亮段在其上跑动。
-     35% 在黑底上太淡（用户反馈"颜色太淡、左侧不显示、看着像半环"）→ 提到 60%，
-     再叠同色光晕，让环在暗背景上有明确轮廓而不只是一条细亮线。
-     🔴 绿值一律由 color-mix 配 var(--aegis-accent) 派生（2026-10-04 审查一般 8）：
-     此前四处写死 rgba(118, 185, 0, …)，换主题时环与按钮的绿会漂成两种。 */
+  z-index: 0; /* 光环组：最底。盖底层 1 < 指示器 2 < 图标内容 3 */
+
+  /* ⚠️ 上一版的 overflow: hidden 已删：它当初只为裁切那个旋转的正方形载具而存在，
+     载具随改版删除；而外光晕（RingAura 的 box-shadow）必须能向外洇到 4px 之外，
+     加裁切反而把柔和轮廓削成一圈硬边。子元素都落在 inset 0…3 之间，本身不会溢出。 */
+`;
+
+/**
+ * 外光晕：一圈 8px 柔和辉光，**只动 opacity**（blur / spread / 颜色全部写死）。
+ * 它负责「悬浮于面板之上」的**静态**那部分 —— 面板与胶囊之间永远有一层极淡的绿，
+ * 最细态也不会读成「胶囊贴在面板上」。宽度呼吸由四条带负责，光晕只做强度起伏。
+ */
+const RingAura = styled.span`
+  position: absolute;
+  inset: 0; /* = 胶囊外扩 4px，与最外圈带同轮廓 */
+  border-radius: 34px;
+  /* 🔴 绿值一律 color-mix 配 var(--aegis-accent) 派生，不写死 rgba。 */
   box-shadow: 0 0 8px color-mix(in srgb, var(--aegis-accent) 45%, transparent);
-  z-index: 0; /* 流光环：最底 */
+  /* 谷值 0.34 而非 0：全灭时光晕会硬生生消失，胶囊读成「一条贴边细线」；
+     留三成余量，最细态也保有一圈极淡的分离感（这正是要的分层）。
+     本行的静态值同时是**动画失效时的兜底**（见 RingBand 顶部同款说明）。 */
+  opacity: 0.34;
+  /* 3.2s → 3.6s：上一版的 3.2s 是**匀速旋转**的周期（转感掩盖了时长），
+     改成厚度呼吸后同样的时长读起来偏急；3.6s 每程 1.8s，舒缓且不拖沓。
+     周期属「循环速率」，按 motion 契约刻意不入 duration 刻度（tokens.ts §六 同款理由）。 */
+  animation: aegis-nav-aura 3.6s infinite;
+  will-change: opacity;
 
-  &::before {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    /* 🔴 正方形载具：边长须 ≥ 本层对角线，才能保证**任意旋转角**都覆盖整条胶囊。
-       用 aspect-ratio 让宽度跟随高度 —— 百分比 width 会按胶囊宽(64px)解析，远不够高。
-       150% 的下限：本 rail 高 ≥ 64px 时恒够（10 项实测约 516px）。
-       ⚠️ 若将来 rail 可能矮于 64px，这里要改成 vmax 兜底。 */
-    height: 150%;
-    aspect-ratio: 1;
-    translate: -50% -50%;
-    /* 与改前逐值相同的 conic，**只去掉 from var(--flow-angle)**：亮弧固定朝 120deg，
-       由载具旋转把它带走。颜色定义一个字没改。 */
-    background: conic-gradient(
-      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 0deg,
-      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 80deg,
-      var(--aegis-accent) 120deg,
-      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 160deg,
-      color-mix(in srgb, var(--aegis-accent) 60%, transparent) 360deg
-    );
-    /* 周期 3.2s 属「循环速率」，按 motion 契约不入 duration 刻度；缓动取令牌 */
-    animation: aegis-nav-flow 3.2s infinite var(--aegis-motion-easing-linear);
-    will-change: rotate;
-  }
-
-  @keyframes aegis-nav-flow {
-    to {
-      rotate: 360deg;
+  /* 🔴 峰值相位从 50% 挪到 **62%**（2026-10-05 打磨）：光晕与四条带原本**完全同相**，
+     两者都在 50% 达峰 ⇒ 最粗的那一刻光晕也正好最亮，读起来是「整圈一起亮起来」，
+     层次被打平 —— 而用户要的是「亮线化成暗绿柔边」的**先后**层次。
+     62% 的效果：环在 50% 达最粗时光晕仍在上升途中（≈0.82），环开始回缩后光晕才到顶，
+     再随环一起落回 ⇒ 读成「亮线 → 粗暗环 → 余晖散尽」，悬浮感比同相强一档。
+     ⚠️ 为什么不用animation-delay 做相位错开（Motion 的 stagger 同款做法）：
+        delay 会让整条动画**整体后移**，首次进入页面时首帧不是最细态（要等offset 走完），
+        且负delay 在prefers-reduced-motion 停帧后残留在 animation-delay 上不归零。
+        直接挪关键帧位置则**首帧恒为最细态**，停帧/兜底语义不受影响。
+     ⚠️ 首尾仍同值（0.34 / 0.34）⇒ 循环接缝依旧不存在。 */
+  @keyframes aegis-nav-aura {
+    0% {
+      opacity: 0.34;
+      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+    }
+    62% {
+      opacity: 1;
+      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+    }
+    100% {
+      opacity: 0.34;
     }
   }
 
-  /* 🟢 原「失焦/不可见时暂停动画」规则已于 2026-10-04 移除（用户裁决）。
-     —— 移除理由（保留存档，避免日后被"优化回来"）：
-     该规则是 **P1 之前**加的。当时环的动画动的是 @property 变量 --flow-angle，每帧在主线程
-     重算样式并重绘整块 conic-gradient（实测 1.65% 单核、永不停歇），失焦暂停能省下一大块。
-     P1 把环改成「静态渐变 + 旋转载具」进合成层之后（实测 RecalcStyleCount 由 300 降为 0），
-     失焦暂停省下的只剩一点 GPU，**收益基本归零**；而代价仍在：
-     Aegis **可见但未聚焦**时（放副屏、用户在别的窗口打字），环会停住，看起来像应用卡死。
-     即：该优化的必要性被后续那次优化架空了，故撤销。
-     🔴 下方 prefers-reduced-motion 那条**保留不动** —— 那是规范 §八的无障碍要求，
-     与性能无关，且属用户系统偏好，不得以"省 CPU"为由削弱。
-     🔴 本注释在模板字符串内部，**禁止出现反引号** —— 会提前终止 template literal 报 TS1005
-     （本轮已因此踩坑一次；写降级/性能类注释时尤其容易带进来）。 */
-
-  /* 规范 §八：prefers-reduced-motion 下**停在这一帧**而不是把时长压到 0.01ms ——
-     无限动画 + 0.01ms 等于每帧重放上千次（ADR-006 §三 记录的教训）。 */
+  /* 规范 §八：prefers-reduced-motion 下**停在这一帧**，而不是把时长压到 0.01ms ——
+     无限动画 + 0.01ms 等于每帧重放上千次（ADR-006 §三 记录的教训）。
+     🔴 停帧必须**显式复位**被动画的属性：这里动画动的是 opacity，若只写 animation: none
+     而不复位，浏览器回落到本层静态 opacity（本次恰好也是 0.34，属「巧合对」而非
+     「写明对」）—— 静态值一改就会静默停在错误亮度。故显式写出。
+     ⚠️ 主题层（theme.ts 的 reduced-motion 全局兜底）只压 duration/iteration-count、
+        不声明 animation-name，故这里的 animation: none 仍然拿得到主动权。 */
   @media (prefers-reduced-motion: reduce) {
-    &::before {
+    animation: none;
+    opacity: 0.34;
+  }
+`;
+
+/**
+ * 四条同心带：从内到外 1 / 2 / 3 / 4px，用 opacity 交叉淡入淡出做出「由内向外长厚」。
+ *
+ * 🔴 为什么是**填满的矩形**而不是 border 描边：border-width 走布局，每帧重排；
+ * 填满 + 外侧盖底（Rail::after）相减得到的可见宽度与描边逐像素等价，却是纯合成层操作。
+ *
+ * 🔴 绘制顺序即 DOM 顺序，**由外向内**：band4（最宽）先画、band1（最窄）最后画。
+ * 反过来（由内向外排）会让最宽的 band4 盖住内三层，四层永远只剩一条 4px 带，
+ * 「1px ↔ 4px」两个极值就都读不出来了 —— 这是本实现最容易写反的一处。
+ *
+ * ⚠️ 静态 opacity = **各自的谷值**，不只是给 reduced-motion 用：它是动画未加载 /
+ *   被浏览器忽略时的兜底，语义是「停在最细的那一帧」（1px 亮线），而不是
+ *   「停在最粗的那一帧」（4px 暗绿）—— 后者在降级场景下过于抢眼。
+ */
+const RingBand = styled.span`
+  position: absolute;
+  pointer-events: none;
+  will-change: opacity;
+
+  /* band1 = 最内 1px，唯一在谷态可见的那条「亮绿细线」。 */
+  &[data-band="1"] {
+    inset: 3px;
+    border-radius: 31px;
+    background: color-mix(in srgb, var(--aegis-accent) 85%, transparent);
+    opacity: 1;
+    animation: aegis-nav-bloom-core 3.6s infinite;
+  }
+
+  /* band2 = 2px。停帧 / 兜底时留 0.03 而非 0：全 0 时那条 1px 亮线是「浮」在面板上的
+     孤立像素，外缘没有任何过渡会显出锯齿；3% 的暗绿相当于给它做一次抗锯齿外扩。
+     🔴 注意：动画**运行期间**谷值由 keyframes 决定（= 0），此处的 0.03 只在
+        动画未生效时（reduced-motion 停帧 / 动画名失效）起作用。 */
+  &[data-band="2"] {
+    inset: 2px;
+    border-radius: 32px;
+    background: color-mix(in srgb, var(--aegis-accent) 52%, transparent);
+    opacity: 0.03;
+    animation: aegis-nav-bloom 3.6s infinite;
+  }
+
+  &[data-band="3"] {
+    inset: 1px;
+    border-radius: 33px;
+    background: color-mix(in srgb, var(--aegis-accent) 34%, transparent);
+    opacity: 0;
+    animation: aegis-nav-bloom 3.6s infinite;
+  }
+
+  &[data-band="4"] {
+    inset: 0;
+    border-radius: 34px;
+    background: color-mix(in srgb, var(--aegis-accent) 20%, transparent);
+    opacity: 0;
+    animation: aegis-nav-bloom 3.6s infinite;
+  }
+
+  /* 三帧、首尾同值 ⇒ 循环接缝不存在。四条带共用同一条 timing-function ⇒ 永远同相，
+     极值（1px / 4px）能被真正走到；若各层相位不同，就永远停在半路，
+     「由细变粗再回缩」会退化成持续微颤。
+
+     🔴 2026-10-05 打磨：三帧 → **五帧**，给峰值加一个**有宽度的平台**（40% → 60%）。
+        原三帧版（0 / 50 / 100）的问题：4px 那一瞬是「1px 亮线同时塌下去 + 三层同时
+        浮起来」，四件事挤在同一帧发生 ⇒ 观感是**整圈一起跳变**，而不是「由内向外推开」。
+        且该版只有1px 与 4px 两个极值可读，中间的 2px / 3px 态在快速掠过时采样率不足、
+        几乎读不出来 ⇒ 观感同样是「两态之间闪变」。
+        加平台后：0.72s 的 4px 稳态 + 两侧各 1.44s 的单向过渡 ⇒ 三段过程都有可读时长。
+        首尾仍同值（0 / 0）⇒ 接缝依旧不存在。
+
+        平台段用 linear 而非继续 ease-in-out：此刻 opacity 恒为 1，缓动曲线不产生任何
+        视觉变化；写成 linear 是**明示「这段不参与缓动」**，避免后人以为漏配。 */
+  @keyframes aegis-nav-bloom {
+    0% {
+      opacity: 0;
+      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+    }
+    40% {
+      opacity: 1;
+      animation-timing-function: linear;
+    }
+    60% {
+      opacity: 1;
+      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
+  /* 最内层谷亮峰暗（0.62），理由见 Ring 顶部「为什么峰值时最内层反而要压暗」。
+     曲线与 bloom **逐帧一致**（含 40–60% 平台段），保证四层任何时刻都同相。 */
+  @keyframes aegis-nav-bloom-core {
+    0% {
+      opacity: 1;
+      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+    }
+    40% {
+      opacity: 0.62;
+      animation-timing-function: linear;
+    }
+    60% {
+      opacity: 0.62;
+      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+    }
+    100% {
+      opacity: 1;
+    }
+  }
+
+  /* 规范 §八：停帧而非压时长（同 RingAura 的理由，ADR-006 §三）。
+     四条带的 opacity 全部**显式复位**到各自的静态值 —— 这里若只写 animation: none，
+     会回落到各条静态 opacity（本次恰好一致），但那是巧合：静态值与 keyframes 是两处
+     真相，改一处另一处不动 ⇒ 静默停在错误亮度。
+
+     🔴🔴 2026-10-05 打磨时用无头Edge + CDP 抓到的**真缺陷**：原来这里只有外层那一行
+     animation: none，它在真机上**完全没生效** —— 四条带的 animation 声明写在
+     & 属性选择器里（specificity 0,2,0），外层基类是 0,1,0 ⇒ 属性选择器赢。
+     连上面那句「显式复位 opacity」也被压过：CSS 动画值的优先级高于普通作者声明，
+     动画在跑时opacity 复位不参与计算。⇒ 规范 §八 的无障碍要求实际是空的。
+     探针复刻真实结构的实测（Emulation.setEmulatedMedia把 reduced-motion 设为
+     reduce，再读 getComputedStyle().animationName）：
+       [data-band=1] animationName = bloom-core   ⇒ 仍在无限动画（应为 none）
+       [data-band=2] animationName = bloom        ⇒ 仍在无限动画（应为 none）
+       对照组（animation:none 也写进 & 属性选择器）⇒ none  ✅
+     修法：把 animation: none 补进 & 属性选择器（与动画声明同特异性、后写者赢）。
+     外层那一行**保留**，将来若新增不带 data-band 的动画层时仍有一层网。 */
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+
+    &[data-band] {
       animation: none;
-      rotate: 120deg; /* 停在最亮处，仍然看得见这是一道流光环 */
+    }
+
+    &[data-band="1"] {
+      opacity: 1;
+    }
+    &[data-band="2"] {
+      opacity: 0.03;
+    }
+    &[data-band="3"],
+    &[data-band="4"] {
+      opacity: 0;
     }
   }
 `;
@@ -328,7 +520,12 @@ const Item = styled(NavLink)`
      之前 Indicator(2) 压过 Item(1)，激活绿圆把图标整个盖住了（用户截图）。 */
   z-index: 3;
   flex: none;
-  border-radius: var(--aegis-radius-sm);
+  /* 🔴 悬停底色必须是圆（2026-10-05 用户指出「悬停时图标被方形遮罩盖住」）：
+     原写 --aegis-radius-sm(2px)，而 Item 在 64 宽胶囊内是 44×44 的**正方盒**
+     （64 − 2×--nav-item-mx(10)），2px 圆角读起来就是方块；激活态绿底用的是
+     IndicatorFill 的 --aegis-radius-full ⇒ 形状不一致。两者取同一令牌后
+     悬停圆与绿底同心同径（都由 44×44 + full 得出）。 */
+  border-radius: var(--aegis-radius-full);
   transition:
     background-color var(--aegis-motion-duration-fast) var(--aegis-motion-easing-standard),
     color var(--aegis-motion-duration-fast) var(--aegis-motion-easing-standard);
@@ -431,7 +628,9 @@ export function NavRail() {
   );
   const activeId = SHELL_MODULES.find(isActive)?.id;
   // （原此处有 `usePageLiveness()` + Rail 的 `data-live`，用于失焦时暂停流光环。
-  //   2026-10-04 与 Ring 的暂停规则一并移除，理由见 Ring 顶部「原失焦暂停规则已移除」注释。
+  //   2026-10-04 移除，2026-10-05 宽度呼吸改版后**仍未恢复**（新实现只动 opacity，
+  //   暂停省下的基本归零，代价却是「可见未聚焦时环停住像卡死」）。
+  //   理由见 Ring 顶部「失焦/不可见时暂停动画」存档段。
   //   注意：`usePageLiveness` 在概览取数（features/Overview）处仍是必需，故 use-tick 不动。）
 
   const railRef = useRef<HTMLElement | null>(null);
@@ -549,9 +748,18 @@ export function NavRail() {
 
   return (
     <Rail ref={railRef} aria-label={t("nav.toggleAria")}>
-      {/* 流光环：静止裁切层 + 内部旋转载具（见 Ring 注释）。必须在指示器之前，
-          以便靠 z-index 链（环 0 < 盖底 1 < 指示器 2 < 图标 3）分层。 */}
-      <Ring aria-hidden />
+      {/* 流光环组：外光晕 + 四条同心带（见 Ring 注释）。必须在指示器之前，
+          以便靠 z-index 链（光环组 0 < 盖底 1 < 指示器 2 < 图标 3）分层 ——
+          盖底层会把每条带伸进胶囊内侧的那半盖掉，露出来的正是 1/2/3/4px 的环。
+          🔴 四条带的 DOM 顺序 = 绘制顺序，**由外向内**（band4 先、band1 后），
+             顺序写反会让最宽的带盖住内三层、两个极值都读不出来。 */}
+      <Ring aria-hidden>
+        <RingAura />
+        <RingBand data-band="4" />
+        <RingBand data-band="3" />
+        <RingBand data-band="2" />
+        <RingBand data-band="1" />
+      </Ring>
       <IndicatorBox
         data-phase={phase}
         data-far={far ? "true" : "false"}
