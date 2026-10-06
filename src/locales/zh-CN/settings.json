@@ -1,0 +1,27 @@
+{
+  "page": {
+    "sub": "全局配置与凭据。各功能页只放该功能自己的操作，凭据类一律在此维护。"
+  },
+  "steam": {
+    "title": "Steam 在线库存",
+    "intro": "填写 Steam Web API Key 后，游戏管理页可显示「账号拥有的全部游戏」（含从未在本机安装的）。未配置时该区显示本机缓存数据，功能其余部分不受影响。",
+    "loading": "正在读取配置状态…",
+    "configured": "已配置",
+    "notConfigured": "未配置",
+    "currentAccount": "当前账号：{{name}}",
+    "keyHintConfigured": "已配置；输入新值可覆盖，留空并点「清除」可删除",
+    "keyHintEmpty": "粘贴 32 位 Steam Web API Key",
+    "hide": "隐藏",
+    "show": "显示",
+    "save": "保存",
+    "test": "测试连接",
+    "clear": "清除",
+    "howTo": "获取方式：登录 Steam → 访问 store.steampowered.com/account/api/apikeys → 生成新 Key。Key 属公开客户端凭据，本项目明文存于 Steam 目录下的 aegis_steam_api_key.txt（写入前自动备份 .bak）。",
+    "noClientLong": "本机未检测到 Steam 客户端，无法配置在线库存。",
+    "noClient": "本机未检测到 Steam 客户端",
+    "saved": "API Key 已保存",
+    "cleared": "API Key 已清除",
+    "testOk": "连接成功，账号共拥有 {{count}} 款游戏",
+    "testFail": "在线库存获取失败"
+  }
+}
