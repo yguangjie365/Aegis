@@ -237,7 +237,9 @@ mod imp {
                     None // 保持上一次状态，防抖
                 };
                 if let Some(out) = emit_state {
-                    let mut guard = CURRENT.lock().unwrap();
+                    let mut guard = CURRENT
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     *guard = out.clone();
                     drop(guard);
                     let _ = app.emit("external-player:state", out);

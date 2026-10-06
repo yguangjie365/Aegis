@@ -40,6 +40,19 @@ mod imp {
 
     /// 供回调线程向前端 emit 使用（与 smtc.rs 一致）
     static APP: OnceLock<AppHandle> = OnceLock::new();
+
+    /// 取锁守卫，**锁中毒时取回内值而不是 panic**。
+    ///
+    /// 🔴 这是本轮修复的严重项：`MAIN_HWND` / `ORIGINAL_WNDPROC` / `MSG_HWND`
+    ///   都是**全局静态** `Mutex`，而 `lock().unwrap()` 只在**锁中毒**（某次持锁 panic）
+    ///   时失败 —— 中毒是**永久**的，此后每次窗口消息都会 panic。
+    ///   致命之处在于 `wnd_proc` 是 Windows 窗口过程：panic 跨越 `extern "system"`
+    ///   边界属 Rust 明令的未定义行为（实际表现为进程崩溃，且不可复现）。
+    ///   锁保护的只是一个 isize / Option，取回内值继续用既安全又能自愈。
+    #[must_use]
+    fn lock_ok<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+        m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
     /// 主窗口原窗口过程（子类化时保存），用于把非媒体类消息原样交回
     static ORIGINAL_WNDPROC: Mutex<Option<isize>> = Mutex::new(None);
     /// 媒体键控制总开关（由设置/命令控制）
@@ -96,7 +109,7 @@ mod imp {
 
     /// 常驻子类化主窗口（幂等）：拦截冒泡上来的 WM_APPCOMMAND 媒体命令
     fn install_main_subclass(app: &AppHandle) {
-        if MAIN_HWND.lock().unwrap().is_some() {
+        if lock_ok(&MAIN_HWND).is_some() {
             return;
         }
         if let Some(win) = app.get_webview_window("main") {
@@ -105,8 +118,8 @@ mod imp {
                 // GWLP_WNDPROC = -4
                 let prev = unsafe { SetWindowLongPtrW(hwnd, -4, wnd_proc as *const () as isize) };
                 if prev != 0 {
-                    *ORIGINAL_WNDPROC.lock().unwrap() = Some(prev);
-                    *MAIN_HWND.lock().unwrap() = Some(hwnd as isize);
+                    *lock_ok(&ORIGINAL_WNDPROC) = Some(prev);
+                    *lock_ok(&MAIN_HWND) = Some(hwnd as isize);
                     log::info!("[MediaKeys] 已子类化主窗口拦截 WM_APPCOMMAND 媒体键");
                 } else {
                     log::error!(
@@ -120,11 +133,11 @@ mod imp {
 
     /// 恢复主窗口原窗口过程（关闭开关时调用；关闭模式下按键由全局热键直接处理）
     fn restore_main_subclass() {
-        let orig = ORIGINAL_WNDPROC.lock().unwrap().take();
-        let main_hwnd = *MAIN_HWND.lock().unwrap();
+        let orig = lock_ok(&ORIGINAL_WNDPROC).take();
+        let main_hwnd = *lock_ok(&MAIN_HWND);
         if let (Some(orig), Some(main_hwnd)) = (orig, main_hwnd) {
             unsafe { SetWindowLongPtrW(main_hwnd as HWND, -4, orig) };
-            *MAIN_HWND.lock().unwrap() = None;
+            *lock_ok(&MAIN_HWND) = None;
             log::info!("[MediaKeys] 已恢复主窗口原窗口过程");
         }
     }
@@ -186,7 +199,7 @@ mod imp {
                     );
                     return;
                 }
-                *MSG_HWND.lock().unwrap() = Some(hwnd as isize);
+                *lock_ok(&MSG_HWND) = Some(hwnd as isize);
                 log::info!("[MediaKeys] 热键消息窗口就绪");
 
                 // 消息循环：抽 WM_HOTKEY + 处理注册命令（应用生命周期内持续运行）
@@ -213,6 +226,12 @@ mod imp {
                         Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
                         Err(std::sync::mpsc::TryRecvError::Empty) => {}
                     }
+                    // 🔴 `clippy.toml` 全局禁 `std::thread::sleep`，但那条规则的**本意**
+                    //   是「异步路径禁阻塞（禁 sync-over-async）」，而这里是热键线程自己的
+                    //   **消息泵**：同步阻塞等待正是它的正确形态（改 tokio::sleep 反而要求
+                    //   在专用线程里跑异步运行时）。故在此处显式豁免并说明理由。
+                    //   消息泵空转时 15ms 一次轮询，CPU 占用可忽略。
+                    #[allow(clippy::disallowed_methods)]
                     std::thread::sleep(std::time::Duration::from_millis(15));
                 }
                 for (id, _) in HOTKEYS {
@@ -254,8 +273,26 @@ mod imp {
         ENABLED.load(Ordering::SeqCst)
     }
 
-    /// 主窗口子类化窗口过程：拦截 WM_APPCOMMAND 媒体命令 → 转发并吞掉
+    /// 主窗口子类化窗口过程：**FFI 边界壳**。
+    ///
+    /// 🔴 绝不允许 panic 逃逸到这里 —— 跨 `extern "system"` 边界 unwind 是 UB
+    ///   （实际是进程崩溃，且不可复现）。兜底走 `DefWindowProcW`，语义等价于
+    ///   「本次消息无人处理」，与「消息本来就传不到处理逻辑」不可区分。
+    ///   真正的处理逻辑放在 `wnd_proc_inner`（它可以安全地使用 `?`/panic）。
     unsafe extern "system" fn wnd_proc(
+        hwnd: windows_sys::Win32::Foundation::HWND,
+        msg: u32,
+        wparam: usize,
+        lparam: isize,
+    ) -> isize {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+            wnd_proc_inner(hwnd, msg, wparam, lparam)
+        }))
+        .unwrap_or_else(|_| unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) })
+    }
+
+    /// 窗口过程的真实逻辑（由 `wnd_proc` 在 catch_unwind 内调用）。
+    unsafe fn wnd_proc_inner(
         hwnd: windows_sys::Win32::Foundation::HWND,
         msg: u32,
         wparam: usize,
@@ -270,7 +307,7 @@ mod imp {
                 }
             }
         }
-        let orig = ORIGINAL_WNDPROC.lock().unwrap().unwrap_or(0);
+        let orig = lock_ok(&ORIGINAL_WNDPROC).unwrap_or(0);
         if orig != 0 {
             let p: unsafe extern "system" fn(
                 windows_sys::Win32::Foundation::HWND,
@@ -287,12 +324,27 @@ mod imp {
     /// RegisterHotKey 的消息窗口过程：
     /// - 开启：WM_HOTKEY → 转发前端控制内置播放器
     /// - 关闭：WM_HOTKEY → 直接命令系统当前的任意媒体会话（仅新境盒不响应）
+    /// RegisterHotKey 的消息窗口过程：**FFI 边界壳**（同 `wnd_proc`，理由见该处）。
     unsafe extern "system" fn hotkey_wnd_proc(
-        _hwnd: windows_sys::Win32::Foundation::HWND,
+        hwnd: windows_sys::Win32::Foundation::HWND,
         msg: u32,
         wparam: usize,
         lparam: isize,
     ) -> isize {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+            hotkey_wnd_proc_inner(hwnd, msg, wparam, lparam)
+        }))
+        .unwrap_or_else(|_| unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) })
+    }
+
+    /// 热键窗口过程的真实逻辑（由 `hotkey_wnd_proc` 在 catch_unwind 内调用）。
+    unsafe fn hotkey_wnd_proc_inner(
+        hwnd: windows_sys::Win32::Foundation::HWND,
+        msg: u32,
+        wparam: usize,
+        lparam: isize,
+    ) -> isize {
+        let _ = (hwnd, lparam);
         if msg == WM_HOTKEY {
             let action = match wparam as i32 {
                 ID_PLAYPAUSE => "play-pause",
@@ -311,7 +363,7 @@ mod imp {
                 return 0;
             }
         }
-        DefWindowProcW(_hwnd, msg, wparam, lparam)
+        DefWindowProcW(hwnd, msg, wparam, lparam)
     }
 
     /// 从 WM_APPCOMMAND 的 lParam 解析媒体命令 → 动作

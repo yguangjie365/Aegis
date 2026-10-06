@@ -42,3 +42,9 @@ pub mod sys;
 // `infra/src/lib.rs:5` 都把 `infra::safe::join_under_root` 定为「外部路径拼接的唯一入口」
 // （属 W0-09 范围，当前尚未实现）——本域消费该入口，不得另写一份。见 `transfer/mod.rs` 模块头。
 pub mod transfer;
+// M-06 文件备份（2026-10-05，dsh 备份批）：规则管理 / 扫描筛选 / 备份执行与进度 /
+// 快照列表与维护 / 恢复（含三重目标守卫）/ 保留策略。
+// 🔴 本域**消费** `infra::safe`（路径越界守卫唯一入口）与 `infra::fs`（原子写、空间取数、
+// 设 mtime），不另写——理由与档位登记见 `backup/mod.rs` 模块头与变更记录。
+// 🟡 卷影（K-002）与定时（K-003）形态未拍板 ⇒ 只留 trait 边界，规则开关恒禁用。
+pub mod backup;

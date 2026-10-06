@@ -28,6 +28,9 @@
 
 use std::fmt;
 use std::sync::{Mutex, MutexGuard, OnceLock};
+// 🔴 只被 `tests` 模块的重试用到（2026-10-07）：生产代码路径不引用它，
+//   放在顶层会让**非测试构建**报 unused import（`cargo check` 的唯一 warning）。
+#[cfg(test)]
 use std::time::Duration;
 
 /// 剪贴板错误。

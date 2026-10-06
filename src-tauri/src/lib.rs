@@ -137,6 +137,11 @@ pub fn run() {
             services::music::music_api::migu_search,
             services::music::music_api::migu_user_playlists,
             services::music::music_api::music_get_login_statuses,
+            // 🔴 注册完整性：qishui_login_cookie 定义在 qishui.rs:559，此前**漏注册**
+            //   （2026-10-07 代码审查 L-2）。Tauri 的 generate_handler!少注册**不报编译错**，
+            //   前端零调用时也看不出，只在阶段二接入手动 cookie 登录时暴露为
+            //   「点了没反应 / command not found」。按复刻域「前端零引用也一并注册」口径补齐。
+            services::music::music_api::qishui::qishui_login_cookie,
             services::music::music_api::qishui::qishui_logout,
             services::music::music_api::qishui::qishui_playlist_tracks,
             services::music::music_api::qishui::qishui_feed_modes,
@@ -282,7 +287,30 @@ pub fn run() {
             services::transfer::commands::transfer_resume_task,
             services::transfer::commands::transfer_history_list,
             services::transfer::commands::transfer_history_export,
-            services::transfer::commands::transfer_history_clear
+            services::transfer::commands::transfer_history_clear,
+            // ── M-06 文件备份（2026-10-05）：命令实体在
+            //    `crates/services/src/backup/commands.rs`，此处只做薄转发 ──
+            // 🔴 17 个命令**必须整组注册**：Tauri 的 `generate_handler!` 是编译期展开，
+            //   少注册一个不会编译报错，只在运行时表现为 `command not found` ——
+            //   而前端侧的表现是「点了没反应」（invoke reject，错误文案指向后端未注册，
+            //   极难定位）。故本段与 `transfer` 段同款逐条列出，不作任何省略。
+            services::backup::commands::backup_list_rules,
+            services::backup::commands::backup_save_rule,
+            services::backup::commands::backup_delete_rule,
+            services::backup::commands::backup_set_rule_enabled,
+            services::backup::commands::backup_export_rules,
+            services::backup::commands::backup_import_rules,
+            services::backup::commands::backup_reorder_rules,
+            services::backup::commands::backup_start,
+            services::backup::commands::backup_cancel,
+            services::backup::commands::backup_list_snapshots,
+            services::backup::commands::backup_verify_snapshot,
+            services::backup::commands::backup_delete_snapshot,
+            services::backup::commands::backup_open_snapshot_dir,
+            services::backup::commands::backup_plan_restore,
+            services::backup::commands::backup_execute_restore,
+            services::backup::commands::backup_get_settings,
+            services::backup::commands::backup_save_settings
         ])
         .setup(|app| {
             // 🔴 MU-1 曲库状态托管段已删除（2026-10-03 用户裁决「全删 Aegis 自造层」）：
@@ -299,6 +327,15 @@ pub fn run() {
             {
                 use services::overview::state::OverviewState;
                 app.manage(OverviewState::new());
+            }
+            // M-06 文件备份：状态托管（配置目录 + 运行期取消句柄）。
+            // 🔴 **必须 manage**：backup 的 12 个 command 全部带 `State<'_, BackupState>`，
+            //   未注册状态时 Tauri 在**运行时**返回 `state not managed` —— 同样不编译报错，
+            //   表现与「命令没注册」一样是「点了没反应」，但成因完全不同、排查方向也不同。
+            //   两条一起做，故在此处一并登记，避免下批再踩。
+            {
+                use services::backup::commands::BackupState;
+                app.manage(BackupState::default());
             }
             build_tray(app)?;
             Ok(())
