@@ -107,16 +107,19 @@ fn memory_card(inputs: &CardInputs<'_>, degrade: Option<&str>) -> StatCardDto {
     //   真机必然误报，界面长出「读数已过期」的橙色提示而数据其实正常
     //   （用户 2026-10-07 裁决：「不要显示，容易造成误解，几秒后就恢复」）。
     //   通道重试另有 `COOLDOWN` / 连败禁用两种状态表达，不需再叠时间维度。
-    let memory_degrade = inputs.sensors.map_or(degrade.map(str::to_owned), |sensors| {
-        if sensors.memory_availability.is_ok() {
-            // 读得到温度时不因可得性而降级（通道级原因仍照原样透出）。
-            return degrade.map(str::to_owned);
-        }
-        // 🔴 通道级原因优先：sidecar 都没起来时，传感器级状态没有意义。
-        Some(
-            degrade.map_or_else(|| sensors.memory_availability.reason().to_owned(), str::to_owned),
-        )
-    });
+    let memory_degrade = inputs
+        .sensors
+        .map_or(degrade.map(str::to_owned), |sensors| {
+            if sensors.memory_availability.is_ok() {
+                // 读得到温度时不因可得性而降级（通道级原因仍照原样透出）。
+                return degrade.map(str::to_owned);
+            }
+            // 🔴 通道级原因优先：sidecar 都没起来时，传感器级状态没有意义。
+            Some(degrade.map_or_else(
+                || sensors.memory_availability.reason().to_owned(),
+                str::to_owned,
+            ))
+        });
 
     let (big, source, bar) = pick_big_value(
         inputs.memory_usage_percent,

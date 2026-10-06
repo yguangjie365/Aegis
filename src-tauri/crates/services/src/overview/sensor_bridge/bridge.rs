@@ -166,9 +166,7 @@ impl SensorBridge {
             last_fault: None,
             ready_once: false,
             last_raw: None,
-            diagnostics: Arc::new(Mutex::new(VecDeque::with_capacity(
-                DIAGNOSTIC_CAPACITY,
-            ))),
+            diagnostics: Arc::new(Mutex::new(VecDeque::with_capacity(DIAGNOSTIC_CAPACITY))),
         }
     }
 

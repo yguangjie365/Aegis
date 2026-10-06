@@ -132,8 +132,7 @@ impl Sidecar {
                         // 🔴 读满了上限且**没有**读到换行 ⇒ 本行被截断。
                         //   判据是「`Take` 已耗尽」而非「缺换行」——最后一行
                         //   正常以 EOF 结束时同样没有换行，不能被误判成超限。
-                        let truncated = buf.len() as u64 >= MAX_LINE_BYTES
-                            && !buf.ends_with('\n');
+                        let truncated = buf.len() as u64 >= MAX_LINE_BYTES && !buf.ends_with('\n');
                         if truncated {
                             // 丢弃并通知上层：截断的 JSON 交给上层只会得到一个
                             // 指向**截断点**而非故障点的错误位置（与 2026-10-07
