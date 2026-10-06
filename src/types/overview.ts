@@ -93,7 +93,13 @@ export interface LiveSample {
   correlationId: string;
   header: HeaderInfo;
   cards: StatCard[];
-  monitor: MonitorStatus;
+  /**
+   * 🔴 2026-10-07 改为**可缺省**：冷启动快照预置时**不知道**通道状态
+   * （`Snapshot` 结构里没有该字段），此前靠编一个 `exeMissing` 顶替，
+   * 导致回源返回前显示假的「组件缺失」。缺省 = 未知，界面不声称任何状态。
+   * 后端 `overview_live_sample` 始终给足该字段，故只在预置窗口内缺省。
+   */
+  monitor?: MonitorStatus;
   /** R-13 重入闸门：本拍是否有采集在途 */
   inFlight: boolean;
   /** F-06 磁盘健康面板（慢变量，只在首次/全量采集时更新） */
@@ -200,7 +206,22 @@ export interface SoftwareList {
 /** F-11 逐条传感器原始读数（聚合快照折叠掉了，报告要全量表） */
 export interface SensorRow {
   hardware: string;
+  /**
+   * sidecar 原始硬件类型串（Cpu / SuperIO / Memory / Ssd / GpuNvidia…）。
+   *
+   * 🔴 2026-10-07 补：原先 DTO 里没有这一列，导致「聚合判据命中了哪些行」无法自查
+   *   —— 而后端 `matching.rs` 的全部族判定都建立在它上面。
+   */
+  hardwareType: string;
   name: string;
+  /**
+   * 🔴 本仓归一后的**稳定指标标识**（后端 `sensor_bridge/metrics.rs` 产出）。
+   *
+   * 与 `name` 并存的意义：上游（LHM）改命名时 `name` 变而 `metricId` 不变 ——
+   * 一眼就能区分「只是上游改了名」与「本仓判据失效了」。未识别条目归入 `misc.*`，
+   * 因此上游新增传感器也会在此显形，而不是被悄悄吞掉。
+   */
+  metricId: string;
   /** sidecar 原始类型串（Temperature / Load / Fan…）；译名归前端 i18n */
   sensorType: string;
   value: number;

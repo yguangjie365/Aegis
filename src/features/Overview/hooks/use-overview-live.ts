@@ -187,22 +187,26 @@ export function useSnapshotWarmup() {
           //   · header：空串→ 页面用 `joinHeader` 自动省略空项，不会显示成 " · " （F-12）；
           //     `uptimeSecs: null` 而非 `0` —— 0 会被 `formatUptime` 折成「不足 1 分钟」，
           //     凭空显示成「刚开机」，而真实开机时长可能数天（R-08；审查严重 3）。
-          //   · monitor：`exeMissing` + 有理由 → ChannelStatus 如实显示"通道未就绪"，
-          //     真实状态由紧随其后的 invalidate 回源立即覆盖（不在此伪造 ready）。
           //   · inFlight：false —— 🔴 不能填 true：若回源**失败**（真错误），
           //     按钮会因 `busy = isFetching || inFlight` 而永久禁用，用户只能重启程序。
           //     取false 让按钮在回源期间仍可点（重复点击由 TanStack 去重）。
+          //
+          // 🔴 2026-10-07 **修正**：原实现在此**凭空编造** `monitor.state = "exeMissing"`，
+          //   意图是「如实显示通道未就绪」，实际造成**假状态**：
+          //   · `Snapshot` 结构里**根本没有 `monitor` 字段**（只有 collected/written/
+          //     fingerprint/payload/cards），所以任何状态都是编的；
+          //   · `invalidateQueries` 是**异步**的，回源返回前有一整个窗口期显示
+          //     「传感器采集组件缺失 · 原因未上报」，而实测产物就在
+          //     `monitor/bin/Release/net48/` 且`candidate_paths` 能命中 —— 用户截图
+          //     正是抓到了这个窗口（真机实测：22 条候选路径第 18 条命中）。
+          //   · 更严重的是它把「**未知**」表达成了「**已知为缺失**」，方向相反。
+          // 现在改为**留空**：通道状态未知时界面不声称任何状态（页头 LIVE 点
+          //   只在`monitor.state !== "ready"` 时提示降级，`undefined` 不触发）；
+          //   真实状态由紧随其后的 invalidate 回源给出。
           const placeholder: LiveSample = {
             correlationId: "snapshot-warmup",
             header: { computerName: "", osName: "", uptimeSecs: null },
             cards: snapshot.cards,
-            monitor: {
-              state: "exeMissing",
-              reason: null,
-              sidecarPid: null,
-              driverInstalled: false,
-              driverVersion: null,
-            },
             inFlight: false,
             diskHealth: [],
           };

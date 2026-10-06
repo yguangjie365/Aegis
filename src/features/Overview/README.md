@@ -14,7 +14,7 @@
 | # | 分区 | 规格号 | 后端命令 | 前端 |
 |---|---|---|---|---|
 | ① | 实时概览四卡 | F-01 | `overview_live_sample` | `StatCard` × n（`auto-fit` 网格） |
-| ② | 传感器通道状态 | F-08 | 同上（`monitor` 段） | `ChannelStatus` |
+| ② | 传感器通道状态 | F-08 / **F-08b** | 同上（`monitor` 段） | 🔴 **收进页头 `LiveDot`**（点转警示色 + 可展开 ▸，默认收起）；原独立横幅组件 `ChannelStatus` **保留但已不挂载** |
 | ③ | **详细信息**（硬件详情，两列） | F-02 | `overview_static_info` | `KeyValueCard` × n（`DetailGrid`） |
 | ④ | **系统信息**（两列） | F-03 | 同上（按 `kind` 分流） | `KeyValueCard` × n |
 | ⑤ | 实时占用进程（CPU/内存双榜） | F-04 | `overview_top_processes` | `DualProcessTables` |

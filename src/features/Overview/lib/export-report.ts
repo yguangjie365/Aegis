@@ -167,13 +167,20 @@ export function buildReport(input: ReportInput, t: Translate): string {
   if (input.sensors.length > 0) {
     lines.push(`## ${t("report.section.sensors")}`, "");
     lines.push(
-      `| ${t("report.colHardware")} | ${t("report.colSensor")} | ${t("report.colType")} | ${t("report.colValue")} |`,
+      `| ${t("report.colHardware")} | ${t("report.colSensor")} | ${t("report.colType")} | ${t("report.colValue")} | ${t("report.colMetricId")} |`,
       TABLE_RULE,
     );
     for (const row of input.sensors) {
+      // 🔴 2026-10-07：末列输出**归一后的稳定指标标识**（`metricId`）。
+      //   这张表存在的意义是对账，而对账要能区分两种情况：
+      //   「上游改了传感器命名」（`name` 变、`metricId` 不变）与
+      //   「本仓判据失效」（`metricId` 落到 `misc.*` 或不再出现）。
+      //   只看 `name` 无法区分这两者 —— 那正是 2026-10-07 排查 85°C 偏差时
+      //   卡住的地方。
       lines.push(
         `| ${escapeCell(row.hardware)} | ${escapeCell(row.name)} | ` +
-          `${escapeCell(sensorTypeLabel(row.sensorType, t))} | ${escapeCell(formatSensorValue(row))} |`,
+          `${escapeCell(sensorTypeLabel(row.sensorType, t))} | ${escapeCell(formatSensorValue(row))} | ` +
+          `${escapeCell(row.metricId)} |`,
       );
     }
     lines.push("");

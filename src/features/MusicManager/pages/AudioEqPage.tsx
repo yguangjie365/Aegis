@@ -1226,28 +1226,23 @@ ${bandsStr}`;
               </HStack>
             </HStack>
 
-            {/* 警告提示 */}
-            {driverStatus?.needs_reboot && (
-              <HStack spacing={2} p={2} borderRadius="var(--aegis-radius-sm)" bg={warningBg}>
-                <AlertTriangle size={14} color="orange" />
-                <Text fontSize="xs" color={warningColor}>
-                  {t("audioEq.rebootHint")}
-                </Text>
-              </HStack>
-            )}
-            {!driverStatus?.installed && !driverStatus?.needs_reboot && (
-              <HStack spacing={2} p={2} borderRadius="var(--aegis-radius-sm)" bg={warningBg}>
-                <AlertTriangle size={14} color="orange" />
-                <Text fontSize="xs" color={warningColor}>
-                  {t("audioEq.installHint")}
-                </Text>
-              </HStack>
-            )}
-            {!driverStatus?.installed && (
+            {/* 驱动状态提示。
+                🔴 2026-10-07 用户裁决「提示不要直接铺在界面上以免影响布局」
+                （同概览页横幅）：原为**两条**带背景+内边距的 HStack（需重启 /
+                未安装），且「未安装」那条与紧随其后的纯文字 `installDriverFirst`
+                **信息重复**，而上方三枚 Badge（运行中/需重启/已安装/未安装）已把
+                同一状态表达了一遍—— 三处表达同一件事。
+                现改为**一条纯文字**（无背景、无内边距）承载「要用户做什么」，
+                状态本身交给 Badge；两个分支互斥，不再重复。 */}
+            {driverStatus?.needs_reboot ? (
+              <Text fontSize="xs" color="aegis.warning">
+                {t("audioEq.rebootHint")}
+              </Text>
+            ) : !driverStatus?.installed ? (
               <Text fontSize="xs" color="aegis.warning">
                 {t("audioEq.installDriverFirst")}
               </Text>
-            )}
+            ) : null}
           </VStack>
         </LiquidGlassCard>
 

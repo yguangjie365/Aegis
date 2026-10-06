@@ -4506,6 +4506,9 @@ export default function MusicPage() {
 
   // 汽水：进入汽水源后探测签名依赖（Node 包）并拉取「听歌模式」列表
   const qishuiDeps = useMusicStore((s) => s.qishuiDeps);
+  // 🔴 2026-10-07：汽水依赖缺失引导的**详细说明默认收起**（按钮与标题行常驻）。
+  //   该块原约 140px 高，常驻把下方「我的歌单」整体下移。理由见 JSX 处注释。
+  const [qishuiNoticeOpen, setQishuiNoticeOpen] = useState(false);
   // null = 尚未请求；数组 = 已请求（空数组说明接口失败或无模式，据此结束 loading 态）
   const [qishuiFeedModes, setQishuiFeedModes] = useState<QishuiFeedMode[] | null>(null);
   const loadQishuiFeedModes = useCallback(() => {
@@ -7048,7 +7051,13 @@ export default function MusicPage() {
                 {/* 登录后的歌单列表 */}
                 {loginInfo?.logged_in ? (
                   <>
-                    {/* 汽水签名依赖缺失引导：需下载 Node 包才能播「听歌模式」与 VIP 全曲 */}
+                    {/* 汽水签名依赖缺失引导：需下载 Node 包才能播「听歌模式」与 VIP 全曲。
+                      🔴 2026-10-07 用户裁决「提示不要直接铺在界面上以免影响布局」：
+                      原为约 140px 高的整块（含标题 + 3 行说明 + 按钮 + 进度），
+                      常驻把下方「我的歌单」标题与列表整体下移。
+                      现改为**说明段默认收起**：标题行 + 「下载 Node 包」按钮**常驻**
+                      （它是功能入口，折叠掉按钮用户就找不到），点▸ 展开详细说明。
+                      高度从约 140px 降到约 40px。 */}
                     {playbackSource === "qishui" && qishuiDeps.checked && !qishuiDeps.ready && (
                       <Box
                         mb={3}
@@ -7059,17 +7068,30 @@ export default function MusicPage() {
                         border="1px solid"
                         borderColor={qishuiNoticeBorder}
                       >
-                        <HStack spacing={2} mb={1}>
+                        <HStack spacing={2} mb={1} flexWrap="wrap">
                           <AlertCircle size={16} color={activeColor} />
                           <Text fontSize="sm" fontWeight="bold" color={textColor}>
                             当前无法播放
                           </Text>
+                          <Text
+                            as="button"
+                            type="button"
+                            onClick={() => setQishuiNoticeOpen((v) => !v)}
+                            aria-expanded={qishuiNoticeOpen}
+                            fontSize="xs"
+                            color={subTextColor}
+                            style={{ textDecoration: "underline", cursor: "pointer" }}
+                          >
+                            {qishuiNoticeOpen ? "收起说明" : "查看说明"}
+                          </Text>
                         </HStack>
-                        <Text fontSize="xs" color={subTextColor} mb={2}>
-                          需下载 Node 包（node.exe + bdms.node +
-                          metasecml.dll）后才能播放「听歌模式」推荐流与 VIP
-                          全曲；免费歌曲与歌单不受影响。
-                        </Text>
+                        {qishuiNoticeOpen && (
+                          <Text fontSize="xs" color={subTextColor} mb={2}>
+                            需下载 Node 包（node.exe + bdms.node +
+                            metasecml.dll）后才能播放「听歌模式」推荐流与 VIP
+                            全曲；免费歌曲与歌单不受影响。
+                          </Text>
+                        )}
                         {qishuiDeps.downloading ? (
                           <Progress
                             value={qishuiDeps.progress}

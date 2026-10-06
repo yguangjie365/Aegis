@@ -14,7 +14,9 @@ import { EllipsisVertical } from "lucide-react";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useRegisterBrand } from "@/shared";
 import { AppButton } from "@/ui/components/app-button";
-import { Panel, PanelNote } from "@/ui/components/panel";
+// 🔴 2026-10-07：记录损坏警告 Panel 删除后，`PanelNote` 在本页已无人使用，
+//   故从import 里一并移除（留着会同时触发 TS6133 与 ESLint no-unused-vars）。
+import { Panel } from "@/ui/components/panel";
 import { SectionTitle } from "@/ui/components/section-title";
 import { DataTable, Tbody, Td, Th, Thead, Tr } from "@/ui/components/panel";
 import { EmptyStateBlock, ErrorStateBlock, LoadingSkeleton } from "@/ui/components/state-block";
@@ -159,8 +161,14 @@ const Column = styled.div`
   /* 🔴 只有**栏里真的是那条规则列表（ul）**时才吃满剩余高度：这时列表才需要
      「撑满卡片 + 内部滚动」，底栏也才该贴在卡底。用 DOM 形状当判据而不是用
      isPending/isError/isSuccess 分支去摆高度 —— 状态怎么组合都不需要再改这里。
-     :has 与本项目已在用的 color-mix 同代（WebView2 / Chromium 105+）。 */
-  > section:has(> ul) {
+     :has 与本项目已在用的 color-mix 同代（WebView2 / Chromium 105+）。
+     🔴 data-grow（2026-10-07）：右栏的日志面板不是列表，但它是**唯一**该吃
+     剩余空间的分区（用户裁决「日志区下面的空间给日志区」）。上面那条 m3 通配
+     （flex: 0 1 auto）的特异性 (0,1,1) 高于日志组件自己写的 (0,1,0) ⇒ 组件内
+     声明被静默吃掉。与 data-fixed 同一套办法：**由布局属主显式放行**，
+     不在被放行方那边用更高特异性硬压。 */
+  > section:has(> ul),
+  > section[data-grow] {
     flex: 1 1 auto;
   }
 
@@ -384,9 +392,14 @@ const RuleFooterActions = styled.div`
  *   且空态/错误态时那 307px 里大半是空白 —— 高度由**偶然**决定，不由内容决定。
  *   改为**按内容高**（= 下面算出的固定预算），既不抢日志的空间、也不被日志抢；
  *   溢出全部由日志吸收（`log-panel.tsx` 的 Shell 同步改为可收缩项）。
+ *
+ * 🔴 **2026-10-07 用户复核：预算里不该有状态条**。裁决原文是「标题行 + 7 条内容行」，
+ *   而 2026-10-06 落地时把状态条（37px）也算进了预算 ⇒ 面板比口径多一行。
+ *   状态条整块已删（四个结局各自的归宿见组件区 2026-10-07 那条注释），预算回到 429。
+ *   ⚠️ 本注释内不得出现反引号（会提前终止 template literal 报 TS1005）。
  */
 const SnapshotArea = styled.div`
-  /* ── 六个分量全部由**被测量对象的 CSS 声明**推得，不是量 rect 得来的
+  /* ── 五个分量全部由**被测量对象的 CSS 声明**推得，不是量 rect 得来的
      （rect 在本机 150% 缩放下有 1/3px 抖动：如表头实测 34.33 而非 35、标题 29.67 而非 30，
      故下面每个分量都取"声明值之和"，再拿实测校验 —— 2026-10-07 就是靠这一步发现 row 预算写小了）。
      chrome  34 = Panel 上下 padding 16+16 + 上下边框 1+1
@@ -399,14 +412,15 @@ const SnapshotArea = styled.div`
                   行盒要再吃下约 4px 下伸空间（实测 25，非 21）。
                   本值曾写 38（按纯文字行推），真数据实测行高 41.7 才暴露——
                   预算写小 ⇒ 「七行」实际只装得下约 6.3 行，表格比设计更早开始滚动。
-     strip   37 = StatusStrip min-height 20 + margin-top 8 + padding-top 8 + 边框 1
+                  （末行按 Tbody 规则无边框，42 于是留了 1px 余量 —— 宁多不少，
+                   写小会立刻长出滚动条。）
+     合计 34+30+36+35+7×42 = **429**。
      ⚠️ 本注释内不得出现反引号（会提前终止 template literal 报 TS1005）。 */
   --snap-chrome-h: 34px;
   --snap-title-h: 30px;
   --snap-toolbar-h: 36px;
   --snap-head-h: 35px;
   --snap-row-h: 42px;
-  --snap-strip-h: 37px;
   /* 一屏要装下的数据行数 —— 改这一个数就能改口径（用户裁决当前为 7）。 */
   --snap-rows: 7;
 
@@ -425,13 +439,17 @@ const SnapshotArea = styled.div`
 
   > * {
     /* 不再 grow：面板高 = 上面的预算，而不是「剩余空间」。
-       四种状态（数据 / 空 / 加载 / 失败）**同一高度**（用户 2026-10-06 裁决），
-       故高度钉在面板上而不是钉在表格里 —— 空态时那块区域也不会塌陷。 */
+       固定高覆盖**两种**状态（用户 2026-10-06 裁决「同一高度」）：
+       ① 有内容行 —— 表格本来的样子；② 取数中 —— 「还不知道有几行」不等于「没有行」，
+       塌下去会在每次切规则时弹一下（主工作面抖动）。
+       高度钉在面板上而不是钉在表格里，故骨架屏期间轮廓也完整。
+       🔴 「已确认没有内容行」（空 / 失败 / 未选）另走下面的 data-empty：
+       预算说的是「7 条内容行的工作区」，那三种状态压根没有内容行可言。 */
     flex: 0 1 auto;
     min-height: 0;
     height: calc(
       var(--snap-chrome-h) + var(--snap-title-h) + var(--snap-toolbar-h) + var(--snap-head-h) +
-        var(--snap-strip-h) + var(--snap-rows) * var(--snap-row-h)
+        var(--snap-rows) * var(--snap-row-h)
     );
     /* 🔴 极端矮窗口（最小 1240×640 时内容区实测约 504px）下的兜底：
        预算高于可用高度时由**面板自己**收缩并内部滚动，
@@ -440,31 +458,15 @@ const SnapshotArea = styled.div`
     overflow-y: auto;
   }
 
-  /* 🔴 m7（2026-10-07 用户批准）：**无数据时不占满 7 行预算**。
-     当 selected 为 null 或 snapshots.data.length === 0 时，
-     快照区只留 chrome + title + toolbar + head = 135px，不再撑到 438px。
-     这样左栏失败态下的空白就只剩"卡片外页面空白"（读作余量），
-     而不是"卡片中部一大块空洞"（读作断裂）。
-     ️ 本注释内不得出现反引号（会提前终止 template literal 报 TS1005）。 */
+  /* 🔴 m7 修正（2026-10-07 实测）：**无数据时按内容高，而不是按一条算错的固定预算**。
+     原写法把「空态高」写成 chrome+title+toolbar+head = 135，但空态里根本**没有**
+     toolbar 与表头 —— 那里渲染的是 EmptyStateBlock（图标 + 一句 + CTA，实测内容 226）。
+     135 于是把 CTA 裁掉、并长出滚动条（真机 04:31 删除全部规则后当场复现）。
+     改为 auto：m7 的本意（不预留 7 行的空洞）仍然成立，且不需要猜空态有多高。
+     ⚠️ 本注释内不得出现反引号（会提前终止 template literal 报 TS1005）。 */
   &[data-empty="true"] > * {
-    height: calc(
-      var(--snap-chrome-h) + var(--snap-title-h) + var(--snap-toolbar-h) + var(--snap-head-h)
-    );
+    height: auto;
   }
-`;
-
-/** 备份结果状态条（替代被删掉的横幅，只占一行）。 */
-const StatusStrip = styled.div`
-  display: flex;
-  align-items: baseline;
-  gap: var(--aegis-space-md);
-  flex-wrap: wrap;
-  margin-top: var(--aegis-space-sm);
-  padding-top: var(--aegis-space-sm);
-  border-top: 1px solid var(--aegis-hairline);
-  font-size: var(--aegis-type-caption-size);
-  color: var(--aegis-mute);
-  min-height: 20px;
 `;
 
 /* ══ 组件 ══════════════════════════════════════════════════════════════ */
@@ -591,17 +593,44 @@ export function FileBackupPage() {
           failureCount: outcome.failureCount,
         }),
       );
-      return;
+    } else {
+      logPush(
+        "success",
+        t("log.backupDone", {
+          name: lastBackupLabel,
+          fileCount: formatCount(outcome.fileCount),
+          size: formatBytes(outcome.totalBytes),
+        }),
+      );
     }
-    logPush(
-      "success",
-      t("log.backupDone", {
-        name: lastBackupLabel,
-        fileCount: formatCount(outcome.fileCount),
-        size: formatBytes(outcome.totalBytes),
-      }),
-    );
+    /* 🔴 保留策略裁掉的旧快照（2026-10-07 随状态条一并迁入日志）：这条信息原本**只**
+       长在状态条上，删状态条时若不搬走，「备份顺手删了 N 份旧快照」就变成静默副作用 ——
+       而 F-FB-31 的口径恰恰是「逐条留痕」。快照被裁后表格会少一行，日志要说清为什么。 */
+    if (outcome.pruned.length > 0) {
+      logPush("info", t("snapshot.pruned", { count: outcome.pruned.length }));
+    }
   }, [start.isError, start.error, start.isSuccess, start.data, lastBackupLabel, logPush, t]);
+
+  // 🔴 2026-10-07 用户裁决「记录损坏提示不要直接铺在界面上」：页面顶部的
+  //   损坏警告 Panel（每条各占一整行）**移除**，改由操作日志（F-FB-48）承载。
+  //
+  // 🔴 **移除前必须先补上这条留痕**，否则「损坏」信息会彻底消失：
+  //   先前 `rules.data.warnings` 只在 JSX 里渲染，从未写入日志。
+  //   用 `useRef` 记已记过的条目，避免每次回源重复刷屏。
+  const loggedWarningsRef = useRef<string[]>([]);
+  useEffect(() => {
+    const warnings = rules.data?.warnings ?? [];
+    const seen = loggedWarningsRef.current;
+    const fresh = warnings.filter((w) => !seen.includes(w));
+    if (fresh.length === 0) return;
+    loggedWarningsRef.current = [...seen, ...fresh];
+    for (const warning of fresh) {
+      logPush("error", `${t("warnings.title")}：${warning}`);
+    }
+  }, [rules.data?.warnings, logPush, t]);
+  // ⚠️ 记录损坏按用户裁决**只进日志**（页面上不留痕）—— 这是对 R-18
+  //   「记录损坏必须可见」的**显式豁免**。查阅路径：右栏「操作日志」面板
+  //   （F-FB-48，永久留痕、可回看）。
 
   const handleVerify = (snapshot: SnapshotView): void => {
     verify.mutate(
@@ -880,38 +909,13 @@ export function FileBackupPage() {
   const enabledRules = (rules.data?.rules ?? []).filter((r) => r.enabled && !r.isDraft);
   const canBackupAll = enabledRules.length > 1 && !running;
 
-  /**
-   * 备份结果 → 状态条文案（母本表格下方那条「就绪」）。
-   *
-   * 🔴 用函数 + 早返回而不是嵌套三元：`no-nested-ternary` 是本仓启用的规则，
-   *   且四个结局各带不同色调，堆成一行三元会读不动。
-   */
-  const statusStripText = (): { text: string; tone: string } => {
-    if (running) return { text: t("statusStrip.running"), tone: "var(--aegis-accent)" };
-    if (start.isError) {
-      return { text: asBackupError(start.error).message, tone: "var(--aegis-error)" };
-    }
-    if (start.isSuccess && start.data) {
-      if (start.data.cancelled) {
-        return { text: t("statusStrip.cancelled"), tone: "var(--aegis-mute)" };
-      }
-      if (start.data.failureCount > 0) {
-        return {
-          text: t("progress.doneWithFailures", { count: start.data.failureCount }),
-          tone: "var(--aegis-error)",
-        };
-      }
-      return {
-        text: t("statusStrip.lastResult", {
-          files: formatCount(start.data.fileCount),
-          size: formatBytes(start.data.totalBytes),
-        }),
-        tone: "var(--aegis-mute)",
-      };
-    }
-    return { text: t("statusStrip.ready"), tone: "var(--aegis-mute)" };
-  };
-  const strip = statusStripText();
+  /* 🔴 2026-10-07 用户裁决：删掉快照表下方那条状态条（常驻一行「就绪」）。
+     它承载的四个结局**每一处都另有归宿**，删掉不丢信息：
+     · 进行中 → BackupProgress（运行期实时块，本就在快照区上方）
+     · 成功 / 部分失败 / 取消 → 运行日志（F-FB-48 永久留痕，见上面的 useEffect）
+     · 「就绪」本身零信息量 —— 它只是「什么都没有」的一种说法，却常年占一行高度，
+       并被算进了快照区的固定预算，使面板比「标题行 + 7 条内容行」的口径多一行。
+     唯一原本**只**活在状态条里的是「按保留策略清理了 N 份」，已折进日志（见 useEffect）。 */
 
   /* ── 品牌区动作槽（2026-10-06 用户裁决：操作按钮移到品牌区）────────────────
      原页头工具栏整组上移：「刷新 / 备份选中 / 恢复选中 / 备份全部 ‖ 新建 / 导入 / 导出」。
@@ -1022,14 +1026,10 @@ export function FileBackupPage() {
       {/* 页头不再有工具栏：操作组已上移到品牌区（见上方 brandActions）。
           原先那行「规则 N 条 · 快照 N 份」汇总于 2026-10-06 按用户裁决删除 ——
           规则条数 = 左栏卡片数、每条规则的快照数写在卡片上，不必再汇总一遍。 */}
-      {/* 🔴 R-18：记录损坏必须可见（页面不空白，但要有警告条） */}
-      {(rules.data?.warnings ?? []).map((warning) => (
-        <Panel key={warning}>
-          <PanelNote style={{ color: "var(--aegis-warning)" }}>
-            {t("warnings.title")}：{warning}
-          </PanelNote>
-        </Panel>
-      ))}
+      {/* 🔴 2026-10-07 用户裁决**删除**此处「记录损坏」警告 Panel（原逐条各占一整行）。
+          原因同概览页横幅：常驻铺在内容上方会把下方两栏整体下移。
+          改由右栏「操作日志」承载 —— 见上方 effect：warnings 先写进日志再删掉这条渲染。
+          ⚠️ 这是对 R-18「记录损坏必须可见」的**显式豁免**（用户拍板「只进日志，页面不留痕」）。*/}
 
       {/* ── 备份运行期进度区 ── */}
       {/* 🔴 用户 2026-10-06 裁决：备份完成的横幅**删除** —— 它横贯页头下方、
@@ -1232,7 +1232,16 @@ export function FileBackupPage() {
 
         {/* 右栏：所选规则的快照表格 + 操作日志（两段） */}
         <Column>
-          <SnapshotArea data-empty={!selected || snapshots.data?.length === 0}>
+          {/* 🔴 data-empty 的判据（2026-10-07 重算，三条缺一不可）：
+              ① `!isFetching`：**取数中不是「没有内容行」，是「还不知道有几行」**。
+                 少了这条，切规则时面板会先塌到骨架高再弹回 429 —— 主工作面每次点击都跳一次。
+              ② `snapshots.data?.length ?? 0`：原写法 `=== 0` 在首帧 `data === undefined` 时为
+                 false ⇒ 真·无数据被算成「有数据」，照样预留 7 行空洞（m7 想治的就是这个）。
+              ③ `!selected`：没选规则时右栏本来就没有表格可言。
+              三条合起来 = 「**已经知道这一栏没有内容行**」，与下面 data-empty 分支的 height auto 配对。 */}
+          <SnapshotArea
+            data-empty={!snapshots.isFetching && (!selected || (snapshots.data?.length ?? 0) === 0)}
+          >
             <Panel as="section">
               {selected ? (
                 <>
@@ -1435,14 +1444,6 @@ export function FileBackupPage() {
                       </DataTable>
                     </>
                   )}
-                  {/* 🔴 备份结果状态条 —— 替代被删掉的那条横幅（用户 2026-10-06 裁决：
-                    横幅横贯页头下方、白占一整行高度；这里只占一行，且与快照表同栏。 */}
-                  <StatusStrip>
-                    <span style={{ color: strip.tone }}>{strip.text}</span>
-                    {start.isSuccess && start.data && start.data.pruned.length > 0 && (
-                      <span>{t("progress.pruned", { count: start.data.pruned.length })}</span>
-                    )}
-                  </StatusStrip>
                 </>
               ) : (
                 /* 🔴 右栏在「规则加载失败」时**不重复报空态**：

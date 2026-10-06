@@ -22,6 +22,7 @@ fn snapshot(gpus: Vec<GpuSensor>) -> SensorSnapshot {
         gpus,
         has_storage_sensor: false,
         has_memory_temperature: false,
+        memory_availability: crate::overview::sensor_bridge::MetricAvailability::Unsupported,
         taken_at: Instant::now(),
     }
 }

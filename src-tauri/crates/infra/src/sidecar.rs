@@ -20,6 +20,24 @@ use std::time::{Duration, Instant};
 /// 不构成忙等（每次都在内核对象上阻塞）。
 const POLL_SLICE: Duration = Duration::from_millis(200);
 
+/// 🔴 单行回包字节上限（2026-10-07）。
+///
+/// **为什么需要**：`read_until` 会把一整行**无界**读进内存。若子进程因故输出一行
+/// 异常巨大的内容（未截断的传感器转储、错误时把整个文件内容吐出来、编码错乱导致
+/// 换行失效），这里会先把它完整读进来，**然后**才交给上层判协议故障 —— 内存峰值
+/// 已经发生了，「解析失败不致崩溃」也就无从保证。
+///
+/// 取 4 MiB：实测真实回包约 1.6 万字符（`serde` 报错的 column 16210 印证），
+/// 即正常形态只用掉千分之四，余量足够宽松；而 4 MiB 远小于任何进程可接受的
+/// 单次分配上限，超限即立刻停止累积。
+const MAX_LINE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// 读线程 → `request` 的超限哨兵行前缀。
+///
+/// 🔴 用 `\0` 开头（JSON 文本以 `{` 起，故不可能撞上真实回包），
+///   后接字节上限数值，便于上层把具体上限写进故障原因。
+const LINE_TOO_LARGE_PREFIX: &str = "\u{0}AEGIS_LINE_TOO_LARGE:";
+
 #[derive(Debug)]
 pub enum SidecarError {
     /// 子进程起不来（路径不存在、无执行权限等）
@@ -30,6 +48,10 @@ pub enum SidecarError {
     Timeout,
     /// 读端已断开（子进程退出或 stdout 关闭）
     Closed,
+    /// 🔴 2026-10-07：单行回包超过 `MAX_LINE_BYTES`，已被读线程丢弃。
+    ///   单独成错误类型而非让上层看到截断的 JSON —— 后者会给出
+    ///   一个指向**截断点**而非故障点的解析错误位置（同「片段取错位置」类错误）。
+    LineTooLarge { limit: u64 },
 }
 
 impl std::fmt::Display for SidecarError {
@@ -39,6 +61,9 @@ impl std::fmt::Display for SidecarError {
             Self::Write(reason) => write!(f, "写入命令管道失败: {reason}"),
             Self::Timeout => write!(f, "读取子进程响应超时"),
             Self::Closed => write!(f, "子进程输出管道已关闭"),
+            Self::LineTooLarge { limit } => {
+                write!(f, "子进程单行输出超过 {limit} 字节，已丢弃")
+            }
         }
     }
 }
@@ -95,10 +120,27 @@ impl Sidecar {
             let mut buf = String::new();
             loop {
                 buf.clear();
-                match reader.read_line(&mut buf) {
+                // 🔴 `.take(MAX_LINE_BYTES)`：单行**最多**读这么多字节就停，不再无界累积
+                //   （见 `MAX_LINE_BYTES` 的理由）。`Take` 按值持有被借的
+                //   `reader`，故每次迭代重建 —— 它只在本次 `read_line` 内有效。
+                //   超限行会因缺尾随换行而让下一次读取接着读，那种行本身就是
+                //   协议异常，故按「丢弃超限行 + 通知上层」处理，不做猜测式重对齐。
+                match std::io::Read::take(&mut reader, MAX_LINE_BYTES).read_line(&mut buf) {
                     // EOF（子进程退出）或读错：统一结束读线程
                     Ok(0) | Err(_) => break,
                     Ok(_) => {
+                        // 🔴 读满了上限且**没有**读到换行 ⇒ 本行被截断。
+                        //   判据是「`Take` 已耗尽」而非「缺换行」——最后一行
+                        //   正常以 EOF 结束时同样没有换行，不能被误判成超限。
+                        let truncated = buf.len() as u64 >= MAX_LINE_BYTES
+                            && !buf.ends_with('\n');
+                        if truncated {
+                            // 丢弃并通知上层：截断的 JSON 交给上层只会得到一个
+                            // 指向**截断点**而非故障点的错误位置（与 2026-10-07
+                            // 修的「诊断片段取开头」是同一类错误）。
+                            let _ = tx.send(format!("{LINE_TOO_LARGE_PREFIX}{MAX_LINE_BYTES}"));
+                            break;
+                        }
                         let line = buf.trim_end_matches(['\r', '\n']);
                         if line.is_empty() {
                             continue;
@@ -166,7 +208,17 @@ impl Sidecar {
                 return Err(SidecarError::Timeout);
             }
             match self.lines.recv_timeout(remaining.min(POLL_SLICE)) {
-                Ok(line) => return Ok(line),
+                Ok(line) => {
+                    // 🔴 读线程只在一种情况主动发哨兵行：单行超上限。
+                    //   真实回包以 `{` 开头，故该前缀不会与正常回包混淆；
+                    //   单独识别为错误，避免把它当 JSON 解析出一个假的位置。
+                    if let Some(limit) = line.strip_prefix(LINE_TOO_LARGE_PREFIX) {
+                        return Err(SidecarError::LineTooLarge {
+                            limit: limit.parse().unwrap_or(MAX_LINE_BYTES),
+                        });
+                    }
+                    return Ok(line);
+                }
                 Err(RecvTimeoutError::Disconnected) => return Err(SidecarError::Closed),
                 // 切片到期：回到循环顶部重算 remaining
                 Err(RecvTimeoutError::Timeout) => {}
@@ -248,11 +300,40 @@ mod tests {
             SidecarError::Write("y".into()).to_string(),
             SidecarError::Timeout.to_string(),
             SidecarError::Closed.to_string(),
+            SidecarError::LineTooLarge { limit: 10 }.to_string(),
         ]
         .to_vec();
         texts.sort();
         let dedup_len = texts.len();
         texts.dedup();
         assert_eq!(dedup_len, texts.len(), "错误文案须可区分：{texts:?}");
+    }
+
+    #[test]
+    fn line_too_large_sentinel_is_never_confused_with_a_real_reply() {
+        // 🔴 核心不变量：哨兵行绝不能被当成正常回包流给上层。
+        //   真实回包以 `{` 开头，而哨兵以 `\0` 起 ——两者不可能混淆。
+        //   若这条失守，超长回包会被当 JSON 解析，得出一个指向
+        //   **截断点**而非故障点的错误位置（同「片段取错位置」类错误）。
+        assert!(
+            !r#"{"sensors":[]}"#.starts_with(LINE_TOO_LARGE_PREFIX),
+            "真实回包不该以哨兵前缀开头（否则两者会混淆）"
+        );
+        let sentinel = format!("{LINE_TOO_LARGE_PREFIX}{MAX_LINE_BYTES}");
+        let parsed = sentinel
+            .strip_prefix(LINE_TOO_LARGE_PREFIX)
+            .and_then(|n| n.parse::<u64>().ok());
+        assert_eq!(parsed, Some(MAX_LINE_BYTES), "哨兵应能还原出上限值");
+    }
+
+    #[test]
+    fn line_limit_is_far_above_the_real_reply_size() {
+        // 🔴 上限取值须留足余量：实测真实回包约 1.6 万字符
+        //   （serde 报错 column 16210 印证），4 MiB 是它的两千余倍。
+        //   若这条失守，说明上限被调得过紧，会把正常回包当异常丢弃。
+        assert!(
+            MAX_LINE_BYTES > 1_000_000,
+            "上限须显著高于实测回包尺寸，当前 {MAX_LINE_BYTES}"
+        );
     }
 }

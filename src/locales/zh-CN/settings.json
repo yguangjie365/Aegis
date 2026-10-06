@@ -6,6 +6,7 @@
     "title": "Steam 在线库存",
     "intro": "填写 Steam Web API Key 后，游戏管理页可显示「账号拥有的全部游戏」（含从未在本机安装的）。未配置时该区显示本机缓存数据，功能其余部分不受影响。",
     "loading": "正在读取配置状态…",
+    "errorBadge": "未就绪",
     "configured": "已配置",
     "notConfigured": "未配置",
     "currentAccount": "当前账号：{{name}}",

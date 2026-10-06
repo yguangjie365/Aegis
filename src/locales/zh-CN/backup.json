@@ -13,12 +13,6 @@
     "backupAll": "备份全部启用规则",
     "more": "更多规则操作"
   },
-  "statusStrip": {
-    "ready": "就绪",
-    "running": "备份进行中…",
-    "cancelled": "上次备份已取消",
-    "lastResult": "最近一次备份：{{files}} 个文件 · {{size}}"
-  },
   "rule": {
     "empty": {
       "title": "还没有备份规则",
@@ -96,11 +90,7 @@
     "title": "备份进行中",
     "stageUnknown": "阶段未知（本批未接进度事件）",
     "cancel": "取消",
-    "cancelHint": "取消会在当前文件处理完后停止，已复制的内容保留",
-    "cancelNotRunning": "当前没有运行中的备份（可能刚刚已经结束）",
-    "done": "备份完成：{{files}} 个文件 / {{size}}",
-    "doneWithFailures": "备份完成，但有 {{count}} 项失败",
-    "pruned": "并按保留策略清理了 {{count}} 份旧快照"
+    "cancelHint": "取消会在当前文件处理完后停止，已复制的内容保留"
   },
   "editor": {
     "titleNew": "新建备份规则",

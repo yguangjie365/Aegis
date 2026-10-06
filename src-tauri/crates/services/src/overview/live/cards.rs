@@ -85,6 +85,10 @@ pub fn build_cards(inputs: &CardInputs<'_>) -> Vec<StatCardDto> {
 /// 内存卡（副标题 = 总容量；温度无来源时按 R-09 隐藏徽章）。
 ///
 /// 与处理器卡同构，拆出来只为让 `build_cards` 一屏读完四张卡的装配顺序。
+///
+/// 🔴 2026-10-07：DIMM 读数不可得时给出**具体**降级原因（L-08），而非让用户
+///   只看到一个笼统的「未检测」。判据见 `sensor_bridge/availability.rs`：
+///   `PermissionDenied` 仅在 sidecar 诊断有明确权限字样时才成立。
 #[must_use]
 fn memory_card(inputs: &CardInputs<'_>, degrade: Option<&str>) -> StatCardDto {
     let memory_temperature = inputs
@@ -96,6 +100,24 @@ fn memory_card(inputs: &CardInputs<'_>, degrade: Option<&str>) -> StatCardDto {
     let memory_load = inputs
         .sensors
         .and_then(|sensors| sensors.memory_load_percent);
+
+    // 🔴 2026-10-07：此处曾叠加一层「读数超龄 → Stale」的判定（阈值 6 秒），
+    //   已**整体删除** —— 该阈值按「3 倍 2 秒节拍」拍出，但传感器实际更新周期由
+    //   **sidecar 读耗时**支配（`FIRST_READ_BUDGET = 15s + 8s = 23s`），
+    //   真机必然误报，界面长出「读数已过期」的橙色提示而数据其实正常
+    //   （用户 2026-10-07 裁决：「不要显示，容易造成误解，几秒后就恢复」）。
+    //   通道重试另有 `COOLDOWN` / 连败禁用两种状态表达，不需再叠时间维度。
+    let memory_degrade = inputs.sensors.map_or(degrade.map(str::to_owned), |sensors| {
+        if sensors.memory_availability.is_ok() {
+            // 读得到温度时不因可得性而降级（通道级原因仍照原样透出）。
+            return degrade.map(str::to_owned);
+        }
+        // 🔴 通道级原因优先：sidecar 都没起来时，传感器级状态没有意义。
+        Some(
+            degrade.map_or_else(|| sensors.memory_availability.reason().to_owned(), str::to_owned),
+        )
+    });
+
     let (big, source, bar) = pick_big_value(
         inputs.memory_usage_percent,
         memory_load,
@@ -112,7 +134,7 @@ fn memory_card(inputs: &CardInputs<'_>, degrade: Option<&str>) -> StatCardDto {
         bar_percent: bar,
         seg_level: SegLevel::from_percent(bar),
         badge: build_badge(CardKind::Memory, memory_temperature, has_memory_temperature),
-        degrade_reason: degrade.map(str::to_owned),
+        degrade_reason: memory_degrade,
     }
 }
 

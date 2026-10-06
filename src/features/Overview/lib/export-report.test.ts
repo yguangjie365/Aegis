@@ -21,6 +21,7 @@ const DICT: Record<string, string> = {
   "report.colHardware": "硬件",
   "report.colSensor": "传感器",
   "report.colType": "类型",
+  "report.colMetricId": "指标标识",
   "report.fileName": "概览报告",
   "card.title.cpu": "处理器",
   "card.title.gpu": "显卡",
@@ -78,7 +79,9 @@ function detailCard(patch: Partial<DetailCardDto> = {}): DetailCardDto {
 function sensorRow(patch: Partial<SensorRow> = {}): SensorRow {
   return {
     hardware: "CPU",
+    hardwareType: "Cpu",
     name: "Core (Tctl/Tdie)",
+    metricId: "cpu.tctl.temperature",
     sensorType: "Temperature",
     value: 45.678,
     unit: "℃",
@@ -236,6 +239,39 @@ describe("buildReport", () => {
     const md = buildReport({ ...baseInput(), sensors: rows }, t);
     expect(md).toContain("| CPU | Core (Tctl/Tdie) | 温度 | 45.68 ℃ |");
     expect(md).toContain("| NVGPU_1 | Fan #1 | FanRpm | 1200 RPM |");
+  });
+
+  it("传感器表带出稳定指标标识（区分「上游改名」与「本仓判据失效」）", () => {
+    // 🔴 2026-10-07：这张表是对账面。只看 `name` 无法区分两种情况 ——
+    //   上游把 `DIMM1` 改名成 `DIMM1 TSOD`（`metricId` 不变，判据仍有效）
+    //   与本仓归一表漏了该语义（`metricId` 落到 misc / 消失，判据已失效）。
+    //   报告里必须能看到 `metricId`，否则排查 85°C 偏差时又只能靠猜。
+    const md = buildReport(
+      {
+        ...baseInput(),
+        sensors: [
+          sensorRow({ name: "DIMM1", metricId: "memory.dimm.temperature", value: 53 }),
+          sensorRow({
+            name: "Critical Comp. Temperature",
+            metricId: "storage.critical.critical_temperature",
+            value: 85,
+          }),
+          sensorRow({
+            hardware: "Acme",
+            name: "Widget Core",
+            metricId: "misc.temperature.widget_core",
+            value: 1,
+          }),
+        ],
+      },
+      t,
+    );
+    expect(md).toContain("memory.dimm.temperature");
+    // 阈值条目带独立 id —— 它不被丢弃，而是可与读数区分
+    expect(md).toContain("storage.critical.critical_temperature");
+    // 未识别归misc 且保留原名片段，便于发现上游新增传感器
+    expect(md).toContain("misc.temperature.widget_core");
+    expect(md).toContain("指标标识");
   });
 
   it("值里的竖线被转义，不破坏表格结构", () => {

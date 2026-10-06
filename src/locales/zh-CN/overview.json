@@ -11,7 +11,8 @@
   },
   "live": {
     "on": "LIVE · 每 2 秒",
-    "paused": "已暂停"
+    "paused": "已暂停",
+    "degraded": "降级"
   },
   "refresh": {
     "label": "立即刷新",
@@ -231,7 +232,8 @@
     "colValue": "值",
     "colHardware": "硬件",
     "colSensor": "传感器",
-    "colType": "类型"
+    "colType": "类型",
+    "colMetricId": "指标标识"
   },
   "sensor": {
     "type": {

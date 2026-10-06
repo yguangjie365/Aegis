@@ -14,11 +14,16 @@
 //! 其中"5s 快败"在本实现里不是定时器而是**结构性上界**：exe 缺失或子进程秒退时，
 //! `Sidecar::spawn` 立即返回 `Spawn`、管道关闭立即返回 `Closed`，都等不到读超时。
 
+mod availability;
 mod bridge;
 mod exe;
 mod matching;
+mod metrics;
 mod types;
 
+pub use self::availability::{
+    classify_dimm, mentions_access_denied, DimmEvidence, MetricAvailability,
+};
 pub use self::bridge::{
     BridgeFault, SensorBridge, COOLDOWN, FIRST_READ_BUDGET, MAX_CONSECUTIVE_FAILURES, OPEN_BUDGET,
     READ_TIMEOUT, SHUTDOWN_GRACE,
@@ -28,6 +33,7 @@ pub use self::matching::{
     aggregate, cpu_load_of, cpu_temperature_of, gpu_sensors_of, max_temperature_in_family,
     memory_load_of,
 };
+pub use self::metrics::{metric_id_of, temp_slot, MetricId};
 pub use self::types::{GpuSensor, SensorReading, SensorSnapshot, SensorsResponse};
 
 #[cfg(test)]

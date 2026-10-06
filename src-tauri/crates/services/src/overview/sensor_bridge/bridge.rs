@@ -1,10 +1,13 @@
 //! sidecar 桥状态机（起停/超时/连败停用）：`sensor_bridge` 的子模块。
 
+use super::availability::mentions_access_denied;
 use super::exe::{find_monitor_exe, FaultKind};
 use super::matching::aggregate;
 use super::types::{SensorReading, SensorSnapshot, SensorsResponse};
 use infra::sidecar::{Sidecar, SidecarError};
+use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// sidecar 内部 `Computer.Open()` 的上限（`monitor/Program.cs` 同值，改动须两侧同步）。
@@ -23,6 +26,32 @@ pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 const READ_COMMAND: &str = r#"{"cmd":"read"}"#;
 pub(super) const EXE_NAME: &str = "AegisMonitor.exe";
+
+/// 🔴 sidecar 诊断行的留存上限（2026-10-07）。
+///
+/// 这些行的用途从「只打日志」升级为**权限判定的证据源**
+/// （`availability::mentions_access_denied`），但**不是**全量日志存档：
+/// sidecar 每次读数都可能打若干行，若无界留存则运行数小时后内存持续增长。
+/// 只保留最近这些行足够覆盖「一次读数周期内」的权限失败字样 —— 权限不足是
+/// 稳定状态而非瞬时事件，近几行足以判定；命中后会被清空（见 `take_diagnostics`）。
+const DIAGNOSTIC_CAPACITY: usize = 32;
+
+/// sidecar 诊断行的共享环形缓冲。
+///
+/// 🔴 为什么必须共享：stderr 在 `infra::sidecar` 的**专用线程**上回调
+///   （sidecar.rs:115），而 `read_once` 跑在调用线程 ⇒ 无法就地借用 `&mut self`，
+///   只能用 `Arc<Mutex<_>>` 跨线程交接。
+type Diagnostics = Arc<Mutex<VecDeque<String>>>;
+
+/// 取锁：中毒时取回内值。
+///
+/// 与 `media_keys.rs` 同一处置（2026-10-07）：锁保护的是诊断文本，取回内值
+/// 即可继续用；让这里 panic 只为了一段日志文本，会把一次可恢复的采集失败
+/// 变成整个传感器通道崩溃。
+fn lock_ok<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BridgeFault {
     pub kind: FaultKind,
@@ -54,10 +83,52 @@ pub(super) fn classify_sidecar_error(error: &SidecarError, budget: Duration) -> 
         SidecarError::Closed => {
             BridgeFault::new(FaultKind::Died, "子进程输出管道已关闭（进程已退出）")
         }
+        // 🔴 2026-10-07：超长回包归`Protocol` 而非 `Died` —— 子进程还活着，
+        //   是**回包形态**不合法（读到上限即止，未做无界累积）。
+        SidecarError::LineTooLarge { limit } => BridgeFault::new(
+            FaultKind::Protocol,
+            format!("传感器回包单行超过 {limit} 字节，已丢弃（疑似子进程输出了异常内容）"),
+        ),
     }
 }
 
 /// sidecar 生命周期状态机（由 `OverviewState` 独占；节拍只读缓存，不驱动它）。
+/// 从 serde 错误串里取列号，并截取**该列附近**的原文窗口。
+///
+/// 返回 `(列号字符串, 片段)`；解析不出列号时列号为 `"?"`。
+///
+/// 🔴 为什么不能用「取开头」（2026-10-07 修的真实缺陷）：serde 报的出错位置在
+///   `column 16210`，而开头窗口里 `hardware` 是正常字符串 —— 给用户的片段与
+///   真正的故障点毫无关系，用户无法据此定位。**信息不足可以，取错位置不行。**
+/// 🔴 `pub(crate)` 仅为让 `tests.rs` 能直接钉住这条行为（生产路径不导出）。
+pub(crate) fn excerpt_near(line: &str, error_msg: &str) -> (String, String) {
+    const WIN: usize = 80;
+    // serde_json 的 `column` 是**字符**偏移（1-based），故按 char 而非 byte 切，
+    // 否则切到多字节中文/°C 处会 panic 或产生乱码。
+    let col = error_msg
+        .split("column ")
+        .nth(1)
+        .and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|s| s.parse::<usize>().ok());
+    match col {
+        Some(c) => {
+            let chars: Vec<char> = line.chars().collect();
+            let at = c.saturating_sub(1).min(chars.len());
+            let start = at.saturating_sub(WIN);
+            let end = (at + WIN).min(chars.len());
+            let mut snippet: String = chars[start..end].iter().collect();
+            if start > 0 {
+                snippet.insert(0, '…');
+            }
+            if end < chars.len() {
+                snippet.push('…');
+            }
+            (c.to_string(), snippet)
+        }
+        None => ("?".to_owned(), line.chars().take(WIN * 2).collect()),
+    }
+}
+
 pub struct SensorBridge {
     sidecar: Option<Sidecar>,
     pub(super) exe_path: Option<PathBuf>,
@@ -70,6 +141,10 @@ pub struct SensorBridge {
     pub(super) ready_once: bool,
     /// 最近一次成功读取的原始逐条读数（F-11 报告的"全量传感器表"用；聚合会把逐条信息折叠掉）
     last_raw: Option<Vec<SensorReading>>,
+    /// 🔴 2026-10-07：sidecar 诊断文本缓冲（原实现只 `eprintln!` 扔掉）。
+    ///   现用于**权限判定的证据源** —— 没有它就无法区分「权限不足」与「硬件不支持」，
+    ///   只能一律报「未检测」，那会让用户无从判断该不该提权。
+    diagnostics: Diagnostics,
 }
 
 impl Default for SensorBridge {
@@ -91,7 +166,21 @@ impl SensorBridge {
             last_fault: None,
             ready_once: false,
             last_raw: None,
+            diagnostics: Arc::new(Mutex::new(VecDeque::with_capacity(
+                DIAGNOSTIC_CAPACITY,
+            ))),
         }
+    }
+
+    /// sidecar 诊断文本里是否有**明确的权限失败字样**。
+    ///
+    /// 🔴 这是 `PermissionDenied` 的**唯一**合法来源（用户裁决规则 4：不伪造状态）。
+    ///   「读不到 DIMM 读数」不足以判定权限不足 —— 那也可能意味着固件根本不上报 TSOD。
+    #[must_use]
+    pub fn has_permission_denial_evidence(&self) -> bool {
+        lock_ok(&self.diagnostics)
+            .iter()
+            .any(|line| mentions_access_denied(line))
     }
 
     #[must_use]
@@ -192,12 +281,17 @@ impl SensorBridge {
         let response: SensorsResponse = match serde_json::from_str(&line) {
             Ok(response) => response,
             Err(error) => {
-                // 协议不认（含 sidecar 自身报错回包 {"error":"…"}）：留原文片段供诊断
-                let snippet: String = line.chars().take(160).collect();
+                // 🔴 2026-10-07 修：**片段必须取「出错位置附近」，不是回包开头**。
+                //   原实现是 `line.chars().take(160)`（永远截开头），而 serde 报的
+                //   出错位置在 `column 16210` —— 于是给用户看的「原文片段」与真正的
+                //   故障点**毫无关系**，用户无法据此定位（实测：片段里 `hardware` 是
+                //   正常字符串，坏的是一万六千列之外的某个 null 字段）。
+                //   现在按 serde 给出的列号取窗口，并标出窗口相对出错点的偏移。
+                let (col, snippet) = excerpt_near(&line, &error.to_string());
                 self.stop_sidecar();
                 return Err(self.record_failure(BridgeFault::new(
                     FaultKind::Protocol,
-                    format!("传感器回包解析失败: {error}（原文片段：{snippet}）"),
+                    format!("传感器回包解析失败（第 {col} 列附近：{snippet}）"),
                 )));
             }
         };
@@ -206,7 +300,16 @@ impl SensorBridge {
         self.cooldown_until = None;
         self.ready_once = true;
         self.last_raw = Some(response.sensors.clone());
-        Ok(aggregate(&response))
+        // 🔴 权限证据**读完即清空**：权限不足是稳定状态，本次读到字样即可判定；
+        //   若不清空，后续每次读数都会携带上一轮的陈旧证据 —— 某次 sidecar 重启后
+        //   权限问题已解决，旧字样仍会让界面长期误报「权限不足」。
+        let permission_evidence = {
+            let mut buf = lock_ok(&self.diagnostics);
+            let seen = buf.iter().any(|line| mentions_access_denied(line));
+            buf.clear();
+            seen
+        };
+        Ok(aggregate(&response, Some(permission_evidence)))
     }
 
     fn ensure_started(&mut self) -> Result<(), BridgeFault> {
@@ -226,9 +329,17 @@ impl SensorBridge {
                 format!("未找到 {EXE_NAME}（传感器采集组件未随包提供，或所在路径不可读）"),
             ));
         };
-        let sidecar = Sidecar::spawn(&exe, |line| {
+        let diagnostics = Arc::clone(&self.diagnostics);
+        let sidecar = Sidecar::spawn(&exe, move |line| {
             // sidecar 的诊断文本必须留痕（N-06）；W0-10 日志总线就绪前先落 stderr。
             eprintln!("[monitor] {line}");
+            // 🔴 2026-10-07：同时**留存**为权限判定的证据（环形上限 `DIAGNOSTIC_CAPACITY`
+            //   ⇒ 运行数小时后不会无界增长）。
+            let mut buf = lock_ok(&diagnostics);
+            if buf.len() >= DIAGNOSTIC_CAPACITY {
+                buf.pop_front();
+            }
+            buf.push_back(line.to_owned());
         })
         .map_err(|error| classify_sidecar_error(&error, READ_TIMEOUT))?;
         self.sidecar = Some(sidecar);

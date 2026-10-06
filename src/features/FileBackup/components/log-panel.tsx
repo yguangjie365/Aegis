@@ -28,20 +28,22 @@ type Filter = LogLevel | "all";
  *   原来快照区 `flex: 1 1 0` 吃剩余、日志 `flex: 0 0 auto` 按内容高；
  *   现在**快照区按内容高（固定预算）**，日志吃剩下的空间。
  *
- * 🔴 **本面板的 flex-grow 实际由 `file-backup-page.tsx` 的 Column 通配规则决定**
- *   （`> section { flex: 1 1 auto }`，特异性 (0,1,1) 高于本组件类名的 (0,1,0)）。
- *   ⇒ 下面写 `flex: 1 1 auto` 是**如实复述**而不是争夺：本组件从来抢不过那条规则，
- *     此前写 `0 0 auto` 时被静默覆盖 —— 这正是文件里挂了很久的
- *     🟡「空日志实测 301px / 推算只该 ~100px，多出来的高度找不到根因」的**答案**：
- *     不是 Head 变高、也不是 padding 偏大，而是本面板一直在**长满右栏剩余高度**。
- *     2026-10-06 定位（快照区固定后剩余空间变小，空隙才显眼起来）。
- *   ⚠️ 与 RuleFooterActions 同一处坑：要改回去得用 `data-fixed` 从那条通配规则里排除，
- *     在本组件内加更高特异性硬压是另一种脏法。
+ * 🔴 **本面板的 flex-grow 由 `file-backup-page.tsx` 的 Column 放行**（2026-10-07 定位）：
+ *   Column 的通配 `> section { flex: 0 1 auto }`（UI 审查 m3 引入）特异性 (0,1,1)
+ *   **高于**本组件类名的 (0,1,0) ⇒ 下面这行 `flex: 1 1 auto` 会被静默吃掉。
+ *   m3 当时只想着左栏的规则卡片，右栏的日志面板被顺带压成内容高 ——
+ *   实测日志下方余量 **362px**（快照区固定后整栏剩下的空间全落在那儿）。
+ *   解法是给本面板挂 `data-grow`，由布局属主那条规则显式放行
+ *   （与 `RuleFooterActions` 的 `data-fixed` 同一套办法）；
+ *   在这里用 `&&` 或更高特异性硬压是另一种脏法，且下一个人看不见属主的意图。
+ *
+ * 🔴 **不再有 max-height 百分比天花板**（2026-10-07 用户裁决「日志区下面的空间给日志区」）：
+ *   旧的 `45%` 是「快照区吃剩余」时代留下的护栏，现在它的作用恰恰是把用户要
+ *   给日志的那段空间挡回去。唯一的上限是几何本身：Column 的高度减去快照区的固定预算。
  */
 const Shell = styled(Panel)`
   flex: 1 1 auto;
   min-height: 0;
-  max-height: 45%;
   overflow: hidden;
   margin-top: var(--aegis-space-md);
   /* 本面板自己也是 column flex：Head 恒定、Body 吸收全部剩余并可滚。 */
@@ -88,7 +90,9 @@ export function LogPanel() {
   ];
 
   return (
-    <Shell as="section" aria-label={t("log.title")}>
+    /* 🔴 data-grow：向 Column 声明「本分区是右栏该吃剩余空间的那一个」。
+       没有它，Column 的 m3 通配会把下面的 flex: 1 1 auto 静默吃掉（见 Shell 注释）。 */
+    <Shell as="section" data-grow aria-label={t("log.title")}>
       <Head>
         <Toggle type="button" onClick={() => setCollapsed((v) => !v)} aria-expanded={!collapsed}>
           {collapsed ? (
@@ -253,7 +257,8 @@ const Body = styled.div`
      🟡 这里原有「max-height 120px」已删：那是旧配比（快照区吃剩余）下调出来的，
         目的是「别让日志比表格高」。现在快照区高度固定、日志只吃剩下的，
         这条线失去意义，留着反而制造上面说的孤儿空白。
-        唯一的天花板收在 Shell 的「max-height 45%」—— 一个数，不再两处打架。
+        Shell 那边曾有的「max-height 45%」也一并删了（2026-10-07）——
+        日志的高度上限从此只有一个来源：**右栏剩余空间**，不再有第二处数字与它打架。
      ⚠️ 本注释内不得出现反引号，也不得出现星号斜杠的连写（会提前终止注释）。 */
   flex: 1 1 auto;
   min-height: 0;

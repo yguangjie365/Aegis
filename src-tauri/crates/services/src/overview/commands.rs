@@ -21,6 +21,7 @@ use super::dto::{
     SensorTableDto, StatCardDto, TopProcessesDto,
 };
 use super::hardware;
+use super::sensor_bridge::metric_id_of;
 use super::snapshot;
 use super::state::OverviewState;
 
@@ -269,7 +270,12 @@ pub async fn overview_sensor_table(
                 .iter()
                 .map(|reading| SensorRowDto {
                     hardware: reading.hardware.clone(),
+                    hardware_type: reading.hardware_type.clone(),
                     name: reading.name.clone(),
+                    // 🔴 归一化在**此处**算而不是预先缓存：`metric_id` 是纯函数
+                    //   （只依赖本条读数的 hardwareType/name/sensorType），
+                    //   缓存它就得为 `last_raw` 再存一份派生数据，两份真相会漂移。
+                    metric_id: metric_id_of(reading),
                     sensor_type: reading.sensor_type.clone(),
                     value: reading.value,
                     unit: reading.unit.clone(),

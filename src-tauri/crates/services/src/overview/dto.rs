@@ -53,7 +53,20 @@ pub struct SoftwareListDto {
 #[serde(rename_all = "camelCase")]
 pub struct SensorRowDto {
     pub hardware: String,
+    /// 🔴 2026-10-07 补：原先**不暴露** `hardwareType`，导致这张表无法回答
+    ///   「聚合判据到底命中了哪些行」——而 `matching.rs` 的全部判据
+    ///   （`is_storage_family` / `Memory` 族 / `is_dimm_reading`）都建立在它上面。
+    ///   缺了它，一旦真机读数与预期不符就只能靠猜（本轮 CPU 68 vs 58
+    ///   的排查就卡在这里）。F-11 表格是唯一能看到 LHM 原始命名的地方。
+    pub hardware_type: String,
     pub name: String,
+    /// 🔴 2026-10-07 补：本仓归一后的**稳定指标标识**（见 `sensor_bridge/metrics.rs`）。
+    ///   与 `name`（上游原名）并存：`name` 供诊断，`metric_id` 供判据与聚合。
+    ///
+    ///   把它透到前端的意义：上游改命名时，`name` 会变而 `metric_id` 不变 ——
+    ///   **一眼就能看出「只是上游改名」还是「本仓判据失效了」**。未识别的传感器
+    ///   归入 `misc.*`，因此上游新增条目也会在这里显形，而不是悄悄被吞掉。
+    pub metric_id: String,
     pub sensor_type: String,
     pub value: f64,
     pub unit: String,

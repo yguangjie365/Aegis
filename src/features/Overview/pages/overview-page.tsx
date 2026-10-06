@@ -12,7 +12,6 @@ import { DiskHealthPanel } from "@/ui/components/disk-health-panel";
 import { DualProcessTables } from "@/ui/components/process-table";
 import { NetEndpointsPanel } from "@/ui/components/net-endpoints-panel";
 import { SoftwareListPanel } from "@/ui/components/software-list-panel";
-import { ChannelStatus } from "../components/channel-status";
 import { KeyValueCard } from "@/ui/components/key-value-card";
 import {
   useManualRefresh,
@@ -342,7 +341,12 @@ export function OverviewPage() {
   const brandActions = useMemo(
     () => (
       <>
-        <LiveDot live={live} />
+        {/* 🔴 2026-10-07 用户裁决「降级横幅不要出现在概览页面」：通道降级信息
+            **收进 LIVE 指示点**（点转警示色 + 可展开 ▸，默认收起 = 不占行高）。
+            原 `ChannelStatus` 是一块独占整行的横幅，常驻把「详细信息」整段往下顶。
+            `monitor` 只在状态**变化**时改引用，故加进依赖不会造成每帧重渲染
+            （本memo 的其余依赖已是同样量级）。 */}
+        <LiveDot live={live} monitor={data?.monitor} />
         {/* 🔴 2026-10-05 用户裁决：**「导出报告」移到「立即刷新」右边**。
             原来的顺序是「导出 → 刷新」，primary 按钮紧邻右边界；调换后
             secondary 的「立即刷新」成为最右项。
@@ -370,7 +374,7 @@ export function OverviewPage() {
         </AppButton>
       </>
     ),
-    [live, exportReport.exporting, exportReport.onClick, t, busy, refreshAll],
+    [live, data?.monitor, exportReport.exporting, exportReport.onClick, t, busy, refreshAll],
   );
   useRegisterBrand("/overview", { sub: sub === "" ? undefined : sub, actions: brandActions });
 
@@ -420,7 +424,11 @@ export function OverviewPage() {
               <StatCard key={`${card.kind}-${card.index}`} card={card} />
             ))}
           </StaggerGrid>
-          <ChannelStatus monitor={data.monitor} />
+          {/* 🔴 2026-10-07 用户裁决删除此处 `<ChannelStatus monitor={data.monitor} />`：
+              那块**独占整行**的降级横幅常驻把「详细信息」整段往下顶（用户实测截图）。
+              通道降级信息改由页头 `LiveDot` 承载（点转警示色 + 可展开 ▸，默认收起），
+              **信息不丢**（N-06 仍满足）且常态零占位。组件保留在
+              `components/channel-status.tsx`，若将来要恢复为独立分区仍可直接用。*/}
 
           {/* F-02 硬件详情区（母本「详细信息 / DETAILS」分区，Columns=2） */}
           {detailCards.length > 0 && (

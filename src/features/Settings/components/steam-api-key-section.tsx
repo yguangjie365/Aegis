@@ -19,6 +19,7 @@
  * 如需更强的保护，阶段二可改走 Windows Credential Manager（音乐模块已有 keyring 依赖）。
  */
 import {
+  Badge,
   Box,
   Button,
   Flex,
@@ -62,6 +63,8 @@ export function SteamApiKeySection() {
   const [revealed, setRevealed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  /** 🔴 2026-10-07：错误详情默认收起（标题行的警示点常在，点击才展开）——见 JSX 处注释。 */
+  const [errorOpen, setErrorOpen] = useState(false);
   const [flash, setFlash] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   /* 🔴 本区文案全部走 i18n（2026-10-06 UI 审查 M9）：原先整段硬编码中文、
@@ -177,6 +180,34 @@ export function SteamApiKeySection() {
         <Text fontSize="14" fontWeight={700}>
           {t("steam.title")}
         </Text>
+        {/* 🔴 2026-10-07 用户裁决「提示不要直接铺在界面上以免影响布局」（同概览页横幅）：
+            原先错误态是一块**独占整行**的带边框块，且「未安装 Steam」这种**常驻**态
+            也会显示 ⇒ 它在本页几乎长期占着一条。改为标题行一枚警示点 + 点击展开。
+
+            🔴 为什么**不能只做 hover 提示**：未装 Steam 属常态而非故障，
+              但「Steam API Key 未配置」这类真实错误**必须留可见痕迹**（R-28 禁静默失败）
+              ⇒ 点始终在（不是 hover 才出现），默认只是**收起**。
+            参照先例：`GameManager/pages/SteamPage.tsx` 的在线补全失败
+            用的正是「工具栏 Badge + Tooltip 带原因」。 */}
+        {state.phase === "error" ? (
+          <Badge
+            as="button"
+            type="button"
+            onClick={() => setErrorOpen((v) => !v)}
+            aria-expanded={errorOpen}
+            aria-controls="steam-api-error-detail"
+            colorScheme="red"
+            variant="subtle"
+            borderRadius="full"
+            cursor="pointer"
+            title={state.message}
+          >
+            <HStack spacing="xs">
+              <AlertTriangle size={12} strokeWidth={1.5} aria-hidden />
+              <Text>{t("steam.errorBadge")}</Text>
+            </HStack>
+          </Badge>
+        ) : null}
       </HStack>
       <Text fontSize="12" color={subText} mb="md">
         {t("steam.intro")}
@@ -189,12 +220,14 @@ export function SteamApiKeySection() {
         </HStack>
       )}
 
-      {state.phase === "error" && (
+      {state.phase === "error" && errorOpen && (
         <HStack
+          id="steam-api-error-detail"
           spacing="xs"
           wrap="wrap"
           fontSize="12"
           color="var(--aegis-error)"
+          mt="sm"
           p="sm"
           border="1px solid"
           borderColor="var(--aegis-error)"
