@@ -44,5 +44,6 @@
     "versionLabel": "版本",
     "telemetryLabel": "遥测",
     "note": "本应用不采集、不上传任何遥测数据；所有数据仅保存在本机。"
-  }
+  },
+  "mainRegionLabel": "主内容区"
 }

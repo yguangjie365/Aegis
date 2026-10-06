@@ -12,6 +12,9 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { dropKey, hitTestDropRow, isDuplicateDrop, type DropRowRect } from "../lib/drop-target";
+// 🔴 2026-10-07：降级路径原本只写 console ⇒ 不进八字段 JSONL，
+//   用户报障「拖放发送不可用」时日志里查不到痕迹。改走 `log()`。
+import { log } from "@/lib/logging";
 
 /** 拖放回调（由页面提供）。 */
 export interface TransferDropHandlers {
@@ -98,7 +101,13 @@ export function useTransferDrop(handlers: TransferDropHandlers): { hoveredRowId:
         // 拿不到监听器（不在 Tauri 运行时内、或权限未开）不是致命错误：
         // 拖放只是**快捷方式**，"发送文件"按钮始终可用。
         // 但必须留痕——静默 catch 会让"拖放没反应"完全无从排查。
-        console.warn("[transfer] 无法订阅系统拖放事件，拖放发送不可用（发送按钮不受影响）", error);
+        log({
+          level: "warn",
+          module: "Transfer",
+          action: "subscribe-system-drop",
+          result: "Failed",
+          exception: error instanceof Error ? error.message : String(error),
+        });
       }
     })();
 

@@ -8,6 +8,9 @@ import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HardwareDetailDto, LiveSample } from "@/types/overview";
 import { BackendUnavailableError } from "@/lib/tauri/invoke";
+// 🔴 2026-10-07：本文件的降级路径原本只用 console.warn 留痕 ⇒ 不进八字段 JSONL，
+//   用户报障时日志里查不到。改走 `log()`（它内部已镜像到 console，无需再手写）。
+import { log } from "@/lib/logging";
 import { REFRESH_INTERVAL_MS, usePageLiveness } from "@/lib/timing/use-tick";
 import {
   fetchLiveSample,
@@ -141,7 +144,13 @@ export function useStaticInfo() {
     ).catch((error: unknown) => {
       // 🔴 快照是优化手段，写失败不阻断界面 —— 但**必须留痕**：
       // 静默 catch 会让「快照一直没生效 / 一直没更新」这类问题完全无从排查。
-      console.warn("[overview] 快照回写失败（不影响本次界面数据）", error);
+      log({
+        level: "warn",
+        module: "Overview",
+        action: "snapshot-write",
+        result: "Failed",
+        exception: error instanceof Error ? error.message : String(error),
+      });
     });
   }, [payload, queryClient]);
 
@@ -210,7 +219,13 @@ export function useSnapshotWarmup() {
       } catch (error) {
         // 🔴 快照读失败（含文件损坏）不是错误路径，仍退化为「无快照」走正常采集；
         // 但必须留痕，否则「快照一直没命中」无从排查。
-        console.warn("[overview] 快照读取失败，退化为冷启动全量采集", error);
+        log({
+          level: "warn",
+          module: "Overview",
+          action: "snapshot-read",
+          result: "Failed",
+          exception: error instanceof Error ? error.message : String(error),
+        });
       }
     })();
     return () => {

@@ -13,7 +13,9 @@
       "desktopRunning": "电脑互传运行中",
       "mobileRunning": "手机通道运行中",
       "bothRunning": "服务运行中（双通道）",
-      "statusUnavailable": "状态未知（{{reason}}）"
+      "statusUnavailable": "状态未知（{{reason}}）",
+      "probing": "查询中",
+      "queryFailed": "查询失败"
     }
   },
   "service": {
@@ -166,7 +168,7 @@
     "cancelSelected": "取消所选任务",
     "pauseTogglePause": "暂停",
     "pauseToggleResume": "继续",
-    "pauseRejected": "⚠️ 未被受理：任务当前状态为 {{state}}",
+    "pauseRejected": "未被受理：任务当前状态为 {{state}}",
     "pause": "暂停",
     "resume": "继续",
     "cancel": "取消",
@@ -179,6 +181,9 @@
       "skipped": "已跳过",
       "failed": "失败",
       "cancelled": "已取消"
+    },
+    "col": {
+      "peer": "对端"
     }
   },
   "history": {
@@ -186,6 +191,8 @@
     "export": "导出 CSV",
     "clear": "清空",
     "allDirections": "全部方向",
+    "directionAria": "按方向筛选传输历史",
+    "statusAria": "按状态筛选传输历史",
     "sendOnly": "仅发送",
     "receiveOnly": "仅接收",
     "allStatuses": "全部状态",
@@ -196,12 +203,12 @@
     "noMatchHint": "当前筛选条件下没有记录；清空筛选可看全部。",
     "exportTitle": "导出传输历史",
     "exportHint": "按当前筛选结果导出（所见即所得）",
-    "exported": "✅ 已导出 {{count}} 条历史：{{path}}",
+    "exported": "已导出 {{count}} 条历史：{{path}}",
     "exportFailed": "导出失败：{{reason}}",
     "kindFile": "文件",
     "kindText": "文本",
     "charCount": "共 {{count}} 字",
-    "degraded": "⚠️ 历史文件读取失败，已从空列表开始（原文件保留在盘上，可人工排查）：{{reason}}",
+    "degraded": "历史文件读取失败，已从空列表开始（原文件保留在盘上，可人工排查）：{{reason}}",
     "dir": {
       "send": "发送",
       "receive": "接收"

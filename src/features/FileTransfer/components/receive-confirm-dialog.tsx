@@ -22,7 +22,9 @@ import type { PendingConfirm, PerTransferPolicy } from "@/types/transfer";
 const Scrim = styled.div`
   position: fixed;
   inset: 0;
-  background: rgba(31, 36, 48, 0.28);
+  /* 遮罩恒 rgba(0,0,0,.55)（§三 dialog 行）。原 31,36,48/.28 是契约外色值：
+     偏蓝、且 28% 太浅，深色界面上压不住底层内容（UI 审查 M6）。 */
+  background: rgba(0, 0, 0, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -32,9 +34,15 @@ const Scrim = styled.div`
 const Box = styled.div`
   width: 452px;
   background: var(--aegis-canvas);
-  border: 1px solid var(--aegis-border-strong);
+  /* 🔴 2026-10-06 批次③：原 var(--aegis-border-strong) 从未定义 —— 未定义属性令 border
+     在 computed-value 阶段失效，静默回退 currentColor（边框随文字色漂移、不参与换包）。
+     同文件 Conflict / Seg 两处同口径修正。 */
+  border: 1px solid var(--aegis-border-interactive);
   border-radius: var(--aegis-radius-sm);
-  box-shadow: 0 10px 34px rgba(31, 36, 48, 0.2);
+  /* §二 elevation 只有三档，弹层允许的那一档就是 sticky（§一 #3 唯一阴影处）。
+     原「0 10px 34px rgba(31,36,48,.2)」是契约外第四档（UI 审查 M6）。
+     ⚠️ 本注释在模板字符串内，禁写反引号（TS1005）。 */
+  box-shadow: var(--aegis-elevation-sticky);
   overflow: hidden;
 `;
 
@@ -44,7 +52,8 @@ const Head = styled.div`
   gap: var(--aegis-space-sm);
   padding: var(--aegis-space-md) var(--aegis-space-lg) 0;
   font-weight: 700;
-  font-size: 13.5px;
+  /* 同 pair-code：半档值 13.5 → body-strong 14/700（M6） */
+  font-size: var(--aegis-type-body-size);
 `;
 
 const Count = styled.span`
@@ -76,7 +85,8 @@ const Key = styled.dt`
 
 const Value = styled.dd`
   margin: 0;
-  font-size: 12.5px;
+  /* 12.5 → caption 12：这里是文件名/大小一类的**元数据**，正是 caption 档的职责（M6） */
+  font-size: var(--aegis-type-caption-size);
   word-break: break-all;
 `;
 
@@ -85,7 +95,7 @@ const Mono = styled.span`
 `;
 
 const Conflict = styled.div`
-  border: 1px solid var(--aegis-border-strong);
+  border: 1px solid var(--aegis-border-interactive);
   background: var(--aegis-surface-inset);
   border-radius: var(--aegis-radius-sm);
   padding: var(--aegis-space-sm) 10px;
@@ -110,9 +120,13 @@ const Action = styled.div`
 `;
 
 const Seg = styled.button<{ on: boolean }>`
-  border: 1px solid ${(p) => (p.on ? "var(--aegis-accent)" : "var(--aegis-border-strong)")};
+  border: 1px solid ${(p) => (p.on ? "var(--aegis-accent)" : "var(--aegis-border-interactive)")};
   background: ${(p) => (p.on ? "var(--aegis-accent)" : "var(--aegis-surface-soft)")};
-  color: ${(p) => (p.on ? "#fff" : "var(--aegis-ink)")};
+  /* 🔴 绿底必须黑字（规范 §六 #1，本规范对源语系的第一号强制修正）：
+     accent 上白字仅 2.41:1 ❌，黑字（accent-on）8.71:1 ✅。原先这里写死白色字面量，
+     等于把选中态做成全屏最难读的一块 —— 2026-10-06 UI 审查 M7。
+     ⚠️ 本注释在模板字符串内，禁写反引号（会报 TS1005，本项目已踩多次）。 */
+  color: ${(p) => (p.on ? "var(--aegis-accent-on)" : "var(--aegis-ink)")};
   border-radius: var(--aegis-radius-sm);
   padding: 2px 9px;
   font-size: 12px;
@@ -126,7 +140,9 @@ const Warn = styled.div`
 `;
 
 const ErrorLine = styled.div`
-  color: #b3402a;
+  /* 错误**文字**恒走 error 令牌（Dark 包 #ff5c5c，canvas 上 6.14:1）。
+     原写死 #b3402a 实算仅 3.26:1，12px 文字不达 4.5:1（§六、UI 审查 M6）。 */
+  color: var(--aegis-error);
   font-size: 12px;
   margin-top: var(--aegis-space-sm);
 `;
@@ -142,7 +158,9 @@ const Foot = styled.div`
 
 const Hint = styled.div`
   color: var(--aegis-mute);
-  font-size: 11.5px;
+  /* 11.5 → caption 12，**不降到 micro 11**：§二 明写 micro「禁用于正文」，
+     而这一行是给用户的操作提示（正文性），不是图表刻度（M6）。 */
+  font-size: var(--aegis-type-caption-size);
   text-align: right;
   margin-right: auto;
   align-self: center;
@@ -266,11 +284,16 @@ export function ReceiveConfirmDialog({
               </Segs>
               {/* 🔴 R-9 原文：冲突区必须写明"**当前策略下将会发生的动作**"，
                   且"覆盖类后果必须写明**原文件已不可恢复**"。
-                  本区只在**已存在同名文件**时出现（F-FT-14：仅必要时），故不打扰常规接收。 */}
+                  本区只在**已存在同名文件**时出现（F-FT-14：仅必要时），故不打扰常规接收。
+                  🔴 键段是 **conflict**（顶层段，与 recvConfirm 平级），不是 recvConfirm：
+                  早期误写成 `recvConfirm.action*`，而 i18next 缺键时**返回键名本身且不报错**，
+                  结果是这行"唯一告知不可恢复性"的文案向用户显示成 `recvConfirm.actionOverwrite`
+                  这样的原始 key —— 恰恰是最不该出错的一行。
+                  与同段既有的 `rename/ask/skip/overwrite` 一致（`file-transfer-page.tsx` 在用）。 */}
               <Action>
                 {policy === "overwrite"
-                  ? t("recvConfirm.actionOverwrite")
-                  : t(policy === "skip" ? "recvConfirm.actionSkip" : "recvConfirm.actionRename")}
+                  ? t("conflict.actionOverwrite")
+                  : t(policy === "skip" ? "conflict.actionSkip" : "conflict.actionRename")}
               </Action>
             </Conflict>
           )}

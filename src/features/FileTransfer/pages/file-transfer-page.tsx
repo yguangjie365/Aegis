@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styled from "@emotion/styled";
 import { AppButton } from "@/ui/components/app-button";
+import { Badge as SharedBadge } from "@/ui/components/badge";
+import { FailureDetail, failureDetail, failureReason } from "@/ui/components/failure-detail";
 import { useRegisterBrand } from "@/shell/brand-bar";
 import { log, newCorrelationId } from "@/lib/logging";
 import { PairCodeDialog } from "../components/pair-code-dialog";
@@ -29,6 +31,7 @@ import type { TransferTaskState } from "@/types/transfer";
 import { asTransferError } from "@/lib/tauri/transfer";
 import type { KnownPeer, TransferPeer, TransferSettings } from "@/types/transfer";
 import { formatCountdown, isExpiringSoon } from "../lib/countdown";
+import { selectableRow } from "../lib/selectable-row";
 import type { DropRowRect } from "../lib/drop-target";
 import {
   NEW_DEVICE_NAME,
@@ -68,20 +71,33 @@ const Tabs = styled.div`
   border-bottom: 1px solid var(--aegis-hairline);
 `;
 
+/* 🔴 激活态 = **反色块**（规范 §三 tabs 行 + 2026-10-06 用户裁决 D1：全站统一到这一套，
+   原先本页是 accent 下划线式、FileBackup 日志面板是反色式 ⇒ 同站两套激活语汇，M11）。
+   ⚠️ §三 的字面写的是「ink 底白字」，但本项目是 **Dark 单主题** ⇒ ink 本身就是浅色
+      (#e8e8e8)，照字面配 on-dark 白字会得到**白底白字**。正确读法与 log-panel 同源：
+      底 = ink（常态文字色）、字 = canvas（与之成对的画布色）⇒ 浅色包得深底白字、
+      深色包得浅底深字，两边都可读（§一 #2 双色模）。
+   ⚠️ padding 归 spacing 令牌（原 9px 不在 §二 刻度上）。本注释在模板字符串内，禁写反引号。 */
 const Tab = styled.button<{ active?: boolean }>`
   appearance: none;
-  border: 0;
-  background: none;
   font: inherit;
   font-size: 14px;
-  padding: 9px var(--aegis-space-lg);
-  margin-bottom: -1px;
+  padding: var(--aegis-space-xs) var(--aegis-space-md);
   cursor: pointer;
-  color: ${(p) => (p.active ? "var(--aegis-ink)" : "var(--aegis-mute)")};
+  border-radius: var(--aegis-radius-sm);
+  border: 1px solid ${(p) => (p.active ? "var(--aegis-ink)" : "var(--aegis-hairline)")};
+  background: ${(p) => (p.active ? "var(--aegis-ink)" : "transparent")};
+  color: ${(p) => (p.active ? "var(--aegis-canvas)" : "var(--aegis-mute)")};
   font-weight: ${(p) => (p.active ? 700 : 400)};
-  border-bottom: 2px solid ${(p) => (p.active ? "var(--aegis-accent)" : "transparent")};
+  transition:
+    background-color var(--aegis-motion-duration-fast) var(--aegis-motion-easing-standard),
+    border-color var(--aegis-motion-duration-fast) var(--aegis-motion-easing-standard);
+  &:hover:not(:disabled) {
+    border-color: var(--aegis-border-interactive);
+  }
   &:disabled {
     color: var(--aegis-disabled);
+    border-color: var(--aegis-hairline);
     cursor: not-allowed;
   }
 `;
@@ -131,20 +147,27 @@ const Form = styled.div`
   gap: var(--aegis-space-sm);
 `;
 
-const Label = styled.span`
+/* 🔴 表单标签必须是 <label> + htmlFor（§八 8.2 优先原生语义元素）。
+   原先它是 styled.span、与控件只是**网格兄弟**，无任何程序化关联 ⇒ 读屏走到输入框时
+   报不出「TCP 端口」这个名字（UI 审查 M1）。纯展示行（设备 ID / 配对码）没有对应控件，
+   用 as="span" 退回普通文本，不留悬空 label。 */
+const Label = styled.label`
   font-size: 14px;
   white-space: nowrap;
 `;
 
 const Input = styled.input`
-  height: 32px;
+  /* 🔴 h=36 + 1px border-interactive（规范 §三 input 行）。原 32px 是页内自写值
+     （全站输入框出现 28/31/32 三种高度的其中一档），边框用 hairline 在 Dark 下仅
+     1.76:1 —— 可交互边框必须 ≥3:1（§六 #3），hairline 是装饰档。UI 审查 M1。 */
+  height: 36px;
   width: 100%;
-  padding: 0 10px;
+  padding: 0 var(--aegis-space-md);
   font: inherit;
   font-size: 14px;
   color: var(--aegis-ink);
   background: var(--aegis-surface-inset);
-  border: 1px solid var(--aegis-hairline);
+  border: 1px solid var(--aegis-border-interactive);
   border-radius: var(--aegis-radius-sm);
 `;
 
@@ -158,13 +181,14 @@ const PortInput = styled(MonoInput)`
 `;
 
 const Select = styled.select`
-  height: 32px;
-  padding: 0 var(--aegis-space-sm);
+  /* 同 Input：h=36 + border-interactive（§三 input/select 行、§六 #3；UI 审查 M1） */
+  height: 36px;
+  padding: 0 var(--aegis-space-md);
   font: inherit;
   font-size: 14px;
   color: var(--aegis-ink);
   background: var(--aegis-surface-inset);
-  border: 1px solid var(--aegis-hairline);
+  border: 1px solid var(--aegis-border-interactive);
   border-radius: var(--aegis-radius-sm);
 `;
 
@@ -221,7 +245,19 @@ const EditRow = styled.div`
   gap: var(--aegis-space-sm);
   margin-top: var(--aegis-space-md);
   flex-wrap: wrap;
+
+  /* 🔴 焦点环（§八 8.1：焦点永远看得见，2px + 偏移 2px，读 focus-ring 语义键）。
+     仅对可聚焦的行生效 —— EditRow 也用于普通表单行，那些没有 tabIndex 就不会命中。
+     ⚠️ 选中信号不得占用 outline（见 selectableRow 处的 boxShadow 说明），否则内联
+        outline 会压掉本条样式表声明，「选中且聚焦」的行就没有焦点环了。 */
+  &:focus-visible {
+    outline: 2px solid var(--aegis-focus-ring);
+    outline-offset: 2px;
+  }
 `;
+
+/* 行选中的键盘可达契约见 ../lib/selectable-row（UI 审查 B2；该处含完整理由与
+   「为何不用 listbox/option」的取舍，并有单测兜底 —— 预览模式无数据行，渲染探针拍不到）。 */
 
 const TextArea = styled.textarea`
   width: 100%;
@@ -311,18 +347,19 @@ const LogBox = styled.div`
   line-height: 1.6;
 `;
 
-const Badge = styled.span<{ on?: boolean }>`
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 10px;
-  border-radius: var(--aegis-radius-full);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-  background: ${(p) => (p.on ? "#eaf6e0" : "#fdecec")};
-  color: ${(p) => (p.on ? "#2d6200" : "#8f1212")};
-`;
+/* 🔴 外形已上收到 `ui/components/badge`（2026-10-06 UI 审查 M11）：本处只留
+   「服务在跑 = success / 不在跑 = error」这一条语义映射。
+   `size="bar"` 是 §三·1 的硬要求：品牌区非按钮项恒 24（与同行按钮 28 差 4 是刻意的，
+   徽章不是可点控件、不该抢按钮体量）。
+   历史：这里曾写死**浅色包**的四位十六进制（#eaf6e0 / #fdecec / #2d6200 / #8f1212），
+   在 Dark 单主题下是整屏最亮的两块 pill 且换包不跟随 —— 规范 §三·1 末尾 🟡③ 就此闭环。 */
+function Badge({ on, children }: { on?: boolean; children: React.ReactNode }) {
+  return (
+    <SharedBadge tone={on ? "success" : "error"} size="bar">
+      {children}
+    </SharedBadge>
+  );
+}
 
 /** 挂起中的发送请求（配对码通过后才真正发出）。 */
 interface PendingSend {
@@ -427,7 +464,9 @@ export function FileTransferPage() {
   // 🔴 `?? []` 必须包在 useMemo 里：否则每次渲染都造一个新数组，
   // 使下面依赖 `peers` 的 useCallback 每轮都变（react-hooks/exhaustive-deps 是 error 级）
   const peers = useMemo(() => peersQuery.data ?? [], [peersQuery.data]);
-  const peerError = peersQuery.error !== null ? asTransferError(peersQuery.error).message : null;
+  /* 🔴 主线只留人话（UI 审查 D7）：这里不再取 asTransferError 的整句 message ——
+     那句自带「无法调用 transfer_peers_list」，命令名改由下面的 FailureDetail 承载。 */
+  const peerError = peersQuery.error !== null ? failureReason(peersQuery.error) : null;
 
   // 任务台账（F-FT-25/30）：只读快照。后端服务未跑时返回空表 ⇒ 界面显示空态而非失败态。
   const tasksQuery = useTransferTasks();
@@ -677,18 +716,21 @@ export function FileTransferPage() {
       }),
     [t, peers.length],
   );
-  const brandActions = useMemo(
-    () => (
-      <Badge on={serviceRunning}>
-        {statusQuery.isPending
-          ? t("page.status.stopped")
-          : serviceRunning
-            ? t("page.status.desktopRunning")
-            : t("page.status.stopped")}
-      </Badge>
-    ),
-    [serviceRunning, statusQuery.isPending, t],
-  );
+  const brandActions = useMemo(() => {
+    /* 🔴 三态分开（2026-10-06 UI 审查 M8）：原实现把「查询中」「查询失败」「真没启动」三者
+       一律渲染成「服务未启动」—— 查询失败时用户会去点「启动服务」而不是重试，等于把
+       可恢复故障引导成误操作（AGENTS 禁静默失败；§三 state-block 失败态要求给出原因）。
+       「未知」两态复用 locale 里**已存在却从未被引用**的 statusUnavailable（带 reason 插值），
+       只补两个短原因词 —— 徽章在品牌区是单行 24px 件，reason 必须短，详细错误由页内卡片承载。 */
+    const text = statusQuery.isError
+      ? t("page.status.statusUnavailable", { reason: t("page.status.queryFailed") })
+      : statusQuery.isPending
+        ? t("page.status.statusUnavailable", { reason: t("page.status.probing") })
+        : serviceRunning
+          ? t("page.status.desktopRunning")
+          : t("page.status.stopped");
+    return <Badge on={serviceRunning}>{text}</Badge>;
+  }, [serviceRunning, statusQuery.isPending, statusQuery.isError, t]);
   useRegisterBrand("/file-transfer", { sub: brandSub, actions: brandActions });
 
   return (
@@ -741,11 +783,11 @@ export function FileTransferPage() {
           <Hint span>{t("settings.repairs", { detail: loaded.repairs.join("；") })}</Hint>
         )}
         <Form>
-          <Label>{t("local.deviceId")}</Label>
+          <Label as="span">{t("local.deviceId")}</Label>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>
             {status?.deviceId ?? "—"}
           </span>
-          <Label>{t("pairing.label")}</Label>
+          <Label as="span">{t("pairing.label")}</Label>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>
             {status?.pairingCode ?? t("pairing.placeholder")}
           </span>
@@ -760,8 +802,9 @@ export function FileTransferPage() {
                   })}
           </Hint>
 
-          <Label>{t("local.receiveDir")}</Label>
+          <Label htmlFor="ft-receive-dir">{t("local.receiveDir")}</Label>
           <MonoInput
+            id="ft-receive-dir"
             value={receiveDir}
             placeholder={t("local.receiveDirMissing")}
             onChange={(e) => setReceiveDir(e.target.value)}
@@ -775,8 +818,9 @@ export function FileTransferPage() {
           </AppButton>
           <Hint span>{t("space.unknown")}</Hint>
 
-          <Label>{t("local.tcpPort")}</Label>
+          <Label htmlFor="ft-tcp-port">{t("local.tcpPort")}</Label>
           <PortInput
+            id="ft-tcp-port"
             value={tcpPort}
             onChange={(e) => setTcpPort(e.target.value)}
             onBlur={() => {
@@ -790,8 +834,9 @@ export function FileTransferPage() {
           />
           <Hint>{t("local.tcpPortTooltip")}</Hint>
           <span />
-          <Label>{t("local.udpPort")}</Label>
+          <Label htmlFor="ft-udp-port">{t("local.udpPort")}</Label>
           <PortInput
+            id="ft-udp-port"
             value={udpPort}
             onChange={(e) => setUdpPort(e.target.value)}
             onBlur={() => {
@@ -808,8 +853,9 @@ export function FileTransferPage() {
             {serviceRunning ? t("local.portHintRunning") : t("local.portHintStopped")}
           </Hint>
 
-          <Label>{t("local.conflict")}</Label>
+          <Label htmlFor="ft-conflict">{t("local.conflict")}</Label>
           <Select
+            id="ft-conflict"
             value={policy}
             onChange={(e) => {
               setPolicy(e.target.value);
@@ -932,14 +978,23 @@ export function FileTransferPage() {
                   }}
                   style={{
                     cursor: "pointer",
+                    /* 🔴 2026-10-06 批次③：原为 var(--aegis-border-strong, rgba(127,127,127,.5)) ——
+                       令牌从未定义，靠内联 fallback 硬撑，故「看起来没坏」而实际绕过了令牌层，
+                       换包时这一圈不会跟着变。三处同口径（已知设备 / 在线设备 / 传输任务）。 */
                     outline:
                       selectedKnownIndex === index
-                        ? "1px solid var(--aegis-border-strong, rgba(127,127,127,0.5))"
+                        ? "1px solid var(--aegis-border-interactive)"
                         : undefined,
                   }}
                 >
                   <span style={{ fontSize: 13 }}>{peer.name}</span>
-                  <MonoInput readOnly value={`${peer.ip}:${peer.port}`} style={{ width: 178 }} />
+                  <MonoInput
+                    readOnly
+                    tabIndex={-1}
+                    aria-label={`${t("known.ip")}:${t("known.port")}`}
+                    value={`${peer.ip}:${peer.port}`}
+                    style={{ width: 178 }}
+                  />
                   {/* F-FT-10：「发送文件」按行发给该设备 */}
                   <AppButton
                     variant="secondary"
@@ -958,22 +1013,25 @@ export function FileTransferPage() {
             )}
           </List>
           <EditRow>
-            <Label>{t("known.name")}</Label>
+            <Label htmlFor="ft-known-name">{t("known.name")}</Label>
             <Input
+              id="ft-known-name"
               style={{ width: 118 }}
               value={knownDraft.name}
               disabled={selectedKnown === undefined}
               onChange={(e) => setKnownDraft({ ...knownDraft, name: e.target.value })}
             />
-            <Label>{t("known.ip")}</Label>
+            <Label htmlFor="ft-known-ip">{t("known.ip")}</Label>
             <MonoInput
+              id="ft-known-ip"
               style={{ width: 112 }}
               value={knownDraft.ip}
               disabled={selectedKnown === undefined}
               onChange={(e) => setKnownDraft({ ...knownDraft, ip: e.target.value })}
             />
-            <Label>{t("known.port")}</Label>
+            <Label htmlFor="ft-known-port">{t("known.port")}</Label>
             <PortInput
+              id="ft-known-port"
               style={{ width: 78 }}
               value={knownDraft.port}
               disabled={selectedKnown === undefined}
@@ -1019,7 +1077,11 @@ export function FileTransferPage() {
             </Acts>
           </CardHead>
           {peerError !== null && (
-            <Hint span>{t("discovered.loadFailed", { reason: peerError })}</Hint>
+            <>
+              <Hint span>{t("discovered.loadFailed", { reason: peerError })}</Hint>
+              {/* 🔴 命令名 transfer_peers_list 收进折叠（2026-10-06 UI 审查 D7）。 */}
+              <FailureDetail detail={failureDetail(peersQuery.error)} />
+            </>
           )}
           <List>
             {peers.length === 0 ? (
@@ -1039,23 +1101,34 @@ export function FileTransferPage() {
                     if (element === null) rowRefs.current.delete(peer.deviceId);
                     else rowRefs.current.set(peer.deviceId, element);
                   }}
-                  onClick={() => setSelectedPeerId(peer.deviceId)}
+                  {...selectableRow(selectedPeerId === peer.deviceId, () =>
+                    setSelectedPeerId(peer.deviceId),
+                  )}
                   style={{
                     cursor: "pointer",
                     // 拖拽高亮：只在命中行变化时才变（over 每秒 238 次，见拖放钩子）
+                    // 原写契约外的 --aegis-surface-hover（永不产出、恒吃硬编码回退），改令牌派生（M5）
                     background:
                       drop.hoveredRowId === peer.deviceId
-                        ? "var(--aegis-surface-hover, rgba(127,127,127,0.12))"
+                        ? "color-mix(in srgb, var(--aegis-ink) 12%, transparent)"
                         : undefined,
-                    outline:
+                    /* 选中信号走 inset boxShadow，**不占 outline** —— 内联 outline 会压掉
+                       EditRow 的 :focus-visible 焦点环（选中行恰好也是聚焦行时就读不出焦点）。 */
+                    boxShadow:
                       selectedPeerId === peer.deviceId
-                        ? "1px solid var(--aegis-border-strong, rgba(127,127,127,0.5))"
+                        ? "inset 0 0 0 1px var(--aegis-border-interactive)"
                         : undefined,
                   }}
                 >
                   <Label>{t("discovered.online")}</Label>
                   <span style={{ fontSize: 13 }}>{peer.deviceName}</span>
-                  <MonoInput readOnly value={`${peer.ip}:${peer.port}`} style={{ width: 178 }} />
+                  <MonoInput
+                    readOnly
+                    tabIndex={-1}
+                    aria-label={`${t("known.ip")}:${t("known.port")}`}
+                    value={`${peer.ip}:${peer.port}`}
+                    style={{ width: 178 }}
+                  />
                   <AppButton
                     variant="secondary"
                     size="sm"
@@ -1240,12 +1313,13 @@ export function FileTransferPage() {
             tasks.map((task) => (
               <EditRow
                 key={task.id}
-                onClick={() => setSelectedTaskId(task.id)}
+                {...selectableRow(selectedTaskId === task.id, () => setSelectedTaskId(task.id))}
                 style={{
                   cursor: "pointer",
-                  outline:
+                  // 同设备行：选中信号用 boxShadow 给 outline 让路（B2）
+                  boxShadow:
                     selectedTaskId === task.id
-                      ? "1px solid var(--aegis-border-strong, rgba(127,127,127,0.5))"
+                      ? "inset 0 0 0 1px var(--aegis-border-interactive)"
                       : undefined,
                 }}
               >
@@ -1254,7 +1328,15 @@ export function FileTransferPage() {
                   {task.direction === "send" ? "↑" : "↓"}
                 </span>
                 <span style={{ fontSize: 13, flex: 1, minWidth: 0 }}>{task.fileName}</span>
-                <MonoInput readOnly value={task.peerLabel} style={{ width: 150 }} />
+                <MonoInput
+                  readOnly
+                  tabIndex={-1}
+                  // 🔴 键段原本写成 `tasks.peer`（该键不存在）⇒ 缺键时 i18next 返回键名本身，
+                  //   读屏会照念原始 key。任务表取 tasks 段、历史表取 history 段，**各取各的**。
+                  aria-label={t("tasks.col.peer")}
+                  value={task.peerLabel}
+                  style={{ width: 150 }}
+                />
                 {/* 进度由后端算好的 percent 直接显示，界面不再算一遍（避免口径漂移） */}
                 <span style={{ width: 44, textAlign: "right", fontSize: 12 }}>{task.percent}%</span>
                 {/* 🔴 F-FT-25：「速度 · 剩余 hh:mm:ss」。
@@ -1332,6 +1414,9 @@ export function FileTransferPage() {
         )}
         <Filters>
           <Select
+            /* 筛选器没有可见标签（只有下拉本身）⇒ 必须给 aria-label 走 i18n key
+               （§八 8.2：控件要有可读名称，禁裸中文）。UI 审查 M1。 */
+            aria-label={t("history.directionAria")}
             value={historyDirection}
             onChange={(e) => setHistoryDirection(e.target.value as "all" | "send" | "receive")}
           >
@@ -1340,6 +1425,7 @@ export function FileTransferPage() {
             <option value="receive">{t("history.receiveOnly")}</option>
           </Select>
           <Select
+            aria-label={t("history.statusAria")}
             value={historyStatus}
             onChange={(e) => setHistoryStatus(e.target.value as "all" | TransferTaskState)}
           >
@@ -1350,6 +1436,8 @@ export function FileTransferPage() {
             <option value="cancelled">{t("tasks.state.cancelled")}</option>
           </Select>
           <Input
+            /* placeholder 会被输入内容顶掉 ⇒ 名称不能只靠它，补 aria-label（同一条 i18n 键） */
+            aria-label={t("history.search")}
             placeholder={t("history.search")}
             value={historySearch}
             onChange={(e) => setHistorySearch(e.target.value)}
@@ -1387,7 +1475,14 @@ export function FileTransferPage() {
                   {t(entry.kind === "text" ? "history.kindText" : "history.kindFile")}
                 </span>
                 <span style={{ flex: 1, fontSize: 13, minWidth: 0 }}>{entry.fileName}</span>
-                <MonoInput readOnly value={entry.peerLabel} style={{ width: 130 }} />
+                <MonoInput
+                  readOnly
+                  tabIndex={-1}
+                  // 历史表 ⇒ 取 history 段的列名（原先误用 tasks.peer）
+                  aria-label={t("history.col.peer")}
+                  value={entry.peerLabel}
+                  style={{ width: 130 }}
+                />
                 <span style={{ width: 80, fontSize: 12, textAlign: "right" }}>
                   {/* 🔴 F-FT-35：文本条目的大小列显示"共 N 字"，不是字节 */}
                   {entry.kind === "text"
