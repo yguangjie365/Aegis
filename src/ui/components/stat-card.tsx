@@ -100,10 +100,15 @@ const Head = styled.div`
 
 // 🔴 卡内标题用 h3 而非 h2：卡片是 `section`，其标题应低于页面级分区标题（h2），
 // 否则一屏里出现多个 h2 会让读屏的大纲层级失真。
+/* 🔴 15px 不在 §二 12 档阶梯上（2026-10-07 真数据审查 T4）：归 **body-strong 14/700**。
+   取 14 而非 17(h3) 的两条理由：① 与 M6 对 13.5px 的处置同一依据（加粗分区标题 =
+   body-strong 档），② NameRow 是**定高 21px** 行（保四卡名称行同基线），
+   17×1.4=23.8 会顶破该行并被 overflow:hidden 裁掉 —— 14×1.5=21 正好落满。
+   层级仍清楚：14/700 卡标题 vs 12/700 英文缩写 vs 32/700 大数字。 */
 const Title = styled.h3`
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.25;
+  font-size: var(--aegis-type-body-strong-size);
+  font-weight: var(--aegis-type-body-strong-weight);
+  line-height: var(--aegis-type-body-strong-leading);
 `;
 
 const Abbr = styled.span`
@@ -217,8 +222,9 @@ function useValuePulse(value: number | null): boolean {
 }
 
 const Unit = styled.span`
-  font-size: 15px;
-  font-weight: 700;
+  /* 15 → 14（T4，同上）：单位后缀不是独立层级，跟大数字差一档即可。 */
+  font-size: var(--aegis-type-body-strong-size);
+  font-weight: var(--aegis-type-body-strong-weight);
   margin-left: 2px;
   color: var(--aegis-mute);
 `;
@@ -235,6 +241,58 @@ const Degrade = styled.div`
   line-height: 1.4;
   color: var(--aegis-warning);
 `;
+
+/* ── 失败态占位卡（2026-10-06 UI 审查 m2）────────────────────────────── */
+
+/**
+ * 卡内占位条。🔴 **不做扫光**：失败态下它表达的是「这一格本该是一张卡」，
+ * 会动的条子等于谎称还在加载（与 `LoadingSkeleton busy={false}` 同一口径）。
+ */
+const Slot = styled.div<{ w: string; h: number }>`
+  height: ${(p) => p.h}px;
+  width: ${(p) => p.w};
+  border-radius: var(--aegis-radius-sm);
+  background: var(--aegis-surface-inset);
+`;
+
+/**
+ * 失败态保留的**四卡轮廓**之一：与 `StatCard` 同一个 `Frame`、同一批定高行，
+ * 因此整屏版式不会因为一次采集失败而塌陷重排（下方 700px 空白比错误信息更抢眼）。
+ *
+ * 🔴 高度逐行取自**真实行的声明**而非量 rect（本机 150% 缩放下 rect 有 1/3px 抖动）：
+ * Head 22 + NameRow 21 + Model 36 + UsageRow 36 + 占用条 6 + Detail 17 = 138，
+ * 加 5 段 gap 8 = 178，再加 padding 32 与上下边框 2 ⇒ **212px**。
+ * （2026-10-07 T7 前是 233：占用条下还挂着一行重复说明，那行已删。
+ * 真数据下实测真卡与本件**同高**，这是这条推导的验收方式。）
+ *
+ * 🔴 为什么只在**失败态**出现、加载态不出现：本页是启动首屏，用户裁决「第一眼不能是
+ * 加载态」（见 `pages/overview-page.tsx` 的 BootPlaceholder），那条纪律不受本件影响。
+ */
+export function StatCardSlot() {
+  return (
+    <Frame aria-hidden="true">
+      <Head>
+        <Slot w="64px" h={20} />
+      </Head>
+      <NameRow>
+        <Slot w="72px" h={16} />
+        <Slot w="24px" h={12} />
+      </NameRow>
+      <Model>
+        <Slot w="86%" h={14} />
+      </Model>
+      <UsageRow>
+        <Slot w="48px" h={14} />
+        <Slot w="64px" h={26} />
+      </UsageRow>
+      {/* 占用条：只剩轨道（与 SegBar 同高 6px），说明行已随 T7 删除 */}
+      <Slot w="100%" h={6} />
+      <Detail>
+        <Slot w="70%" h={12} />
+      </Detail>
+    </Frame>
+  );
+}
 
 // 🔴 单源：R-07 三级回退的"顶位的是温度还是占用"判定，界面（本组件）与 F-11 导出报告共用。
 // 二者都必须走这里，否则会出现"界面上是 88℃、报告里写成 88%"这类凭空造数（R-08）。

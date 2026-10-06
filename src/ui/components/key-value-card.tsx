@@ -47,7 +47,13 @@ const Row = styled.div`
 `;
 
 const Value = styled.span<{ $missing?: boolean }>`
-  color: ${(props) => (props.$missing ? "var(--aegis-stone)" : "var(--aegis-ink)")};
+  /* 🔴 缺证据的行值用 mute，不用 stone（2026-10-07 真数据审查 T3）：
+     stone #6e6e6e 对 canvas #131313 实测 **3.64:1**，14px 正文不达 4.5:1，
+     而 §六 #6 早已把 stone 降级为 **UI-only**（只给图标/边框）。
+     这一行在浏览器预览里永远拍不到（要后端回"该硬件无读数"才显示），
+     所以前九批漏了它 —— 真数据下每张详情卡都有 1~2 处。
+     mute 仍保留"比真值弱一级"的层级（ink #e8e8e8 → mute #9a9a9a = 6.60:1 ✅）。 */
+  color: ${(props) => (props.$missing ? "var(--aegis-mute)" : "var(--aegis-ink)")};
   font-size: var(--aegis-type-body-size);
   font-weight: 700;
   font-family: var(--font-mono);

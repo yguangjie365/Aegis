@@ -15,7 +15,7 @@ import { useLayoutEffect, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import styled from "@emotion/styled";
-import { SHELL_MODULES } from "./modules";
+import { matchModule } from "./modules";
 
 /* ── 页面注册契约 ────────────────────────────────────────────────────────────
  * 页面在渲染时调 useRegisterBrand({ sub, actions }) 上报自己的副标题与动作。
@@ -60,6 +60,19 @@ export function useRegisterBrand(route: string, content: BrandContent): void {
     current = { title: nextTitle, sub: nextSub, actions: nextActions };
     currentOwner = route;
     publish();
+    /* 🔴 2026-10-06（代码审查 #6）：卸载时清场 —— 防「同路由换实例」的间隙里
+       消费侧读到上一实例的陈旧 sub/actions（owns 校验只看路由，路由没变拦不住：
+       如 Suspense 挂起、懒挂载重来）。清场只认自己的登记（currentOwner === route）：
+       若同一次 commit 里新实例已抢先注册，则不动，避免误删后来者。
+       ⚠️ 调用方须 memo 动作节点（现状全部 memo）—— 否则内容一变就是
+       clear → set 两次 publish；虽同在 layout 相位无可见闪烁，但纯属白开销。 */
+    return () => {
+      if (currentOwner === route) {
+        current = {};
+        currentOwner = "";
+        publish();
+      }
+    };
   }, [nextTitle, nextSub, nextActions, route]);
 }
 
@@ -147,11 +160,22 @@ const Sub = styled.div`
   text-overflow: ellipsis;
 `;
 
+/* 🔴 动作槽 = 间距的**唯一**声明处（2026-10-06 用户裁决：品牌区按钮高度与间距统一）。
+   统一后的契约（规范 §三 brand-bar 行）：
+     · 可点控件恒 sm 档 **h=28**（AppButton size=sm 与 Chakra Button size=sm 都被
+       令牌层锁在 28，见 theme.ts controlSizes）；非按钮项（状态点 / 徽章）恒 **h=24**。
+     · 项间距恒 **12 = --aegis-space-md**，**页面不得再自带带 gap 的包装容器** ——
+       此前 Overview 的 HeadTools 是 12、FileBackup 的 BrandActions 是 8，同一排两套节奏。
+       页面要传就传 Fragment（或单个不带 gap 的元素），让本容器直接持有那些项。
+   🔴 flex-wrap 必须 **nowrap**（原写在 FileBackup 的包装层里，现上收到这里，
+     因为包装层已删）：本条带是 **72px 定值**高且 `flex:none`，动作换行 =
+     28+8+28 = 64 另起一行 ⇒ 直接顶穿 72。迁进品牌区前它在页头 wrap 是无害的。 */
 const Acts = styled.div`
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: var(--aegis-space-sm);
+  gap: var(--aegis-space-md);
+  flex-wrap: nowrap;
   flex: none;
 `;
 
@@ -162,7 +186,19 @@ const Acts = styled.div`
    壳层在这里挂空容器并给出稳定 id，复刻域用 `createPortal` 把内容投进去。
    为什么这不违反 TS6307：复刻域只依赖 **react-dom**（第三方）与 **字符串 id**，
    不 import 任何本仓文件 ⇒ 类型系统看不到跨域依赖。
-   ⚠️ 槽位必须**无条件渲染**（哪怕没有注册者），否则复刻域投不进来。
+   🔴🔴 2026-10-06（代码审查 #3，用户裁定）：原口径「槽位**无条件渲染**（哪怕没有
+      注册者）、两路靠纪律不并投」作废，改为**结构排斥** —— 槽位 id 只在 hook 路径
+      **未产出**时进 DOM（BrandBar 里 hasSub / hasActs 派生）⇒
+      **槽位 id 的存在性即互斥信号**：复刻域 getElementById 命中 ⟺ hook 无内容，
+      同页双源重叠在结构上不可能。
+      🔴 冲突时的**降级方向（写死，勿再推敲）**：hook 优先 —— hook 有产出 ⇒ 槽位缺席
+         ⇒ 复刻域 getElementById 取空 ⇒ **portal 投递静默失败、不报警**（复刻域无法
+         import 壳层，告警无处可去）。取不到槽位 = **预期行为**，不是 bug、不要去"修"。
+      ⚠️ 边界（明确不支持）：同页 hook + portal 混投（如 hook 出 actions、portal 投
+         sub）—— 判为不支持；复刻域路由永远无 hook 内容 ⇒ 可用性不受影响。
+         将来若确有需求，再设计显式优先级，现在不留模糊兼容窗口。
+      ⚠️ 契约传递：复刻域读不到本文件（TS6307）⇒ 上述降级方向必须抄送在
+         `features/MusicManager/pages/MusicPage.tsx` 的 portal 通道注释处，两边同步改。
    🔴🔴 **不能用 `display: contents`** —— 实测浏览器会把它的子节点**提升到父级**，
       于是 `slot.children.length === 0`，DOM 上看不到投进来的内容（而 React 认为已挂载），
       表现为「品牌区右侧空着、内容却在页内」。改用 flex + 空时塌陷。
@@ -173,7 +209,9 @@ const PortalSlot = styled.div`
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: var(--aegis-space-sm);
+  /* 🔴 与 Acts 同值（2026-10-06 统一）：复刻域投进来的项和页面注册的项走同一节奏。 */
+  gap: var(--aegis-space-md);
+  flex-wrap: nowrap;
   flex: none;
 
   /* 无内容时完全塌陷（不留 20px 空白）：:empty 只在**真的没有子节点**时命中，
@@ -212,8 +250,8 @@ export function BrandBar() {
   const { pathname } = useLocation();
   const { content: brand, owner } = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  // 主标题优先用页面注册值（404 等不在模块表里的路由），否则从模块表按路由派生
-  const mod = SHELL_MODULES.find((m) => m.route === pathname);
+  // 主标题优先用页面注册值（404 等不在模块表里的路由），否则按路由派生（子路由继承父模块）
+  const mod = matchModule(pathname);
   const title = brand.title ?? (mod ? t(mod.nameKey) : "");
 
   /* 🔴🔴 2026-10-05 修复「品牌区串页」——**漏注册页面会显示上一页的副标题与动作**。
@@ -232,20 +270,24 @@ export function BrandBar() {
    */
   const owns = owner === pathname;
 
+  /* 🔴 互斥门（2026-10-06 代码审查 #3）：hook 路径有内容时**槽位 id 不进 DOM**。
+     两路若同时渲染会出现两份副标题 / 两组动作；「谁是唯一渲染者」现由结构承担 ——
+     **槽位 id 的存在性即互斥信号**（复刻域 getElementById 命中 = hook 无内容）。 */
+  const hasSub = owns && !!brand.sub;
+  const hasActs = owns && !!brand.actions;
+
   return (
     <Bar>
       <TextCol>
         <Title>{title}</Title>
-        {owns && brand.sub ? <Sub>{brand.sub}</Sub> : null}
-        {/* 🔴 副标题位 portal 槽（供复刻域投副标题）。样式与 Sub 同构 ⇒ 视觉一致。
+        {hasSub ? <Sub>{brand.sub}</Sub> : null}
+        {/* 🔴 副标题位 portal 槽（供复刻域投副标题，**仅 hasSub=false 时渲染**）。样式与 Sub 同构。
             ⚠️ 副标题**只能**放这里；放进右侧动作位会变成「与平台标签并排」，违反规范。 */}
-        <PortalSubSlot id={BRAND_SUB_PORTAL_ID} />
+        {!hasSub ? <PortalSubSlot id={BRAND_SUB_PORTAL_ID} /> : null}
       </TextCol>
-      {owns && brand.actions ? <Acts>{brand.actions}</Acts> : null}
-      {/* 🔴 portal 槽位（见 PortalSlot 注释）：供音乐管理等**复刻域**注入品牌区内容。
-          槽位自带 margin-left:auto；只有它与 Acts **同时**存在时需特殊处理
-          （见下方 style 规则），否则两个 auto 会平分剩余空间、间距错乱。 */}
-      <PortalSlot id={BRAND_PORTAL_ID} />
+      {hasActs ? <Acts>{brand.actions}</Acts> : null}
+      {/* 🔴 actions 位 portal 槽（**仅 hasActs=false 时渲染**；互斥契约见 PortalSlot 注释）。 */}
+      {!hasActs ? <PortalSlot id={BRAND_PORTAL_ID} /> : null}
     </Bar>
   );
 }

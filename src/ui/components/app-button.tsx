@@ -76,12 +76,15 @@ export const AppButton = styled.button<{ variant: ButtonVariant; size?: "md" | "
   ${(p) =>
     p.variant === "danger" &&
     `
-    background: var(--aegis-error);
+    /* 🔴 底色用 error-fill 而非 error（2026-10-06 UI 审查批次②）：单令牌在数学上无解 ——
+       error 必须留在「错误文字色」岗位（#ff5c5c 是为可读性从 #e52020 提亮来的），
+       而白字压在 #ff5c5c 上实测仅 3.03:1 不达 4.5。证明见 tokens.ts COLOR_TOKEN_KEYS。 */
+    background: var(--aegis-error-fill);
     color: var(--aegis-on-dark);
-    &:hover { background: color-mix(in srgb, var(--aegis-error) 88%, var(--aegis-ink)); }
-    /* 🔴 按下态由 error 令牌压深派生（2026-10-04 审查一般 7）：此前写死 #650b0b，
-       与 :52 的 var(--aegis-error) 是两套色值，改主题必漂。 */
-    &:active { background: color-mix(in srgb, var(--aegis-error) 62%, var(--aegis-ink)); }
+    &:hover { background: color-mix(in srgb, var(--aegis-error-fill) 88%, var(--aegis-ink)); }
+    /* 🔴 按下态由底色令牌压深派生（2026-10-04 审查一般 7）：此前写死 #650b0b，
+       与上方 background 是两套色值，改主题必漂。 */
+    &:active { background: color-mix(in srgb, var(--aegis-error-fill) 62%, var(--aegis-ink)); }
   `}
   &:disabled {
     background: var(--aegis-surface-soft);

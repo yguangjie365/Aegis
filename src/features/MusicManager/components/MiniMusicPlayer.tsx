@@ -67,7 +67,7 @@ export function MiniMusicPlayer() {
             p={1}
             /* 🔴 原来整个胶囊挂 animation: spin-slow 8s linear infinite，
                而 **spin-slow 这个 @keyframes 全项目不存在**（只有 aegis-live-pulse /
-               aegis-card-enter / aegis-nav-bloom 等）⇒ 浏览器静默忽略、唱片不转。
+               aegis-card-enter / aegis-nav-wave-mid 等）⇒ 浏览器静默忽略、唱片不转。
                且**整个胶囊旋转**本身就是错的（停止按钮会跟着转）。
                现改为只让**封面**旋转，且 keyframes 就地定义（沿用 MusicPage 的
                `sx: { "@keyframes x": {...} }` 惯例，见 MusicPage.tsx:382）。 */

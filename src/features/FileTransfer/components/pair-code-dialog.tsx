@@ -20,7 +20,8 @@ export const PAIR_CODE_LENGTH = 6;
 const Scrim = styled.div`
   position: fixed;
   inset: 0;
-  background: rgba(31, 36, 48, 0.28);
+  /* 遮罩恒 rgba(0,0,0,.55)（§三 dialog 行）。原 31,36,48/.28 是契约外色值（UI 审查 M6）。 */
+  background: rgba(0, 0, 0, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -30,16 +31,20 @@ const Scrim = styled.div`
 const Box = styled.div`
   width: 412px;
   background: var(--aegis-canvas);
-  border: 1px solid var(--aegis-border-strong);
+  border: 1px solid var(--aegis-border-interactive);
   border-radius: var(--aegis-radius-sm);
-  box-shadow: 0 10px 34px rgba(31, 36, 48, 0.2);
+  /* 弹层阴影走 elevation 契约里唯一允许的那一档 sticky（§二 / §一 #3）。
+     原 0 10px 34px rgba(31,36,48,.2) 是契约外第四档（UI 审查 M6）。 */
+  box-shadow: var(--aegis-elevation-sticky);
   overflow: hidden;
 `;
 
 const Head = styled.div`
   padding: var(--aegis-space-md) var(--aegis-space-lg) 0;
   font-weight: 700;
-  font-size: 13.5px;
+  /* 13.5 不在 §二 12 档阶梯上（半档值）。按**语义**归位而非数值就近：
+     这是一行加粗分区标题 ⇒ body-strong（14/700）。UI 审查 M6。 */
+  font-size: var(--aegis-type-body-size);
 `;
 
 const Body = styled.div`
@@ -52,9 +57,14 @@ const CodeInput = styled.input`
   width: 168px;
   letter-spacing: 0.34em;
   font-family: var(--font-mono);
-  font-size: 19px;
+  /* 19 不在阶梯上 ⇒ 归 h2（20）。配对码是全屏唯一需要被读准的一串字符，
+     取**上一档**而不是下一档（§一 #5 密度让位于可读性，此处只此一处理由成立）。 */
+  font-size: var(--aegis-type-h2-size);
   padding: 7px 10px;
-  border: 1px solid var(--aegis-border-strong);
+  /* 🔴 2026-10-06 批次③：原写 var(--aegis-border-strong) —— 该令牌**从未定义**。
+     未定义的自定义属性令 border 在 computed-value 阶段失效，浏览器静默回退到
+     currentColor（即文字色），故边框"看起来有"但实际随文字色漂移、不参与换包。 */
+  border: 1px solid var(--aegis-border-interactive);
   border-radius: var(--aegis-radius-sm);
   background: var(--aegis-surface-soft);
   color: var(--aegis-ink);
@@ -85,7 +95,8 @@ const Foot = styled.div`
 `;
 
 const ErrorLine = styled.div`
-  color: #b3402a;
+  /* 错误文字恒走 error 令牌；原写死 #b3402a 在 canvas 上仅 3.26:1，不达 4.5（§六、M6）。 */
+  color: var(--aegis-error);
   font-size: 12px;
   margin-top: var(--aegis-space-sm);
 `;

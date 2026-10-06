@@ -9,6 +9,10 @@ const Wrap = styled.span`
   display: inline-flex;
   align-items: center;
   gap: var(--aegis-space-xs);
+  /* 🔴 24 = 品牌区**非按钮项**档高（规范 §三 brand-bar 行：按钮 h=28 / 徽章与状态点 h=24）。
+     原值 18 是 12px 文字自然行高，与同行的 24 徽章、28 按钮三种高度并存 ⇒ 同一排三种基线。
+     只撑行盒高，点（8px）与字号都不动。 */
+  height: 24px;
   font-size: 12px;
   color: var(--aegis-mute);
   white-space: nowrap;

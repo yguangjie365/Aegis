@@ -30,14 +30,31 @@ import {
 } from "@chakra-ui/react";
 import { AlertTriangle, Check, Eye, EyeOff, KeyRound, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { invoke } from "@/lib/tauri/invoke";
+import { FailureDetail, failureDetail, failureReason } from "@/ui/components/failure-detail";
 import { steamDirFor, type SteamApiKeyStatus } from "@/features/Settings/lib/steam-dir";
+
+/**
+ * 🔴 Chakra `Button` 的默认字重是 **600**，而 §一.4 只允许 400/700 两档（真数据审查 T5）。
+ * 不在主题层改：`theme.components.Button.baseStyle` 会连带命中**复刻域约 116 处** Chakra 按钮，
+ * 而「复刻域视觉语系整体让位 NexBox」是 2026-10-07 的用户裁决（规范 §一 #1 例外条款）。
+ * 也不换成 AppButton：本文件 4 个按钮里 3 个用了 `isLoading`，换过去会丢加载态。
+ * 彻底修法挂 §八 C4「AppButton 与 Chakra Button 收敛为单一实现」。
+ */
+const BTN_WEIGHT = 700;
 
 type StatusState =
   | { phase: "loading" }
   | { phase: "ready"; status: SteamApiKeyStatus }
-  | { phase: "error"; message: string };
+  /**
+   * 🔴 两段拆开（2026-10-06 UI 审查 D7）：`message` 是给用户读的原因，
+   * `detail` 是收进「详情」折叠的技术标识（后端命令名），没有则为 null。
+   * 存字符串而不是存 error：本组件还有「未安装 Steam」这一**非异常**错误来源，
+   * 它没有 error 对象，硬造一个反而假。
+   */
+  | { phase: "error"; message: string; detail: string | null };
 
 export function SteamApiKeySection() {
   const [state, setState] = useState<StatusState>({ phase: "loading" });
@@ -47,6 +64,9 @@ export function SteamApiKeySection() {
   const [testing, setTesting] = useState(false);
   const [flash, setFlash] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  /* 🔴 本区文案全部走 i18n（2026-10-06 UI 审查 M9）：原先整段硬编码中文、
+     也没有 settings 命名空间 ⇒ 该区换不了语言，纯图标按钮的 aria-label 也是裸中文。 */
+  const { t } = useTranslation("settings");
 
   /* 深色分支（2026-10-05 令牌化）：原为 #1a1a1a / #333333 / #a0a0a0 三个裸值。
    * 前者与 canvas #0d0d0d 的层级差靠记忆维持、后两者在 canvas 上仅 1.54:1（装饰线豁免）
@@ -63,7 +83,8 @@ export function SteamApiKeySection() {
       if (!dir) {
         setState({
           phase: "error",
-          message: "本机未检测到 Steam 客户端，无法配置在线库存。",
+          message: t("steam.noClientLong"),
+          detail: null,
         });
         return;
       }
@@ -75,9 +96,9 @@ export function SteamApiKeySection() {
       );
       setState({ phase: "ready", status });
     } catch (e) {
-      setState({ phase: "error", message: e instanceof Error ? e.message : String(e) });
+      setState({ phase: "error", message: failureReason(e), detail: failureDetail(e) });
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -90,7 +111,7 @@ export function SteamApiKeySection() {
       try {
         const dir = await steamDirFor();
         if (!dir) {
-          setFlash({ kind: "err", text: "本机未检测到 Steam 客户端" });
+          setFlash({ kind: "err", text: t("steam.noClient") });
           return;
         }
         await invoke("steam_save_api_key", "Steam", "SaveApiKey", {
@@ -101,7 +122,7 @@ export function SteamApiKeySection() {
         setRevealed(false);
         setFlash({
           kind: "ok",
-          text: key.trim() ? "API Key 已保存" : "API Key 已清除",
+          text: key.trim() ? t("steam.saved") : t("steam.cleared"),
         });
         await load();
       } catch (e) {
@@ -110,7 +131,7 @@ export function SteamApiKeySection() {
         setSaving(false);
       }
     },
-    [load],
+    [load, t],
   );
 
   /** 测试连接：直接调在线库存命令，失败原因原样透出（不美化、不吞错） */
@@ -120,7 +141,7 @@ export function SteamApiKeySection() {
     try {
       const dir = await steamDirFor();
       if (!dir) {
-        setFlash({ kind: "err", text: "本机未检测到 Steam 客户端" });
+        setFlash({ kind: "err", text: t("steam.noClient") });
         return;
       }
       const res = await invoke<{ source: string; total: number; error: string | null }>(
@@ -130,16 +151,18 @@ export function SteamApiKeySection() {
         { steamDir: dir },
       );
       if (res.source === "online") {
-        setFlash({ kind: "ok", text: `连接成功，账号共拥有 ${res.total} 款游戏` });
+        setFlash({ kind: "ok", text: t("steam.testOk", { count: res.total }) });
       } else {
-        setFlash({ kind: "err", text: res.error ?? "在线库存获取失败" });
+        setFlash({ kind: "err", text: res.error ?? t("steam.testFail") });
       }
     } catch (e) {
-      setFlash({ kind: "err", text: e instanceof Error ? e.message : String(e) });
+      /* 🔴 单行 flash 没有展开的地方，故只给人话原因（命令名由 invoke 的 JSONL 日志
+         留痕，action=FetchInventoryOnline）—— 与主线同口径，UI 审查 D7。 */
+      setFlash({ kind: "err", text: failureReason(e) });
     } finally {
       setTesting(false);
     }
-  }, []);
+  }, [t]);
 
   return (
     <Box
@@ -150,26 +173,26 @@ export function SteamApiKeySection() {
       p="lg"
     >
       <HStack spacing="sm" mb={1}>
-        <KeyRound size={16} color="var(--aegis-accent)" aria-hidden />
+        <KeyRound size={16} strokeWidth={1.5} color="var(--aegis-accent)" aria-hidden />
         <Text fontSize="14" fontWeight={700}>
-          Steam 在线库存
+          {t("steam.title")}
         </Text>
       </HStack>
       <Text fontSize="12" color={subText} mb="md">
-        填写 Steam Web API Key 后，游戏管理页可显示「账号拥有的全部游戏」（含从未在本机安装的）。
-        未配置时该区显示本机缓存数据，功能其余部分不受影响。
+        {t("steam.intro")}
       </Text>
 
       {state.phase === "loading" && (
         <HStack spacing="xs" color={subText} fontSize="12">
-          <Loader2 size={14} className="spin" aria-hidden />
-          正在读取配置状态…
+          <Loader2 size={14} strokeWidth={1.5} className="spin" aria-hidden />
+          {t("steam.loading")}
         </HStack>
       )}
 
       {state.phase === "error" && (
         <HStack
           spacing="xs"
+          wrap="wrap"
           fontSize="12"
           color="var(--aegis-error)"
           p="sm"
@@ -177,8 +200,11 @@ export function SteamApiKeySection() {
           borderColor="var(--aegis-error)"
           borderRadius="var(--aegis-radius-sm)"
         >
-          <AlertTriangle size={14} aria-hidden />
+          <AlertTriangle size={14} strokeWidth={1.5} aria-hidden />
           <Text>{state.message}</Text>
+          {/* 🔴 命令名 get_steam_install_info 收进折叠（UI 审查 D7）；wrap 让它展开时
+              另起一行，而不是把本行的图标与文字挤成竖排。 */}
+          <FailureDetail detail={state.detail} />
         </HStack>
       )}
 
@@ -188,19 +214,19 @@ export function SteamApiKeySection() {
           <HStack spacing="sm" fontSize="12" flexWrap="wrap">
             {state.status.configured ? (
               <HStack spacing="xs" color="var(--aegis-success)" fontWeight={700}>
-                <Check size={14} aria-hidden />
-                <Text>已配置</Text>
+                <Check size={14} strokeWidth={1.5} aria-hidden />
+                <Text>{t("steam.configured")}</Text>
               </HStack>
             ) : (
               <HStack spacing="xs" color={subText} fontWeight={700}>
-                <X size={14} aria-hidden />
-                <Text>未配置</Text>
+                <X size={14} strokeWidth={1.5} aria-hidden />
+                <Text>{t("steam.notConfigured")}</Text>
               </HStack>
             )}
 
             {state.status.account_name && (
               <Text color={subText}>
-                当前账号：{state.status.account_name}
+                {t("steam.currentAccount", { name: state.status.account_name })}
                 {state.status.steam_id64 ? `（${state.status.steam_id64}）` : ""}
               </Text>
             )}
@@ -217,9 +243,7 @@ export function SteamApiKeySection() {
               size="sm"
               type={revealed ? "text" : "password"}
               placeholder={
-                state.status.configured
-                  ? "已配置；输入新值可覆盖，留空并点「清除」可删除"
-                  : "粘贴 32 位 Steam Web API Key"
+                state.status.configured ? t("steam.keyHintConfigured") : t("steam.keyHintEmpty")
               }
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -229,21 +253,27 @@ export function SteamApiKeySection() {
             />
             <Button
               size="sm"
+              fontWeight={BTN_WEIGHT}
               variant="outline"
-              aria-label={revealed ? "隐藏" : "显示"}
+              aria-label={revealed ? t("steam.hide") : t("steam.show")}
               onClick={() => setRevealed((v) => !v)}
               flex="none"
             >
-              {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
+              {revealed ? (
+                <EyeOff size={14} strokeWidth={1.5} aria-hidden="true" />
+              ) : (
+                <Eye size={14} strokeWidth={1.5} aria-hidden="true" />
+              )}
             </Button>
             <Button
               size="sm"
+              fontWeight={BTN_WEIGHT}
               onClick={() => void save(draft)}
               isLoading={saving}
               isDisabled={draft.trim() === ""}
               flex="none"
             >
-              保存
+              {t("steam.save")}
             </Button>
           </HStack>
 
@@ -251,24 +281,26 @@ export function SteamApiKeySection() {
           <Flex align="center" gap="sm" flexWrap="wrap">
             <Button
               size="sm"
+              fontWeight={BTN_WEIGHT}
               variant="outline"
               onClick={() => void test()}
               isLoading={testing}
               isDisabled={!state.status.configured}
               flex="none"
             >
-              测试连接
+              {t("steam.test")}
             </Button>
             {state.status.configured && (
               <Button
                 size="sm"
+                fontWeight={BTN_WEIGHT}
                 variant="ghost"
                 color="var(--aegis-error)"
                 onClick={() => void save("")}
                 isLoading={saving}
                 flex="none"
               >
-                清除
+                {t("steam.clear")}
               </Button>
             )}
 
@@ -284,9 +316,7 @@ export function SteamApiKeySection() {
           </Flex>
 
           <Text fontSize="11" color={subText}>
-            获取方式：登录 Steam → 访问 store.steampowered.com/account/api/apikeys → 生成新 Key。Key
-            属公开客户端凭据，本项目明文存于 Steam 目录下的 aegis_steam_api_key.txt（写入前自动备份
-            .bak）。
+            {t("steam.howTo")}
           </Text>
         </VStack>
       )}

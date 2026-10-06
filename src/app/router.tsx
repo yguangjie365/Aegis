@@ -13,6 +13,8 @@ import SteamPage from "@/features/GameManager/pages/SteamPage";
 import SettingsPage from "@/features/Settings/pages/settings-page";
 // M-05 文件互传片1（2026-10-04）：电脑↔电脑通道页面骨架
 import { FileTransferPage } from "@/features/FileTransfer/pages/file-transfer-page";
+// M-06 文件备份（2026-10-05）：左栏规则 + 右栏快照 + 恢复向导
+import { FileBackupPage } from "@/features/FileBackup/pages/file-backup-page";
 
 // 路由由模块注册表派生（W1-06）：未注册 = 404，与导航缺失同源。
 // 各 M-xx 开工时逐模块在 PAGE_OVERRIDES 登记真实页，未登记者继续落 ModulePlaceholder。
@@ -25,6 +27,8 @@ const PAGE_OVERRIDES: Record<string, ReactElement> = {
   settings: <SettingsPage />,
   // M-05 文件互传片1（2026-10-04）：页面骨架 + 空态；命令面随后端协议批落地
   "file-transfer": <FileTransferPage />,
+  // M-06 文件备份（2026-10-05）：规则 CRUD / 立即备份 / 快照校验 / 恢复向导
+  "file-backup": <FileBackupPage />,
 };
 
 export const router = createBrowserRouter([

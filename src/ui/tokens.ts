@@ -1,6 +1,8 @@
 // 设计令牌唯一事实源 —— 键集与《02-专题设计/03-UI设计规范.md》§二逐一对应
-// 覆盖基数：colors 24 + typography 12 + spacing 7 + rounded 3 + elevation 3 + motion 10 = 59 key
+// 覆盖基数：colors 25 + typography 12 + spacing 7 + rounded 3 + elevation 3 + motion 10 = 60 key
 // （2026-10-04 新增 focus-ring ⇒ colors 由 23 变 24；总数由 58 变 59）
+// （2026-10-06 新增 error-fill ⇒ colors 由 24 变 25；总数由 59 变 60。原因见 COLOR_TOKEN_KEYS 内注释：
+//   danger 按钮「白字≥4.5」与「同色做错误文字≥4.5」两条门禁交集为空，单令牌无解）
 // 增删任何 key：先改规范 §二 与计数，再改本文件（规范 §五 红线）。
 //
 // 🔴 **motion 为第六维**（用户裁决 2026-10-04）：此前动效参数（时长/缓动）是裸值，
@@ -37,6 +39,13 @@ export const COLOR_TOKEN_KEYS = [
   "warning",
   "warning-bright",
   "error",
+  // 🆕 error-fill（2026-10-06 UI 审查批次②）：**只给 danger 按钮当底色**，文字恒 `on-dark`。
+  // 为什么不能复用 `error` —— 单令牌在数学上无解（Dark 包实测）：
+  //   ① 白字 ≥4.5 ⇒ 底色相对亮度 ≤ 0.1833
+  //   ② 同色做错误**文字**压在 canvas(#131313, 0.0065) 上 ≥4.5 ⇒ 相对亮度 ≥ 0.2034
+  //   0.1833 < 0.2034 ⇒ 两个约束的交集为空。`error` 必须继续做文字色（它当初就是
+  //   为了文字可读才从 #e52020 提亮到 #ff5c5c），底色另开一键。
+  "error-fill",
   "link",
 ] as const;
 export type ColorToken = (typeof COLOR_TOKEN_KEYS)[number];
@@ -196,6 +205,8 @@ export const nvidiaLight: ThemePack = {
     warning: "#9a4d00", // 6.11:1 深橙（文字安全档）
     "warning-bright": "#ef9100", // 2.41:1 ❌ **禁用于浅底文字**（仅限图形/深底上）
     error: "#d41b1b", // 5.29:1 / surface-soft 4.94:1（原 #e52020 为 4.61 / 4.30，压线）
+    // danger 按钮底色：本包 `error` 与 `error-fill` 同值即自洽（白字 5.27:1 ✅）
+    "error-fill": "#d41b1b",
     link: "#0046a4", // 8.71:1 链接
   },
   typography: {
@@ -341,6 +352,11 @@ export const nvidiaDark: ThemePack = {
     warning: "#ef9100", // 8.07
     "warning-bright": "#ef9100", // 8.07 — 与 warning 同值（单主题下不再有「浅色面」场景）
     error: "#ff5c5c", // 6.42 (canvas) / 5.63 (surface-soft) — 🔴 由 #e52020 提亮
+    // 🔴 2026-10-06 实测：`on-dark`(#fff) 压在 `error`(#ff5c5c) 上仅 **3.03:1**，
+    //    danger 按钮的文字因此不达 4.5 —— 但 `error` 不能压深（它同时是错误文字色，
+    //    见 COLOR_TOKEN_KEYS 里 error-fill 的无解证明）。故底色另给一档。
+    //    #d41b1b：白字 **5.27:1** ✅；作 UI 色压在 canvas 上 3.52:1 ✅（非文本门槛 3:1）。
+    "error-fill": "#d41b1b",
     link: "#6cb0ff", // 8.22 (canvas) / 7.29 (surface-soft)
   },
   // typography / spacing / rounded / motion 是**结构维度**，与主题模态无关（字号、间距、

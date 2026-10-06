@@ -76,14 +76,22 @@ export const DataTable = styled.table`
   table-layout: fixed;
 `;
 
-/** 表头行：`1px` 而非 `2px` 描边 —— 2px 在密集表格里会压过数据本身。 */
+/**
+ * 表头行：`1px` 而非 `2px` 描边 —— 2px 在密集表格里会压过数据本身。
+ *
+ * 🔴 2026-10-06 规范对齐（用户裁决「改共享组件，全站生效」）：行高对齐规范 §三
+ *   `table` 的 **36px**。此前 padding 是 `space-xs`(4) ⇒ 行高仅 29px，
+ *   密集表格读起来发挤。改成 `space-sm`(8) 上下 + body 行高 21 ≈ **37px**。
+ *   ⚠️ 规范同条要求的「列头 caption 大写化」在**中文语境不适用**（无 case 之分），
+ *   层级改由 `font-weight: 700` + caption 字号承担，此处不写 `text-transform`。
+ */
 export const Thead = styled.thead`
   border-bottom: 1px solid var(--aegis-border-interactive);
 `;
 
 export const Th = styled.th<{ $width?: string; $numeric?: boolean }>`
   text-align: ${(p) => (p.$numeric ? "right" : "left")};
-  padding: var(--aegis-space-xs) var(--aegis-space-sm);
+  padding: var(--aegis-space-sm) var(--aegis-space-md);
   color: var(--aegis-mute);
   font-size: var(--aegis-type-caption-size);
   font-weight: 700;
@@ -92,6 +100,13 @@ export const Th = styled.th<{ $width?: string; $numeric?: boolean }>`
   ${(p) => p.$width && `width: ${p.$width};`}
 `;
 
+/**
+ * 斑马行（规范 §三 `table`：「斑马行 surface-soft」）。
+ *
+ * 🔴 用 `:nth-of-type(even)` 而不是 `:nth-child(even)`：表体里若混入
+ *   `<caption>` 或其他非 `tr` 元素，`nth-child` 的奇偶会错位。
+ *   只作用于 `body > tr`（`tbody tr`）⇒ 表头行永不被染。
+ */
 export const Tbody = styled.tbody`
   tr {
     border-bottom: 1px solid var(--aegis-hairline);
@@ -100,10 +115,14 @@ export const Tbody = styled.tbody`
       border-bottom: none;
     }
   }
+
+  tr:nth-of-type(even) {
+    background: var(--aegis-surface-soft);
+  }
 `;
 
 export const Td = styled.td<{ $numeric?: boolean; $title?: string }>`
-  padding: var(--aegis-space-xs) var(--aegis-space-sm);
+  padding: var(--aegis-space-sm) var(--aegis-space-md);
   color: var(--aegis-ink);
   white-space: nowrap;
   overflow: hidden;
@@ -121,8 +140,33 @@ export const Td = styled.td<{ $numeric?: boolean; $title?: string }>`
  * `@keyframes` 定义在本文件（全局 `theme.ts` 只管 transition/animation 的降级，
  * 不该塞组件级关键帧）。
  */
-export const Tr = styled.tr<{ $pulse?: boolean }>`
-  animation: ${(p) => (p.$pulse ? "aegis-row-settle 1.6s ease-out" : "none")};
+export const Tr = styled.tr<{ $pulse?: boolean; $selected?: boolean }>`
+  /* 时长 1.6s 属组件私有编舞（D2 豁免），但**缓动必须取令牌** ——
+     原写裸 ease-out：§二 的 decelerate 档就是 ease-out 的契约化写法（进入/落位先快后慢）。
+     2026-10-06 UI 审查 D2。⚠️ 本注释在模板字符串内，禁写反引号（会报 TS1005）。 */
+  animation: ${(p) =>
+    p.$pulse ? "aegis-row-settle 1.6s var(--aegis-motion-easing-decelerate)" : "none"};
+
+  /* 🔴 规范 §三 table：「**选中行**：左侧 2px accent-strong 竖条 +
+   *   border-interactive 描边（不得只靠 8% 底色）」。
+   *   用 border-left 而**不用 box-shadow inset** —— 规范 §一.3 明确
+   *   「层次靠发丝线与字重，**不靠阴影**」，而内嵌阴影在 token 审计里
+   *   与真阴影同源；border 是真边框，且 table-layout: fixed 下
+   *   只吃掉首列 2px，不会让列宽跑偏。
+   *   🔴 本注释刻意不含反引号：它在 emotion 模板串里，反引号会**终止模板串**
+   *      （tsc 报 TS1005）—— 今天已在同一处栽了第三次。 */
+  ${(p) =>
+    p.$selected &&
+    `
+    td:first-child {
+      border-left: 2px solid var(--aegis-accent-strong);
+    }
+
+    &,
+    td {
+      background: color-mix(in srgb, var(--aegis-accent) 8%, transparent);
+    }
+  `}
 
   @keyframes aegis-row-settle {
     from {

@@ -17,12 +17,42 @@ export function isTauriRuntime(): boolean {
  * 🔴 这是**永久性错误**而非瞬时故障：进程根本没跑在 Tauri 里，重试多少次都不会成功。
  * 故消费方（如 TanStack Query 的 `retry`）应把它判为"不重试"，否则用户要盯好几秒骨架屏
  * 才等到一个必然失败的错误。
+ *
+ * 🔴 `command` 必须留成**独立字段**而不是只嵌在 message 里（2026-10-06 UI 审查 D7）：
+ * 界面要把这句拆成「主线人话 + 详情折叠」，靠正则回捞自己写下的命令名既不体面也会随
+ * 文案改动而失效。message 保持原样，因为它同时是 JSONL 日志里的 exception 文本。
  */
 export class BackendUnavailableError extends Error {
-  constructor(command: string) {
+  constructor(readonly command: string) {
     super(`后端不可用（当前不在 Tauri 运行时内，浏览器预览模式）：无法调用 ${command}`);
     this.name = "BackendUnavailableError";
   }
+}
+
+/**
+ * `as*Error` 归一化后用来标记「后端没在跑」的错误码。
+ *
+ * 🔴 为什么需要它：`asBackupError` / `asTransferError` 会把任何非规范形状折成
+ * `{ code: "UNKNOWN", message }`，**Error 实例身份在途中丢失**。界面若只拿到归一化结果，
+ * 就再也分不清「后端未运行」与「后端回了一个未知错误码」—— 而这两句话在界面上必须不同
+ * （前者是环境事实，后者是故障）。故归一化时把这一类单独标出来。
+ */
+export const BACKEND_OFFLINE_CODE = "BACKEND_OFFLINE";
+
+/** 该错误是否「后端进程没在跑」（认 Error 实例，也认归一化后的错误码）。 */
+export function isBackendOffline(error: unknown): boolean {
+  if (error instanceof BackendUnavailableError) return true;
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === BACKEND_OFFLINE_CODE
+  );
+}
+
+/** 取回后端命令标识（只在这一类错误里有；界面无需它时返回 null）。 */
+export function backendOfflineCommand(error: unknown): string | null {
+  if (error instanceof BackendUnavailableError) return error.command;
+  return null;
 }
 
 export async function invoke<T>(

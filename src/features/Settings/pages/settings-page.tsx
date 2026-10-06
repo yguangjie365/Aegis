@@ -14,24 +14,28 @@
  * 后续配置区往这里加（不预告，仅记录本页的定位）：主题色、背景、通知、语言等。
  */
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Box, VStack } from "@chakra-ui/react";
 
 import { useRegisterBrand } from "@/shell/brand-bar";
 import { SteamApiKeySection } from "@/features/Settings/components/steam-api-key-section";
+import { BackupSettingsSection } from "@/features/Settings/components/backup-settings-section";
 import { AboutSection } from "@/features/Settings/components/about-section";
 
 export function SettingsPage() {
+  const { t } = useTranslation("settings");
   /* 品牌区注册（2026-10-05 垂直迁移第 7 条）：主标题「设置」已由壳层从
-     modules.ts 的 nameKey 自动派生，此处只上报副标题。 */
-  const sub = useMemo(
-    () => "全局配置与凭据。各功能页只放该功能自己的操作，凭据类一律在此维护。",
-    [],
-  );
+     modules.ts 的 nameKey 自动派生，此处只上报副标题。
+     🔴 副标题走 i18n（2026-10-06 UI 审查 M9）：原先是硬编码中文、整区无命名空间。 */
+  const sub = useMemo(() => t("page.sub"), [t]);
   useRegisterBrand("/settings", { sub });
 
   return (
     <VStack spacing="lg" align="stretch" maxW="760px">
       <SteamApiKeySection />
+      {/* 备份全局默认值：2026-10-06 由文件备份页工具栏弹窗迁入（用户裁决）。
+          归属依据即上方 §配置区归属纪律 —— 这几项在功能规格里就叫「全局设置项」。 */}
+      <BackupSettingsSection />
       {/* 版本 + 零遥测声明：2026-10-04 状态栏移除后由这里承载（合规红线不丢） */}
       <AboutSection />
       <Box />

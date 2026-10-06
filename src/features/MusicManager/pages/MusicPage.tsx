@@ -4177,7 +4177,13 @@ const SearchBox = memo(function SearchBox({ onUnifiedSearch, onArtistClick }: Se
    🔴 portal 为何不违反 TS6307：只依赖 **react-dom**（第三方）+ 一个**字符串 id**，
      不 import 任何本仓文件 ⇒ 类型系统看不到跨域依赖。
    ⚠️ id 字符串与 `brand-bar.tsx` 的 `BRAND_PORTAL_ID` / `BRAND_SUB_PORTAL_ID` 必须一致
-     （复制而非 import）。 */
+     （复制而非 import）。
+   🔴 结构排斥契约（2026-10-06；壳层侧 `brand-bar.tsx` 与规范 §三 brand-bar 行为准，
+     本域读不到那两处 ⇒ **本注释即契约的唯一送达处**，改壳层口径须同步改这里）：
+     槽位 id **只在壳层 hook 路径未产出该内容时才进 DOM**。
+     ⇒ `getElementById` 取不到槽位 = 该位置已被 hook 内容占用 = **两路冲突时 hook 优先、
+       portal 静默失败（不报警）** —— 这是**预期降级方向**，不是 bug、不要去"修"。
+     本域路由（音乐）从不注册 hook 内容 ⇒ 正常情况下必能取到槽位。 */
 const BRAND_PORTAL_ID = "aegis-brand-portal";
 const BRAND_SUB_PORTAL_ID = "aegis-brand-sub-portal";
 
@@ -4206,7 +4212,7 @@ function useBrandPortal(id: string): HTMLElement | null {
         setNode(el);
         return;
       }
-      if (++tries > 30) return; // 1s 还没出现就放弃（安全失败 = 品牌区不显示）
+      if (++tries > 30) return; // 1s 还没出现就放弃（= 该位已被 hook 内容占用：预期降级，见上方契约）
       raf = requestAnimationFrame(probe);
     };
     raf = requestAnimationFrame(probe);

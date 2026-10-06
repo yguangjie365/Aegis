@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import styled from "@emotion/styled";
 import { Minus, X } from "lucide-react";
@@ -35,10 +35,17 @@ const Overlay = styled.header`
   font-size: 11px;
   user-select: none;
   -webkit-user-select: none;
-  /* 🔴 左右内缩与 Frame 的 SAFE_LEFT/SAFE_RIGHT 同为 20 —— 窗口键的右缘
-     必须与内容区右缘（1280−20）对齐，否则「距边 20」在壳层出现两个口径。
-     同一组数值在 shell-layout 的 SAFE_LEFT / SAFE_RIGHT，改一处必须同改另一处。 */
-  padding: 0 20px;
+  /* 🔴 左右内缩 **0**（原 20，2026-10-06 代码审查 #1 修正）。
+     原注释「与 Frame 的 SAFE_LEFT/SAFE_RIGHT 同为 20」是 fixed 覆盖层时代的产物：
+     当时 Overlay 满视口定位、自己承担「距窗口边 20」。10-05 改「进文档流」后它成了
+     Frame 的直接子元素，而 Frame 已经内缩 SAFE_LEFT/SAFE_RIGHT 20 ⇒ 再写 20 就是
+     **双重计算** —— 窗口键右缘落到 1280−40=1240，比内容右缘短 20px
+     （实测探针 .worknotes/overlay-align-probe.mjs：capsRight 1090 vs mainRight 1110，
+       差 20.0px ❌；本行归 0 后差值应归零）。
+     契约：对齐由 Frame 的 SAFE 内缩**唯一**承担；窗口键右缘 = 内容右缘 = 1280−20，
+     与品牌区动作槽右缘同一条竖线。
+     ⚠️ 本注释位于模板字符串内部，禁止出现反引号（会报 TS1005，本项目已踩多次）。 */
+  padding: 0;
 `;
 
 const Caps = styled.div`
@@ -77,8 +84,6 @@ const CapBtn = styled.button<{ $danger?: boolean }>`
 export function WindowOverlay() {
   const { t } = useTranslation("shell");
   const live = isTauriRuntime();
-  const stripRef = useRef<HTMLElement | null>(null);
-  const [dragging, setDragging] = useState(false);
 
   /* 拖动 + 双击最大化：一次按下，两个动作，靠**手动判定**而非 dblclick 事件。
 
@@ -130,33 +135,18 @@ export function WindowOverlay() {
       }
       void (async () => {
         try {
-          setDragging(true);
           const { getCurrentWindow } = await import("@tauri-apps/api/window");
           await getCurrentWindow().startDragging();
         } catch (err) {
           console.error("[window-overlay] startDragging 失败", err);
-        } finally {
-          setDragging(false);
         }
       })();
     },
     [live],
   );
 
-  /* 覆盖层本身不吃指针（除按钮区），所以只有指针进入这一条时才可能拖动。
-     这里额外兜一层：dblclick 不做 maximize（§四 禁最大化）。 */
-  useEffect(() => {
-    const el = stripRef.current;
-    if (!el) return;
-    const prevent = (e: Event) => {
-      if (dragging) e.preventDefault();
-    };
-    el.addEventListener("dragstart", prevent);
-    return () => el.removeEventListener("dragstart", prevent);
-  }, [dragging]);
-
   return (
-    <Overlay ref={stripRef} onMouseDown={onMouseDown} aria-label={t("window.overlayAria")}>
+    <Overlay onMouseDown={onMouseDown} aria-label={t("window.overlayAria")}>
       <Caps>
         <CapBtn
           type="button"
@@ -198,7 +188,7 @@ export function WindowOverlay() {
               height="8"
               fill="none"
               stroke="currentColor"
-              strokeWidth="1.2"
+              strokeWidth="1.5"
             />
           </svg>
         </CapBtn>

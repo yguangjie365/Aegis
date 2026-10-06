@@ -429,7 +429,13 @@ function StatusBadge({ running }: { running: boolean }) {
       color="var(--aegis-ink)"
       borderRadius="full"
       px={3}
-      py={1}
+      /* 🔴 2026-10-06 品牌区动作槽统一：本徽章只在动作槽出现一次（:1236），
+         非按钮项档高 = **24**（规范 §三 brand-bar 行；同行按钮是 28）。
+         原 `py={1}` 让它随字号浮动（约 26），改为定高 + inline-flex 居中。 */
+      py={0}
+      h="24px"
+      display="inline-flex"
+      alignItems="center"
       fontSize="xs"
     >
       <HStack spacing={1.5}>

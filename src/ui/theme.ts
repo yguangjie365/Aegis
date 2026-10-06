@@ -111,6 +111,10 @@ const cssVars: Record<string, string> = {
   ),
   // 字体栈（P2-10 三源收口：theme.fonts.mono / --font-mono / typography.mono）
   "--font-mono": MONO_FONT_STACK,
+  // 壳层（2026-10-04 改版）：标题条不再是文档流的一行，而是 fixed 透明覆盖层
+  // （拖动区 + 窗口控制），因此**不占布局**，主内容区拿到完整视口高度。
+  // 该变量只描述覆盖层自身高度，供其内部按钮对齐使用。
+  "--aegis-dragstrip-h": "32px",
 };
 // typography 12 键 × size/weight/leading（+ tracking/transform）纯 CSS 出口，
 // 供伪元素与业务组件（原本只能硬编码）使用
@@ -120,6 +124,40 @@ for (const [k, v] of Object.entries(activePack.typography)) {
   cssVars[`--aegis-type-${k}-leading`] = String(v.lineHeight);
   if (v.letterSpacing) cssVars[`--aegis-type-${k}-tracking`] = v.letterSpacing;
   if (v.textTransform) cssVars[`--aegis-type-${k}-transform`] = v.textTransform;
+}
+
+/* 🔴🔴 N1（2026-10-06 UI 审查，渲染取证撞出）：变量表**不能走 Chakra `styles.global` 的对象通道**。
+ *
+ * 现象：含**顶层逗号**的令牌值被静默切碎 ——
+ *   `--font-mono`   声明 "JetBrains Mono","Consolas",monospace ⇒ 浏览器里只剩 "Consolas"
+ *                   ⇒ 全站 14 处 `font-family: var(--font-mono)` 用不到 §七 指定的等宽面
+ *   `--aegis-elevation-sticky` 两层阴影 ⇒ 只剩那道 1px 亮边，黑阴影层丢失
+ *   对照：`cubic-bezier(0, 0, 0.2, 1)`（逗号在括号内）完好 ⇒ 只有**顶层**逗号会被切
+ * 定位：把同样的内容用**裸 CSS 文本**写进 <style> 则完好无损 ⇒ 截断发生在 JS→CSS 生成期
+ *   （Chakra global 对象 → styled-system/emotion 的值处理），不是浏览器解析。
+ * 危害等级：`tsc` / `vitest` / `vite build` 全绿，且 Consolas 恰好也是等宽 ⇒ 肉眼不可见。
+ *   这是本仓「已知陷阱」第 ① 类（静默失效）的放大版：整段令牌值被改写而无人知晓。
+ *
+ * 处置：本模块在 **import 期**把变量表序列化成裸 CSS 文本挂进 <head>，完全不经 CSS-in-JS。
+ *   单一事实源不变（仍由 tokens.ts 的包 → cssVars 派生），只换出口通道。
+ *   完整性断言见 theme-pack.test.ts 的「N1 回归」用例（断言的是**生成出来的文本**，
+ *   所以这条守卫在 node 环境也成立，不需要 jsdom）。 */
+export const cssVarsText = `:root{${Object.entries(cssVars)
+  .map(([k, v]) => `${k}:${v}`)
+  .join(";")}}`;
+
+if (typeof document !== "undefined") {
+  const TAG = "data-aegis-tokens";
+  const prev = document.head.querySelector(`[${TAG}]`);
+  if (prev) {
+    // HMR：theme.ts 被重新执行时替换内容，不累积 <style> 节点
+    prev.textContent = cssVarsText;
+  } else {
+    const el = document.createElement("style");
+    el.setAttribute(TAG, "");
+    el.textContent = cssVarsText;
+    document.head.appendChild(el);
+  }
 }
 
 // ── 派生：typography 刻度 + textStyles（P0-2）─────────────────────────────────
@@ -214,6 +252,18 @@ export const theme = extendTheme({
     body: `"Inter","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif`,
     mono: MONO_FONT_STACK,
   },
+  /* 🔴 间距刻度必须**同时**接进 Chakra 的 `space` 键（2026-10-06 UI 审查 B1）。
+     §二 spacing 维此前只以 CSS 变量出口（下方 `--aegis-space-*`），Chakra 侧从未接线；
+     而 styled-system 解析 `spacing` / `gap` / `margin` 这类属性时查的是 **`theme.space`**
+     —— 与下方 `radii` 那次完全同一种错法（当年写 `borderRadius:` 是死代码，实证后改 `radii`）。
+     查不到键 ⇒ **原样透传** ⇒ 产出 `gap: lg` 这类非法声明 ⇒ 浏览器静默丢弃 ⇒ 计算值 `normal`(=0)。
+     实测后果：Settings 页 28 处 `spacing="xs|sm|md|lg"` 全部归零、三个配置区贴死在一起，
+     而 tsc / eslint / vite build 一声不响（本仓「已知陷阱」第 ① 类的形态）。
+     值是带单位的字符串（"16px"），与 Chakra 的数字档并存：`spacing={3}` 走 n×4px 换算、
+     不查刻度 ⇒ 复刻域与既有数字写法零影响，本行属**纯增量、零回归面**。
+     守卫：theme-pack.test.ts 断言 `theme.space` 键集 === SPACING_TOKEN_KEYS（只查 CSS 变量口
+     拦不住本类问题，这正是它当初没被拦住的原因）。 */
+  space: { ...activePack.spacing },
   // 🔴 圆角刻度（规范 §二 rounded + §三「交互元素恒 2px」）
   //
   // 阶段二换皮 D-04 的根因修复：Chakra 各组件默认 `borderRadius: md`(6px) / `lg`(8px)，
@@ -274,6 +324,13 @@ export const theme = extendTheme({
      * fontSize 取 typography.body（14px）—— 本项目 typography 12 键里没有 sm 档，
      * 写 fontSize:"sm" 会取到 undefined 而静默回退 Chakra 默认，不如写死来源。
      */
+    /* 🟠 曾在此加 baseStyle fontWeight 700 想一处修掉 Chakra 默认的 600（T5），**已回退**：
+       主题层的 Button 覆盖对**复刻域约 116 处** Chakra 按钮同样生效
+       （MusicPage 83 / AudioEqPage 17 / MusicPlayer 7 / MusicLoginSection 6 / MiniMusicPlayer 2 / game-card 1），
+       而 2026-10-07 用户刚裁定「复刻域视觉语系整体让位 NexBox」（规范 §一 #1 例外条款）
+       ⇒ 全局改字重等于替复刻域改视觉语系，越界。
+       现由调用点局部声明（见 Settings/steam-api-key-section.tsx），
+       彻底修法挂 §八 C4「AppButton 与 Chakra Button 收敛为单一实现」。 */
     Button: { sizes: controlSizes },
     Input: { sizes: controlSizes },
     Select: { sizes: controlSizes },
@@ -312,16 +369,18 @@ export const theme = extendTheme({
    */
   shadows: {
     outline: "none",
+    /* 🔴 §二 elevation 的 sticky 档必须**登记在 shadows 刻度里**，不能在组件 sx 里写
+       boxShadow —— Chakra 的 `shadow` prop 解析成 `var(--chakra-shadows-<值>)`，
+       且 ModalContent 自带一层 shadow，sx.boxShadow 会被它压掉
+       （2026-10-06 UI 审查渲染取证实测：量到的是 Chakra 默认
+       `0 0 0 1px rgba(255,255,255,.05)` 而不是我们的 sticky）。
+       与当年 `radii` 那次同一课：**Chakra 的样式属性查的是 theme 刻度，不是 CSS 变量。** */
+    sticky: "var(--aegis-elevation-sticky)",
   },
   styles: {
     global: {
-      ":root": {
-        ...cssVars,
-        // 壳层（2026-10-04 改版）：标题条不再是文档流的一行，而是 fixed 透明覆盖层
-        // （拖动区 + 窗口控制），因此**不占布局**，主内容区拿到完整视口高度。
-        // 该变量只描述覆盖层自身高度，供其内部按钮对齐使用。
-        "--aegis-dragstrip-h": "32px",
-      },
+      /* 🔴 `:root` 变量表**不在此处**（2026-10-06 UI 审查 N1）—— 见本文件上方的 cssVarsText
+         与裸 <style> 注入段。走 Chakra 的对象通道会被切碎，理由与对照实验都写在那里。 */
       html: {
         background: activePack.colors.canvas,
         // 🔴 深色下必须声明 color-scheme，否则**原生控件与滚动条**（表单控件的原生内阴影、

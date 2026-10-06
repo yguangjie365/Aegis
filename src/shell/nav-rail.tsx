@@ -2,7 +2,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import styled from "@emotion/styled";
-import { SHELL_MODULES, type ShellModule } from "./modules";
+import { SHELL_MODULES, matchModule, type ShellModule } from "./modules";
 
 // nav-rail（§三）：192px 展开 ↔ 64px 折叠（2026-10-02 用户要求自 232 收窄）；黑底 chrome；激活项 = chrome-elevated 底 +
 // 2px accent 左竖条（黑底上 accent 8.71:1 合规）+ 白字 700。
@@ -36,7 +36,9 @@ const DILATE = 100; // 拉伸强度（0 = 纯平移，100 = 走满封顶值）
 /** 预冲位移上限，单位=槽高倍数。1.35 ≈ 59px：「领先一步」更明显（用户要求更 Q 弹） */
 const LEAD_MAX = 1.35;
 /** 超过这个距离（槽高倍数）改用无过冲曲线：长距离回弹的过冲量 = 路程 × 约 10%，
- *  400px 路程会冲过 40px —— 那不是弹性，是甩尾 */
+ *  400px 路程会冲过 40px —— 那不是弹性，是甩尾
+ *  ⚠️ 单位 = **槽高 44**（非槽距 pitch 50）：3 × 44 = 132px ≈ 2.6 个槽距。
+ *    2026-10-06 审查 #10 曾质疑「132 ≠ 3 格」—— 单位本就是槽高，本注释即准绳。 */
 const FAR_SLOTS = 3;
 const BOUNCE = 60; // 50 = 原设计手感；60 → 过冲约 1.46/1.60（用户要求更 Q 弹）
 const SPEED = 58; // 50 = 1.0×；58 → 时长 ×0.904（略快，收得更利落）
@@ -79,7 +81,7 @@ const Rail = styled.nav`
   display: flex;
   flex-direction: column;
   padding: 8px 0;
-  /* 用户裁决 2026-10-04：仅保留折叠态，宽度固定 64px（12 + 40 + 12 = 64，圆形正好居中） */
+  /* 用户裁决 2026-10-04：仅保留折叠态，宽度固定 64px（10 + 44 + 10 = 64，圆形正好居中） */
   width: 64px;
   --nav-item-mx: 10px;
   --slot-w: 44px;
@@ -87,9 +89,9 @@ const Rail = styled.nav`
   /* 26 → 30：胶囊更「鼓」（64px 宽时 30 已接近半圆，视觉更饱满） */
   border-radius: 30px;
   /* 绿色流光：静止的**盖底层**。职责有两条，缺一不可：
-     ① 遮住四条同心带（RingBand）伸进胶囊**内侧**的那一半 —— 每条带都是**填满**的
+     ① 遮住三条同心带（RingBand）伸进胶囊**内侧**的那一半 —— 每条带都是**填满**的
         圆角矩形（不是描边，见 RingBand 注释：border-width 会走布局），
-        本层用不透明底色把内侧切掉，相减之后露出来的才正好是 1/2/3/4px 的环。
+        本层用不透明底色把内侧切掉，相减之后露出来的才正好是 2/4/6px 的环。
         ⚠️ 这也是四条带**必须**画成填满矩形的原因：填充 + 盖底 = 描边，且只动 opacity。
         ② 遮住 RingAura 的 8px 光晕**向内**溢出的那一半 —— box-shadow 的 blur 是双向的
         （0 0 8px 从盒边向内外各洇 8px），不盖住的话胶囊内缘会染上一圈绿，
@@ -126,7 +128,8 @@ const Rail = styled.nav`
 `;
 
 /**
- * 流光环：**宽度呼吸**（2026-10-05 用户指令「由内向外扩散加粗」第二轮改版）。
+ * 流光环：**宽度呼吸**（2026-10-05 用户指令「由内向外扩散加粗」第二轮改版；
+ * 2026-10-06 第四轮改为「恒亮亮核 + 中/外级联」的涟漪节奏 —— 见下【级联呼吸】）。
  *
  * 【与上一版的区别】上一版是「一道亮弧绕胶囊转」（2026-10-04 P1 把 conic 渐变静态化 +
  * 载具 rotate）；本版是**环本身由细变粗再回缩** —— 这是两种不同的动效，不是同一动的调参。
@@ -139,41 +142,51 @@ const Rail = styled.nav`
  *   这正是 2026-10-04 P1 之前的病根（实测 RecalcStyleCount 300、单核 1.65% 常驻）。
  *   ⇒ 只剩一条合规的路：**只动 opacity**。
  *
- * 【本版做法】**四条同心带的 opacity 交叉淡入淡出**：
- *   每层是一块**填满**的圆角矩形（不是描边），同心、依次内缩 1px；
- *   内侧由 Rail::after（inset:0 的不透明盖底）挡住 ⇒ 每层露出来的正是一条 1px 宽的带。
- *   于是「第 k 条带可见」= 把它 opacity 从 0 抬到 1，「四条全可见」= 4px 环。
+ * 【本版做法】**三条同心带的 opacity 交叉淡入淡出**：
+ *   每层是一块**填满**的圆角矩形（不是描边），同心、依次内缩 2px；
+ *   内侧由 Rail::after（inset:0 的不透明盖底）挡住 ⇒ 每层露出来的正是一条 2px 宽的带。
+ *   于是「第 k 条带可见」= 把它 opacity 从 0 抬到 1，「三条全可见」= 6px 环。
  *
- *   露宽 = inset 3 / 2 / 1 / 0 ⇒ 1 / 2 / 3 / 4px，圆角同步 31 / 32 / 33 / 34（始终同心）。
- *   绘制顺序 = DOM 顺序，**由外向内**（band4 先画、band1 最后画）：
- *   于是外侧那条带只由最外层决定、内侧依次被更内层盖住 ——
- *   抬 opacity 时环真的「由内向外长厚」，而不是整圈一起变亮。
+ *   露宽 = inset 4 / 2 / 0 ⇒ 2 / 4 / 6px，圆角同步 32 / 34 / 36（始终同心）。
+ *   🔴 三档**全是偶数 CSS px**（2026-10-06 用户裁决）：150% 缩放下 1 CSS px = 1.5 设备 px，
+ *      奇数档的带边界落在半个设备像素上，渲染器同向取整 ⇒ 该条带平移 0.5 设备 px，
+ *      环读成一边粗一边细（1px 档实测左 1 列 / 右 2 列）。2 / 4 / 6 档每边都是整数设备像素。
+ *      完整推导与逐列取色实测见 RingBand 顶部注释。
+ *   绘制顺序 = DOM 顺序，**由外向内**（band6 先画、band2 最后画）：
+ *   于是外侧那条带只由最外层决定、内侧依次被更内层盖住。
  *
- *   关键帧首尾同值 ⇒ 循环接缝在数学上不存在，不会闪。
- *   缓动写在**每一帧**上（决定本帧→下一段；写在元素上会被整条动画统一覆盖），
- *   四条带共用同一条 timing-function ⇒ 永远同相，1px 与 4px 两个极值都能真正走到。
- *
- * 【2026-10-05 第三轮打磨：两处相位/时序调整】
- *   ① 四条带三帧 → **五帧**，峰值加 40%–60% 的**平台段**（0.72s）。
- *      原三帧版里 4px 只有一帧，四件事（1px 塌下+ 三层浮起）挤在同一帧发生，
- *      且 2px / 3px 中间态采样率不足读不出来 ⇒ 观感是「两态闪变」而非「由内向外推开」。
- *   ② 外光晕（RingAura）峰值由 50% 挪到 **62%**，与环**错开相位**。
- *      原本完全同相 ⇒ 最粗那一刻光晕也最亮，层次被拍平；错开后读成
- *      「亮线 →（环达最粗、光晕仍在升）→ 粗暗环 → 余晖散尽」。
- *      🔴 刻意**不用 animation-delay / Motion 的 stagger** 做相位错开：delay 会让首帧
- *      不是最细态（要等offset 走完），且停帧后 offset 残留在 animation-delay 上不归零。
- *      挪关键帧位置则首帧恒为最细态、停帧语义不受影响。
- *
- * 【为什么峰值时最内层反而要压暗】用户要「由亮转粗转暗」。若四层峰值都到 1，
- *   最内层 85% 的亮绿会盖住外三层，总光通量比 1px 态还大 ⇒ 读成「变亮」而不是「变暗」。
- *   故最内层峰值压到 0.62（0.62 × 85% ≈ 53%），峰值时由内向外 53 / 52 / 34 / 20%
- *   单调递减 ⇒ 观感是「亮线化成暗绿柔边」，正是要的那种悬浮层次。
+ * 【级联呼吸】（🔴 2026-10-06 第四轮，用户裁决「内侧 2px 恒亮，接着中间 2px 亮起，
+ *   最后外侧 2px 亮起；关闭时先关外侧、接着关中间；三档亮度要连贯，不能有明显色阶」）：
+ *   ⓐ band2 = **恒亮亮核**：撤掉动画、opacity 恒 1。原「峰值把最内层压暗到 0.62」的
+ *      光通量平衡做法整体作废 —— 亮核不参与呼吸，环的粗细变化全由中/外两档承担。
+ *   ⓑ 中/外两档各持**自己的关键帧**（不是同一条错相位 —— 两档的占空比本就不同），
+ *      周期 5.2s（用户选定；含 10% 静息段），时间轴：
+ *        0–10%   静息：只剩 2px 亮核（0.52s，让「恒亮核」每轮都被读到）
+ *        10–34%  中档亮起（0→1）
+ *        40–58%  外档**最后**亮起（0→1；比中档满座晚 6% ≈ 0.3s，形成「接着」的先后）
+ *        58–68%  6px 停（0.52s，中/外全亮）
+ *        68–88%  外档**最先**关闭（1→0）
+ *        72–100% 中档随后关闭（1→0）—— 首尾同值 ⇒ 循环接缝在数学上不存在
+ *      缓动写在**每一帧**上（决定本帧→下一段；写在元素上会被整条动画统一覆盖）。
+ *   ⓒ 🔴 为什么不用 animation-delay / Motion 的 stagger 做错开：delay 会让首帧不是静息态
+ *      （要等 offset 走完），且停帧后 offset 残留在 animation-delay 上不归零。
+ *      错开**写进关键帧位置**，首帧恒为静息态、停帧/兜底语义不受影响（沿用 2026-10-05 结论）。
+ *   ⓓ 🔴 为什么中/外两带要**羽化**（band4 blur(1px)、band6 blur(2px)，静态滤镜）：
+ *      纯色带阶梯式叠出的三档亮度，在 4px / 6px 两条分界上是**硬边**（实测复合绿度
+ *      232 / 120 / 50，两次跳变都肉眼可见）。羽化把这两条硬边化成渐变，亮度由内向外
+ *      连续衰减 —— 用户裁决「不能有明显的色阶」即指此。亮核 **不羽化**：它与中档之间
+ *      那条锐利亮线正是「恒亮核」的视觉主体。滤镜是**静态**的（只栅格化一次、随层缓存），
+ *      动画仍只动 opacity ⇒ 仍在合成器路径（逐帧样式重算实测见
+ *      .worknotes/changes/2026-10-06-qoder-nav-ring-ripple-choreography.md）。
+ *   ⓔ 亮核恒亮后，最宽态复合亮度由内向外 = 85% 叠(34%+20%) / 34%+20% / 20%：
+ *      内圈不再压暗 —— 用户「恒亮」的裁决**优先于**旧版「亮线化成暗绿柔边」的平衡。
  *
  * 【颜色】一律 color-mix 配 var(--aegis-accent) 派生（2026-10-04 审查一般 8 的纪律）：
  *   绿值不写死 rgba(118, 185, 0, …)，否则换主题时环与按钮的绿会漂成两种。
  *
- * 【性能】6 个元素、6 条 opacity 动画，全部走合成层；无 conic 渐变重绘、无布局属性
- *   动画、无 filter。Rail 是 flex:none、不在任何滚动容器内 ⇒ 常驻合成层不绑滚动线程。
+ * 【性能】3 条 opacity 动画（RingAura + 中/外两条带；亮核已无动画），全部走合成层；
+ *   无 conic 渐变重绘、无布局属性动画；外两带的 blur 是**静态滤镜**（栅格化一次后随层缓存，
+ *   不随 opacity 逐帧重绘）。Rail 是 flex:none、不在任何滚动容器内 ⇒ 常驻合成层不绑滚动线程。
  *
  * 🟢 原「失焦/不可见时暂停动画」规则仍**不恢复**（用户 2026-10-04 裁决）。存档理由：
  *   该规则的必要性来自 P1 之前每帧重算样式 + 重绘整块 conic 渐变与 8px 光晕；
@@ -186,62 +199,74 @@ const Rail = styled.nav`
  */
 const Ring = styled.span`
   position: absolute;
-  /* 🔴 2026-10-04 用户裁决：safe-x 20 量的是**胶囊本体**，环外缘距窗口边应为 16
-     ⇒ 外扩量 = 20 − 16 = 4px（16.5 那个数是从边框位置反推的近似，不是设计量）。
-     环外缘 → 光晕 8px → 距窗口边 8px ⇒ 光晕完整在框内，余量 8px。
-     ⚠️ 改这个值须同改 shell-layout.tsx 里 SAFE_LEFT / SAFE_RIGHT 的联动注释。 */
-  inset: -4px;
+  /* 🔴 外扩量 = **6px**（2026-10-06 用户裁决「2/4/6 三档」连带确定）：环要能长出 6px 的带，
+     外缘就必须离胶囊 6px。原值 4px（2026-10-04 裁决「环外缘距窗口边应为 16」）随之失效 ——
+     SAFE_LEFT 20 量的是**胶囊本体**，外扩 6 ⇒ 环外缘距窗口边 20 − 6 = **14px**，
+     光晕（box-shadow 8px）外缘距边 20 − 6 − 8 = **6px**，仍在框内、不被 Frame 裁切。
+     ⚠️ 改这个值须同改 shell-layout.tsx 里 SAFE_LEFT / SAFE_RIGHT 的联动注释（硬下限
+        也从「4 + 8 = 12」变成「6 + 8 = 14」，当前 20 仍满足）。 */
+  inset: -6px;
   /* 本层自身**不画任何颜色**（上一版这里承载 conic 渐变，已删）；它现在的职责只有两个：
-     ① 给子层提供「胶囊外扩 4px」的定位参照；② 用 z-index:0 把整组光环压到最底。
-     圆角随之定为 34（= 胶囊 30 + 外扩 4），子层按 inset 逐层递减保持同心。 */
-  border-radius: 34px;
+     ① 给子层提供「胶囊外扩 6px」的定位参照；② 用 z-index:0 把整组光环压到最底。
+     圆角随之定为 36（= 胶囊 30 + 外扩 6），子层按 inset 逐层递减保持同心。 */
+  border-radius: 36px;
   pointer-events: none;
   z-index: 0; /* 光环组：最底。盖底层 1 < 指示器 2 < 图标内容 3 */
 
   /* ⚠️ 上一版的 overflow: hidden 已删：它当初只为裁切那个旋转的正方形载具而存在，
-     载具随改版删除；而外光晕（RingAura 的 box-shadow）必须能向外洇到 4px 之外，
-     加裁切反而把柔和轮廓削成一圈硬边。子元素都落在 inset 0…3 之间，本身不会溢出。 */
+     载具随改版删除；而外光晕（RingAura 的 box-shadow）必须能向外洇到 6px 之外，
+     加裁切反而把柔和轮廓削成一圈硬边。子元素都落在 inset 0…4 之间，本身不会溢出。 */
 `;
 
 /**
  * 外光晕：一圈 8px 柔和辉光，**只动 opacity**（blur / spread / 颜色全部写死）。
  * 它负责「悬浮于面板之上」的**静态**那部分 —— 面板与胶囊之间永远有一层极淡的绿，
- * 最细态也不会读成「胶囊贴在面板上」。宽度呼吸由四条带负责，光晕只做强度起伏。
+ * 最细态也不会读成「胶囊贴在面板上」。宽度呼吸由三条带负责，光晕只做强度起伏。
  */
 const RingAura = styled.span`
   position: absolute;
-  inset: 0; /* = 胶囊外扩 4px，与最外圈带同轮廓 */
-  border-radius: 34px;
+  inset: 0; /* = 胶囊外扩 6px，与最外圈带同轮廓 */
+  border-radius: 36px;
   /* 🔴 绿值一律 color-mix 配 var(--aegis-accent) 派生，不写死 rgba。 */
   box-shadow: 0 0 8px color-mix(in srgb, var(--aegis-accent) 45%, transparent);
   /* 谷值 0.34 而非 0：全灭时光晕会硬生生消失，胶囊读成「一条贴边细线」；
      留三成余量，最细态也保有一圈极淡的分离感（这正是要的分层）。
      本行的静态值同时是**动画失效时的兜底**（见 RingBand 顶部同款说明）。 */
   opacity: 0.34;
-  /* 3.2s → 3.6s：上一版的 3.2s 是**匀速旋转**的周期（转感掩盖了时长），
-     改成厚度呼吸后同样的时长读起来偏急；3.6s 每程 1.8s，舒缓且不拖沓。
+  /* 3.6s → 5.2s（2026-10-06 第四轮）：旧节奏只有「一段推进 + 一段收回」，3.6s 够用；
+     新节奏拆成「静息 → 中档 → 外档 → 6px 停 → 外收 → 中收」六段，时长必须容纳
+     0.52s 静息段与 0.52s 全亮段，3.6s 会把四段过渡挤成闪现。
      周期属「循环速率」，按 motion 契约刻意不入 duration 刻度（tokens.ts §六 同款理由）。 */
-  animation: aegis-nav-aura 3.6s infinite;
+  animation: aegis-nav-aura 5.2s infinite;
   will-change: opacity;
 
-  /* 🔴 峰值相位从 50% 挪到 **62%**（2026-10-05 打磨）：光晕与四条带原本**完全同相**，
-     两者都在 50% 达峰 ⇒ 最粗的那一刻光晕也正好最亮，读起来是「整圈一起亮起来」，
-     层次被打平 —— 而用户要的是「亮线化成暗绿柔边」的**先后**层次。
-     62% 的效果：环在 50% 达最粗时光晕仍在上升途中（≈0.82），环开始回缩后光晕才到顶，
-     再随环一起落回 ⇒ 读成「亮线 → 粗暗环 → 余晖散尽」，悬浮感比同相强一档。
-     ⚠️ 为什么不用animation-delay 做相位错开（Motion 的 stagger 同款做法）：
-        delay 会让整条动画**整体后移**，首次进入页面时首帧不是最细态（要等offset 走完），
+  /* 🔴 峰值与 6px 停**对齐**（58–68%）：第四轮改版后层次已由中/外两档的级联自己承担，
+     光晕不必再靠错相位制造「余晖」（旧版「峰值挪到 62% 与环错开」的理由随同相五帧一并作废）。
+     新口径：光晕随中/外推进一起上升、随收回一起落回，最亮的一段正好罩住 6px 停。
+     ⚠️ 为什么不用 animation-delay 做相位错开（Motion 的 stagger 同款做法）：
+        delay 会让整条动画**整体后移**，首次进入页面时首帧不是静息态（要等offset 走完），
         且负delay 在prefers-reduced-motion 停帧后残留在 animation-delay 上不归零。
-        直接挪关键帧位置则**首帧恒为最细态**，停帧/兜底语义不受影响。
+        相位差写进关键帧位置则**首帧恒为静息态**，停帧/兜底语义不受影响。
      ⚠️ 首尾仍同值（0.34 / 0.34）⇒ 循环接缝依旧不存在。 */
+
+  /* ⬇ 元素级 @keyframes —— 与属性声明同层，**不在上方任何 & 选择器内**
+     （分隔属可读性加固：本块历史上从未嵌套，只是与 &[...] 块挤在一起易被误读。2026-10-06） */
   @keyframes aegis-nav-aura {
     0% {
       opacity: 0.34;
-      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+      animation-timing-function: linear; /* 0→10% 静息段：与中/外同宽，不参与缓动 */
     }
-    62% {
+    10% {
+      opacity: 0.34;
+      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1); /* 随中/外推进上升 10→58% */
+    }
+    58% {
       opacity: 1;
-      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+      animation-timing-function: linear; /* 6px 停 58→68%，与环同步 */
+    }
+    68% {
+      opacity: 1;
+      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1); /* 随收回落回 68→100% */
     }
     100% {
       opacity: 0.34;
@@ -262,85 +287,96 @@ const RingAura = styled.span`
 `;
 
 /**
- * 四条同心带：从内到外 1 / 2 / 3 / 4px，用 opacity 交叉淡入淡出做出「由内向外长厚」。
+ * 三条同心带：从内到外 **2 / 4 / 6px**，用各自独立的 opacity 淡入窗口做出「亮核恒亮、
+ * 中/外依次推出、外先收回」的涟漪（级联时间轴见 Ring 顶部【级联呼吸】）。
+ *
+ * 🔴 **三档必须全是偶数 CSS px**（2026-10-06 用户裁决：先「最细档抬到 2px」，再定「2/4/6」）：
+ *   150% 显示缩放下 1 CSS px = **1.5 设备 px**，奇数档的带边界会落在半个设备像素上，
+ *   渲染器把矩形两端同向取整 ⇒ 该条带整体平移 0.5 设备 px，环读成「一边粗一边细」
+ *   （实测：1px 档时左 1 设备列 / 右 2 设备列，亮度差一倍；3px 档时 4 列 / 5 列）。
+ *   奇数档的差值是**奇数个设备像素**，任何 ±0.33px 的位移补偿都只是把偏差换边，改不掉 ——
+ *   只有偶数档（2 CSS px = 3 设备 px）能让左右都落在整数设备像素上。
+ *   实测见 .worknotes/changes/2026-10-06-qoder-nav-ring-asymmetry-diagnosis.md。
+ *   ⚠️ 别"顺手"加回 1px / 3px 档 —— 那不是设计退步，是 150% 下的渲染硬约束。
+ *   dpr 1.0 / 2.0 时 1px 是整数设备像素，本问题自动不存在；本工程用户机 = 150%。
  *
  * 🔴 为什么是**填满的矩形**而不是 border 描边：border-width 走布局，每帧重排；
  * 填满 + 外侧盖底（Rail::after）相减得到的可见宽度与描边逐像素等价，却是纯合成层操作。
  *
- * 🔴 绘制顺序即 DOM 顺序，**由外向内**：band4（最宽）先画、band1（最窄）最后画。
- * 反过来（由内向外排）会让最宽的 band4 盖住内三层，四层永远只剩一条 4px 带，
- * 「1px ↔ 4px」两个极值就都读不出来了 —— 这是本实现最容易写反的一处。
+ * 🔴 绘制顺序即 DOM 顺序，**由外向内**：band6（最宽）先画、band2（最窄）最后画。
+ * 反过来（由内向外排）会让最宽的 band6 盖住内两层，三条永远只剩一条 6px 带，
+ * 「2px ↔ 6px」两个极值就都读不出来了 —— 这是本实现最容易写反的一处。
  *
  * ⚠️ 静态 opacity = **各自的谷值**，不只是给 reduced-motion 用：它是动画未加载 /
- *   被浏览器忽略时的兜底，语义是「停在最细的那一帧」（1px 亮线），而不是
- *   「停在最粗的那一帧」（4px 暗绿）—— 后者在降级场景下过于抢眼。
+ *   被浏览器忽略时的兜底，语义是「停在最细的那一帧」（2px 亮带），而不是
+ *   「停在最粗的那一帧」（6px 暗绿）—— 后者在降级场景下过于抢眼。
  */
 const RingBand = styled.span`
   position: absolute;
   pointer-events: none;
   will-change: opacity;
 
-  /* band1 = 最内 1px，唯一在谷态可见的那条「亮绿细线」。 */
-  &[data-band="1"] {
-    inset: 3px;
-    border-radius: 31px;
-    background: color-mix(in srgb, var(--aegis-accent) 85%, transparent);
-    opacity: 1;
-    animation: aegis-nav-bloom-core 3.6s infinite;
-  }
-
-  /* band2 = 2px。停帧 / 兜底时留 0.03 而非 0：全 0 时那条 1px 亮线是「浮」在面板上的
-     孤立像素，外缘没有任何过渡会显出锯齿；3% 的暗绿相当于给它做一次抗锯齿外扩。
-     🔴 注意：动画**运行期间**谷值由 keyframes 决定（= 0），此处的 0.03 只在
-        动画未生效时（reduced-motion 停帧 / 动画名失效）起作用。 */
+  /* band2 = 最内 2px = **恒亮亮核**（2026-10-06 第四轮）：撤掉动画、opacity 恒 1，
+     不再参与呼吸。85% 亮线色从原 band1 挪到这里（第二轮），观感是「一条亮线浮在暗柔边里」；
+     **不羽化** —— 它与中档之间那条锐利亮线正是「恒亮核」的视觉主体（外两档已羽化）。
+     ⚠️ inset 4 = 环盒外扩 6 − 可见宽 2（见 Ring 顶部『外扩 6px』）；半径 32 = 36 − 4。 */
   &[data-band="2"] {
-    inset: 2px;
+    inset: 4px;
     border-radius: 32px;
-    background: color-mix(in srgb, var(--aegis-accent) 52%, transparent);
-    opacity: 0.03;
-    animation: aegis-nav-bloom 3.6s infinite;
+    background: color-mix(in srgb, var(--aegis-accent) 85%, transparent);
+    opacity: 1; /* 恒亮：无动画，本值即终值 */
   }
 
-  &[data-band="3"] {
-    inset: 1px;
-    border-radius: 33px;
-    background: color-mix(in srgb, var(--aegis-accent) 34%, transparent);
-    opacity: 0;
-    animation: aegis-nav-bloom 3.6s infinite;
-  }
-
+  /* band4 = 4px。停帧 / 兜底时留 0.03 而非 0：全 0 时那条亮带是「浮」在面板上的
+     孤立色块，外缘没有任何过渡会显出锯齿；3% 的暗绿相当于给它做一次抗锯齿外扩。
+     🔴 注意：动画**运行期间**谷值由 keyframes 决定（= 0），此处的 0.03 只在
+        动画未生效时（reduced-motion 停帧 / 动画名失效）起作用。
+     34% / 20% 两个色值从 2026-10-06 第二轮沿用至今未动 —— 第四轮只加了**羽化**
+     与新的淡入窗口，不再有「三条同相」的约束。 */
   &[data-band="4"] {
-    inset: 0;
+    inset: 2px;
     border-radius: 34px;
+    background: color-mix(in srgb, var(--aegis-accent) 34%, transparent);
+    opacity: 0.03;
+    filter: blur(1px); /* 静态羽化：把 4px 分界的硬边化成渐变（见 Ring 顶部 ⓓ） */
+    animation: aegis-nav-wave-mid 5.2s infinite;
+  }
+
+  &[data-band="6"] {
+    inset: 0;
+    border-radius: 36px;
     background: color-mix(in srgb, var(--aegis-accent) 20%, transparent);
     opacity: 0;
-    animation: aegis-nav-bloom 3.6s infinite;
+    filter: blur(2px); /* 同上，外档用更大的羽化半径 */
+    animation: aegis-nav-wave-outer 5.2s infinite;
   }
 
-  /* 三帧、首尾同值 ⇒ 循环接缝不存在。四条带共用同一条 timing-function ⇒ 永远同相，
-     极值（1px / 4px）能被真正走到；若各层相位不同，就永远停在半路，
-     「由细变粗再回缩」会退化成持续微颤。
+  /* 中/外两档各一条关键帧；错开**写死在关键帧位置**里（理由见 Ring 顶部 ⓒ）。
+     时间轴（5.2s，与 RingAura 同周期）：
+       mid  ：静息 0–10% → 亮起 10–34% → 恒亮 34–72% → 最后关闭 72–100%
+       outer：静息 0–40% → 最后亮起 40–58% → 6px 停 58–68% → 最先关闭 68–88% → 静息 88–100%
+     两条都首尾同值（0 / 0）⇒ 循环接缝在数学上不存在。
+     平台 / 静息段用 linear 而非继续 ease-in-out：此刻 opacity 恒为 1 / 恒为 0，
+     缓动曲线不产生任何视觉变化；写成 linear 是**明示「这段不参与缓动」**，避免后人以为漏配。
 
-     🔴 2026-10-05 打磨：三帧 → **五帧**，给峰值加一个**有宽度的平台**（40% → 60%）。
-        原三帧版（0 / 50 / 100）的问题：4px 那一瞬是「1px 亮线同时塌下去 + 三层同时
-        浮起来」，四件事挤在同一帧发生 ⇒ 观感是**整圈一起跳变**，而不是「由内向外推开」。
-        且该版只有1px 与 4px 两个极值可读，中间的 2px / 3px 态在快速掠过时采样率不足、
-        几乎读不出来 ⇒ 观感同样是「两态之间闪变」。
-        加平台后：0.72s 的 4px 稳态 + 两侧各 1.44s 的单向过渡 ⇒ 三段过程都有可读时长。
-        首尾仍同值（0 / 0）⇒ 接缝依旧不存在。
+     ⚠️ 禁止把两档改回「共用同一条 keyframes + 各自 animation-delay」：两档占空比本就不同，
+        delay 表达不了；且 delay 会毁掉首帧静息态（见 Ring 顶部 ⓒ）。 */
 
-        平台段用 linear 而非继续 ease-in-out：此刻 opacity 恒为 1，缓动曲线不产生任何
-        视觉变化；写成 linear 是**明示「这段不参与缓动」**，避免后人以为漏配。 */
-  @keyframes aegis-nav-bloom {
+  /* ⬇ 元素级 @keyframes —— 与上方 &[...] 属性选择器同层，**不在它们内部**。 */
+  @keyframes aegis-nav-wave-mid {
     0% {
+      opacity: 0;
+      animation-timing-function: linear;
+    }
+    10% {
       opacity: 0;
       animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
     }
-    40% {
+    34% {
       opacity: 1;
       animation-timing-function: linear;
     }
-    60% {
+    72% {
       opacity: 1;
       animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
     }
@@ -349,38 +385,44 @@ const RingBand = styled.span`
     }
   }
 
-  /* 最内层谷亮峰暗（0.62），理由见 Ring 顶部「为什么峰值时最内层反而要压暗」。
-     曲线与 bloom **逐帧一致**（含 40–60% 平台段），保证四层任何时刻都同相。 */
-  @keyframes aegis-nav-bloom-core {
+  @keyframes aegis-nav-wave-outer {
     0% {
-      opacity: 1;
-      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
-    }
-    40% {
-      opacity: 0.62;
+      opacity: 0;
       animation-timing-function: linear;
     }
-    60% {
-      opacity: 0.62;
+    40% {
+      opacity: 0;
       animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
     }
-    100% {
+    58% {
       opacity: 1;
+      animation-timing-function: linear;
+    }
+    68% {
+      opacity: 1;
+      animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+    }
+    88% {
+      opacity: 0;
+      animation-timing-function: linear;
+    }
+    100% {
+      opacity: 0;
     }
   }
 
   /* 规范 §八：停帧而非压时长（同 RingAura 的理由，ADR-006 §三）。
-     四条带的 opacity 全部**显式复位**到各自的静态值 —— 这里若只写 animation: none，
+     各条带的 opacity 全部**显式复位**到各自的静态值 —— 这里若只写 animation: none，
      会回落到各条静态 opacity（本次恰好一致），但那是巧合：静态值与 keyframes 是两处
      真相，改一处另一处不动 ⇒ 静默停在错误亮度。
 
      🔴🔴 2026-10-05 打磨时用无头Edge + CDP 抓到的**真缺陷**：原来这里只有外层那一行
-     animation: none，它在真机上**完全没生效** —— 四条带的 animation 声明写在
+     animation: none，它在真机上**完全没生效** —— 各条带的 animation 声明写在
      & 属性选择器里（specificity 0,2,0），外层基类是 0,1,0 ⇒ 属性选择器赢。
      连上面那句「显式复位 opacity」也被压过：CSS 动画值的优先级高于普通作者声明，
      动画在跑时opacity 复位不参与计算。⇒ 规范 §八 的无障碍要求实际是空的。
      探针复刻真实结构的实测（Emulation.setEmulatedMedia把 reduced-motion 设为
-     reduce，再读 getComputedStyle().animationName）：
+     reduce，再读 getComputedStyle().animationName；下面两条是**当时四条带**的编号）：
        [data-band=1] animationName = bloom-core   ⇒ 仍在无限动画（应为 none）
        [data-band=2] animationName = bloom        ⇒ 仍在无限动画（应为 none）
        对照组（animation:none 也写进 & 属性选择器）⇒ none  ✅
@@ -393,14 +435,15 @@ const RingBand = styled.span`
       animation: none;
     }
 
-    &[data-band="1"] {
+    &[data-band="2"] {
+      /* band2 自 2026-10-06 第四轮起无动画，本行只是与静态值保持一致的显式复位
+         （留着它，将来若亮核重新参与动画，停帧语义已就位）。 */
       opacity: 1;
     }
-    &[data-band="2"] {
+    &[data-band="4"] {
       opacity: 0.03;
     }
-    &[data-band="3"],
-    &[data-band="4"] {
+    &[data-band="6"] {
       opacity: 0;
     }
   }
@@ -609,7 +652,8 @@ function RailItem({
       aria-current={active ? "page" : undefined}
     >
       <Glyph>
-        <Icon size={20} strokeWidth={1.5} aria-hidden="true" />
+        {/* 22px（2026-10-06 用户裁决，原 20）—— 44px 圆形底衬内仍留 11px 边距 */}
+        <Icon size={22} strokeWidth={1.5} aria-hidden="true" />
       </Glyph>
     </Item>
   );
@@ -622,11 +666,9 @@ export function NavRail() {
   const utility = SHELL_MODULES.filter((m) => m.group === "utility");
 
   const { pathname } = useLocation();
-  const isActive = useCallback(
-    (m: ShellModule) => pathname === m.route || pathname.startsWith(`${m.route}/`),
-    [pathname],
-  );
-  const activeId = SHELL_MODULES.find(isActive)?.id;
+  /* 谓词与 BrandBar 标题派生共用 matchModule（modules.ts）——
+     「子路由归属哪个模块」只有一处定义（2026-10-06 代码审查 #4，方向=前缀继承）。 */
+  const activeId = matchModule(pathname)?.id;
   // （原此处有 `usePageLiveness()` + Rail 的 `data-live`，用于失焦时暂停流光环。
   //   2026-10-04 移除，2026-10-05 宽度呼吸改版后**仍未恢复**（新实现只动 opacity，
   //   暂停省下的基本归零，代价却是「可见未聚焦时环停住像卡死」）。
@@ -644,9 +686,17 @@ export function NavRail() {
 
   /* 几何 effect 要读「当前激活项」却不能把它列进依赖 —— 否则激活项一变，它会抢在
      动画 effect 之前把指示器直接落位（两阶段被抹平，实测 y 一步到位、phase 恒 idle）。
-     故用 ref 读最新值，依赖里不出现 activeId。 */
+     故用 ref 读最新值，依赖里不出现 activeId。
+     🔴 2026-10-06（代码审查 #2）：ref 同步由「渲染体内直写」改为 useLayoutEffect ——
+     渲染期写 ref 在并发渲染下会落进**未提交**的渲染（被丢弃 ⇒ ref 留幽灵值），
+     且违反「render 期间 refs 只读」的纪律。改后时序不变：本 effect 声明在几何/动画
+     两个 effect 之上 ⇒ 同一次 commit 里先同步 ref；RO 回调是异步的，只会读到
+     最新已提交值。依赖 [activeId] 只驱动本 effect，不会波及几何 effect（关键，
+     见上段）。 */
   const activeIdRef = useRef(activeId);
-  activeIdRef.current = activeId;
+  useLayoutEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
   /* 量 Item（高 44）再把 40 的圆心对齐其中心：p = top + (44 - SLOT) / 2。
      不去量 Glyph 本身 —— 两者等价，但这样两态切换时只需 SLOT 一个常量。 */
@@ -748,17 +798,16 @@ export function NavRail() {
 
   return (
     <Rail ref={railRef} aria-label={t("nav.toggleAria")}>
-      {/* 流光环组：外光晕 + 四条同心带（见 Ring 注释）。必须在指示器之前，
+      {/* 流光环组：外光晕 + 三条同心带（见 Ring 注释）。必须在指示器之前，
           以便靠 z-index 链（光环组 0 < 盖底 1 < 指示器 2 < 图标 3）分层 ——
-          盖底层会把每条带伸进胶囊内侧的那半盖掉，露出来的正是 1/2/3/4px 的环。
-          🔴 四条带的 DOM 顺序 = 绘制顺序，**由外向内**（band4 先、band1 后），
-             顺序写反会让最宽的带盖住内三层、两个极值都读不出来。 */}
+          盖底层会把每条带伸进胶囊内侧的那半盖掉，露出来的正是 2/4/6px 的环。
+          🔴 三条带的 DOM 顺序 = 绘制顺序，**由外向内**（band6 先、band2 后），
+             顺序写反会让最宽的带盖住内两层、两个极值都读不出来。 */}
       <Ring aria-hidden>
         <RingAura />
+        <RingBand data-band="6" />
         <RingBand data-band="4" />
-        <RingBand data-band="3" />
         <RingBand data-band="2" />
-        <RingBand data-band="1" />
       </Ring>
       <IndicatorBox
         data-phase={phase}

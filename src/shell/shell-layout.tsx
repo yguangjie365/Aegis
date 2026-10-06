@@ -28,9 +28,12 @@ import { BrandBar } from "./brand-bar";
    🔴 SAFE_TOP 的**双重计算陷阱**（此前踩过）：拖动条改为文档流之后，它已经自己占 32，
    Frame 顶部内缩必须**归零**，否则内容会多出一段 32 的空隙。
    🔴 底部同理：底部留白 32 由 Frame 的 padding-bottom 提供（不再有独立的 safe-bottom）。
-   🔴 硬下限：SAFE_LEFT / SAFE_RIGHT 必须 ≥ 流光环外扩 4 + box-shadow 光晕 8 = **12px**，
-   否则 Ring 的光晕被 Frame 的 overflow:hidden 削成断口。当前 20 ⇒ 环外缘距窗口边 16px、
-   光晕外缘距边 8px，余量 8px。改这个值时必须同改 nav-rail.tsx 的 Ring inset。 */
+   🔴 硬下限：SAFE_LEFT / SAFE_RIGHT 必须 ≥ 流光环外扩 6 + box-shadow 光晕 8 = **14px**，
+   否则 Ring 的光晕被 Frame 的 overflow:hidden 削成断口。当前 20 ⇒ 环外缘距窗口边 14px、
+   光晕外缘距边 6px，余量 6px。改这个值时必须同改 nav-rail.tsx 的 Ring inset。
+   （2026-10-06：外扩 4 → 6，随光环改三档 2/4/6 联动；原写「4 + 8 = 12」。
+    同日第四轮加「外两带静态羽化」blur(1px/2px)：带轮廓各向外多洇 ≤2px，
+    但该范围被光晕 8px 的 6px 外缘包住，**不抬高硬下限**。） */
 const SAFE_RIGHT = "calc(20px + env(safe-area-inset-right, 0px))";
 /** 底部纯留白（规范 §六：不是状态栏条，无底色无内容无交互）*/
 const FRAME_PAD_BOTTOM = "calc(32px + env(safe-area-inset-bottom, 0px))";
@@ -42,7 +45,7 @@ const Frame = styled.div`
   display: flex;
   flex-direction: column;
   /* 🔴 顶部内缩 0：拖动条（window-overlay.tsx）已进文档流并自己占 --aegis-dragstrip-h，
-     顶部再留一段就是双重计算。左右 20 是「距边 20」（量胶囊本体，环外缘 16 跑在安全区内）。 */
+     顶部再留一段就是双重计算。左右 20 是「距边 20」（量胶囊本体，环外缘 14 跑在安全区内）。 */
   padding: 0 ${SAFE_RIGHT} ${FRAME_PAD_BOTTOM} ${SAFE_LEFT};
   background: var(--aegis-canvas);
   color: var(--aegis-ink);
@@ -55,8 +58,9 @@ const Middle = styled.div`
   display: flex;
   min-height: 0;
   /* 🔴 2026-10-04 曾想用 overflow: hidden，但不能：
-     NavRail 的流光环（Ring）是 inset:-4px，向四周外扩 4px；裁剪边界若与 Rail 左边缘
-     重合，左边那 4px 会被整条切掉（实测表现为「只有右半个环」）。去掉裁剪即对称；
+     NavRail 的流光环（Ring）是 inset:-6px，向四周外扩 6px（2026-10-06 由 4 改为 6）；
+     裁剪边界若与 Rail 左边缘
+     重合，左边那 6px 会被整条切掉（实测表现为「只有右半个环」）。去掉裁剪即对称；
      横向溢出改由 Main 的 overflow: auto + min-width: 0 承担（Rail 是 flex:none）。
      纵向不裁剪同样安全：底部留白 32 与品牌区都是文档流内的高度，不依赖溢出可见。 */
 `;
@@ -92,7 +96,7 @@ const Main = styled.main`
        而「标题与内容左缘对齐」**本来就是对的** —— BrandBar 有 padding-left 20（标题在 104）、
        Main 也有 padding-left 20（内容在 104），两者天然同在 104。
        ⇒ **「对齐」不等于「都改成 0」**。别把已对齐的东西拆开。
-     · 胶囊外缘的流光环外扩 4px ⇒ 环外缘 [16,88]，box-shadow 光晕再 8px ⇒ [8,96]，
+     · 胶囊外缘的流光环外扩 6px ⇒ 环外缘 [14,90]，box-shadow 光晕再 8px ⇒ [6,98]，
        两侧都落在窗口内（Frame 无裁切），环与光晕完整可见。
      · padding-right **0**：内容右缘 = Main 盒右缘 = Frame 内容右缘 = 1280−20。
        右边距**只有 SAFE_RIGHT 一个来源**，不再有多层叠加（此前是 2px，与左边 16px

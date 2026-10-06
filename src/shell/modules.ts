@@ -3,7 +3,7 @@
 // features/ 是 8 模块封闭清单（04 分册 §一）；重装助手/设置未纳入功能规格（TASKS W2~W5 表下"范围外"注），
 // 故只挂外壳级占位路由，不建 feature 目录、不注册任何服务。
 
-// 图标统一语系（规范 §七 lucide-react，1.5px 描边，轨内恒 20px 档）：
+// 图标统一语系（规范 §七 lucide-react，1.5px 描边，轨内恒 22px 档——2026-10-06 用户裁决，原 20）：
 // 全部选用"有界形状"图标（外框接近方形/圆形轮廓），避免悬散细线（如裸 Wifi/Music 波束）造成的密度不齐。
 import {
   LayoutDashboard,
@@ -125,3 +125,18 @@ export const SHELL_MODULES: readonly ShellModule[] = [
     featureDir: null,
   },
 ];
+
+/* ── 子路由归属判定（2026-10-06，代码审查 #4）────────────────────────────────
+ * `matchModule` 是「某路由属于哪个模块」的**唯一**谓词，两处消费：
+ *   ① NavRail 高亮（activeId）、② BrandBar 主标题派生（title 的回退值）。
+ * 方向 = **前缀继承**（子路由命中所属模块）：与 NavRail 既有高亮语义一致
+ *   —— 同一个问题只能有一个答案；子路由不会出现「空标题」空洞（精确匹配
+ *   会，除非页面自行注册 title）；需要区分具体子页时走已有覆盖通道
+ *   （useRegisterBrand({ title })，见 brand-bar.tsx BrandContent.title ②）。
+ * 按 route 长度降序预排 = 最长前缀优先；当前表内无互为前缀的路由，
+ *   排序是为将来出现嵌套（如 /a 与 /a/b）时不产生「先到先得」歧义。 */
+const BY_LENGTH_DESC = [...SHELL_MODULES].sort((a, b) => b.route.length - a.route.length);
+
+export function matchModule(pathname: string): ShellModule | undefined {
+  return BY_LENGTH_DESC.find((m) => pathname === m.route || pathname.startsWith(`${m.route}/`));
+}

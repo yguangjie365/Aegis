@@ -4,9 +4,10 @@ import styled from "@emotion/styled";
 import { useRegisterBrand } from "@/shell/brand-bar";
 import { AppButton } from "@/ui/components/app-button";
 import { LiveDot } from "@/ui/components/live-dot";
-import { StatCard } from "@/ui/components/stat-card";
+import { StatCard, StatCardSlot } from "@/ui/components/stat-card";
 import { SectionTitle } from "@/ui/components/section-title";
 import { ErrorStateBlock } from "@/ui/components/state-block";
+import { FailureDetail, failureDetail, failureReason } from "@/ui/components/failure-detail";
 import { DiskHealthPanel } from "@/ui/components/disk-health-panel";
 import { DualProcessTables } from "@/ui/components/process-table";
 import { NetEndpointsPanel } from "@/ui/components/net-endpoints-panel";
@@ -32,6 +33,11 @@ import { formatUptime, joinHeader } from "../lib/format";
 
 const Page = styled.div`
   max-width: 1280px;
+  /* 🔴 2026-10-06：与 file-backup-page 同口径补上 width: 100%。
+     没有它，下面的 margin: 0 auto 产生的 auto 外边距会**吃掉**容器剩余宽度
+     （flex 列里 auto 外边距优先于 align-items: stretch），整页塌到内容宽并居中
+     —— 实测本页内容只有 525px 宽、左边落在 x=360，破坏「内容左缘 x=104」契约。 */
+  width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -44,11 +50,9 @@ const Page = styled.div`
   gap: var(--aegis-space-lg);
 `;
 
-const HeadTools = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--aegis-space-md);
-`;
+/* 🔴 2026-10-06 删除 `HeadTools` 包装层：它唯一的作用是声明 `gap: md`，而间距的
+   唯一声明处是壳层 `Acts`（规范 §三 brand-bar 行）。留着它就是同一排两套节奏。
+   动作槽现在直接传 Fragment ⇒ LiveDot 与两枚按钮成为 Acts 的项。 */
 
 // 四卡一排（母本 UniformGrid Columns=4 的等价物）：等宽、随行拉伸，
 // 显卡按 R-01/R-07 可能是 0~n 张，故用 auto-fit 而非硬写四列——卡数变化时不留空槽。
@@ -129,7 +133,10 @@ const StaggerGrid = styled.div`
  */
 const BootLine = styled.p`
   font-size: var(--aegis-type-caption-size);
-  color: var(--aegis-stone);
+  /* 🔴 文字一律 mute 系：stone 在 §六 #6 已被降级为 **UI-only**（图标/边框，3.64:1 不足正文 4.5）。
+     本行是首屏正文级的「正在采集」提示 ⇒ 用 mute（canvas 上 6.60:1 ✅）。2026-10-06 UI 审查 M12。
+     ⚠️ 本注释在模板字符串内，禁写反引号（会报 TS1005）。 */
+  color: var(--aegis-mute);
   margin: 0;
   animation: aegis-boot-breathe 1.6s var(--aegis-motion-easing-standard) infinite;
 
@@ -208,12 +215,6 @@ const SectionRetry = styled.button`
   }
 `;
 
-/** 把 TanStack 的 `error` 归一成一句可读文本（`BackendUnavailableError` 等都是 Error 子类） */
-function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
 /** 分区失败态：`isError` 为真时替代该分区的正常内容 */
 function SectionError({
   isError,
@@ -231,7 +232,10 @@ function SectionError({
   if (!isError) return null;
   return (
     <SectionErrorFrame role="alert">
-      <SectionErrorText>{`${sectionTitle}：${errorText(error)}`}</SectionErrorText>
+      {/* 🔴 主线只到「为什么」为止（UI 审查 D7）：后端命令名收进下面的折叠件，
+          它同时仍是报障时唯一的定位手段，故是收起来而不是删掉。 */}
+      <SectionErrorText>{`${sectionTitle}：${failureReason(error)}`}</SectionErrorText>
+      <FailureDetail detail={failureDetail(error)} />
       <SectionRetry type="button" onClick={onRetry}>
         {retryLabel}
       </SectionRetry>
@@ -337,12 +341,13 @@ export function OverviewPage() {
         每次渲染新建的 React 元素会让 BrandBar 每帧重渲染（渲染风暴）。 */
   const brandActions = useMemo(
     () => (
-      <HeadTools>
+      <>
         <LiveDot live={live} />
         {/* 🔴 2026-10-05 用户裁决：**「导出报告」移到「立即刷新」右边**。
             原来的顺序是「导出 → 刷新」，primary 按钮紧邻右边界；调换后
-            secondary 的「立即刷新」成为最右项，与品牌区右边框之间留 20
-            （padding-right，见 brand-bar.tsx）。 */}
+            secondary 的「立即刷新」成为最右项。
+            ⚠️ 原注释说右缘"留 20（padding-right）"—— 该值早在 2026-10-05 就被推翻
+               （`Bar` 现为 `padding-right: 0`，动作槽右缘 1260 与卡片描边同一条竖线）。 */}
         <AppButton
           variant="secondary"
           size="sm"
@@ -363,7 +368,7 @@ export function OverviewPage() {
         >
           {t(exportReport.exporting ? "report.exporting" : "report.button")}
         </AppButton>
-      </HeadTools>
+      </>
     ),
     [live, exportReport.exporting, exportReport.onClick, t, busy, refreshAll],
   );
@@ -384,12 +389,28 @@ export function OverviewPage() {
       {isPending && !data ? <BootPlaceholder /> : null}
 
       {isError ? (
-        <ErrorStateBlock
-          title={t("state.error.title")}
-          body={error instanceof Error ? error.message : String(error)}
-          onRetry={() => void refetch()}
-          onRetryLabel={t("refresh.label")}
-        />
+        <>
+          <ErrorStateBlock
+            title={t("state.error.title")}
+            /* 🔴 主线只说「为什么」，命令名进折叠（UI 审查 D7）。 */
+            body={failureReason(error)}
+            detail={failureDetail(error)}
+            onRetry={() => void refetch()}
+            onRetryLabel={t("refresh.label")}
+            /* 🔴 2026-10-06 批次⑤：工具栏已有主 CTA（导出报告 = primary），
+               失败态里的重试再出 primary 就是两个同权重主按钮争抢，且文案同为「立即刷新」。
+               降级为 secondary：重试仍可用，视觉让位给工具栏。 */
+            retryVariant="secondary"
+          />
+          {/* 🔴 失败态不塌陷（UI 审查 m2，实测下方空白约 700px）：四卡的**轮廓**照常在场，
+              只是内部是静止占位条。读屏用 aria-hidden 跳过它们 —— 失败信息已由上面的
+              ErrorStateBlock（aria-live=assertive）说完了，占位卡对读屏是纯噪音。 */}
+          <StaggerGrid aria-hidden="true">
+            {[0, 1, 2, 3].map((i) => (
+              <StatCardSlot key={i} />
+            ))}
+          </StaggerGrid>
+        </>
       ) : null}
 
       {data ? (

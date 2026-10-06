@@ -10,7 +10,7 @@
 // `transfer_service_status` 每轮都会读设置文件（未启动时要回端口/目录），
 // 故界面轮询它时不要把间隔设得太小（页面用 2 秒节拍，与概览页口径一致）。
 
-import { invoke } from "./invoke";
+import { BACKEND_OFFLINE_CODE, invoke, isBackendOffline } from "./invoke";
 import type { LogModule } from "@/lib/logging";
 import type {
   PendingConfirm,
@@ -78,6 +78,13 @@ export function asTransferError(error: unknown): TransferError {
     typeof (error as TransferError).message === "string"
   ) {
     return error as TransferError;
+  }
+  // 🔴 「后端没在跑」单独成码，否则归一化后与未知错误码无法区分（UI 审查 D7）。
+  if (isBackendOffline(error)) {
+    return {
+      code: BACKEND_OFFLINE_CODE,
+      message: error instanceof Error ? error.message : String(error),
+    };
   }
   return { code: "UNKNOWN", message: error instanceof Error ? error.message : String(error) };
 }

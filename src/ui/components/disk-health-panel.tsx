@@ -66,6 +66,9 @@ const Meta = styled.span`
  * 色值与 `SegBar` / `TempBadge` 同源令牌，避免"红绿"在两套体系里不一致。
  */
 const HealthText = styled.span<{ $level: "healthy" | "warning" | "unhealthy" | "unknown" }>`
+  /* 🔴 unknown 档用 mute 不用 stone（2026-10-07 真数据审查 T3）：stone 对 canvas 实测
+     3.64:1，本行是 12px/700 正文，不达 4.5:1；§六 #6 已把 stone 降级为 UI-only。
+     只有 SMART 读不到的盘才走到这一档 ⇒ 预览模式拍不到，前九批漏网。 */
   color: ${(p) =>
     p.$level === "healthy"
       ? "var(--aegis-success)"
@@ -73,7 +76,7 @@ const HealthText = styled.span<{ $level: "healthy" | "warning" | "unhealthy" | "
         ? "var(--aegis-warning)"
         : p.$level === "unhealthy"
           ? "var(--aegis-error)"
-          : "var(--aegis-stone)"};
+          : "var(--aegis-mute)"};
   font-weight: 700;
 `;
 

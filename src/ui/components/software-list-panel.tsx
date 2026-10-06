@@ -28,6 +28,9 @@ const Toolbar = styled.div`
 const SearchInput = styled.input`
   flex: 1;
   max-width: 400px;
+  /* h=36（§三 input 行）：原先只靠 padding 撑高，实测约 31px ⇒ 与主题层控件不同高。
+     padding 保留（横向留白仍按令牌），高度改为显式声明。UI 审查 M1 余项。 */
+  height: 36px;
   padding: var(--aegis-space-xs) var(--aegis-space-sm);
   border: 1px solid var(--aegis-border-interactive);
   border-radius: var(--aegis-radius-sm);
@@ -44,7 +47,10 @@ const SearchInput = styled.input`
   }
 
   &::placeholder {
-    color: var(--aegis-stone);
+    /* 占位符在本控件上承担标签职责（无独立 label 时），须按**文字**门禁 4.5:1 算 ——
+       stone 已被 §六 #6 降级为 UI-only（3.64:1）。改 mute。2026-10-06 UI 审查 M12。
+       ⚠️ 本注释在模板字符串内，禁写反引号（会报 TS1005）。 */
+    color: var(--aegis-mute);
   }
 `;
 

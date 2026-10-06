@@ -3,6 +3,7 @@ import {
   nvidiaDark,
   nvidiaLight,
   DECORATIVE_RADII,
+  MONO_FONT_STACK,
   COLOR_TOKEN_KEYS,
   TYPOGRAPHY_TOKEN_KEYS,
   SPACING_TOKEN_KEYS,
@@ -11,7 +12,7 @@ import {
   MOTION_DURATION_TOKEN_KEYS,
   MOTION_EASING_TOKEN_KEYS,
 } from "./tokens";
-import { theme } from "./theme";
+import { theme, cssVarsText } from "./theme";
 
 /* 🔴 Chakra 的 extendTheme 返回类型不精确（config / colors.aegis / styles.global /
  * textStyles / shadows / fontWeights / components / radii / cssVars 全部推断为 any）⇒
@@ -21,6 +22,7 @@ const th = theme as unknown as {
   config: { initialColorMode: string; useSystemColorMode: boolean };
   colors: { aegis: Record<string, string> };
   radii: Record<string, string | undefined>;
+  space: Record<string, string | undefined>;
   shadows: Record<string, string | undefined>;
   // 注：自定义 --aegis-* 变量走 styles.global[":root"]，不查 __cssVars（见下方断言注释）
   textStyles: Record<
@@ -34,7 +36,16 @@ const th = theme as unknown as {
   };
 };
 
-const rootVars = th.styles.global[":root"] ?? {};
+/* 🔴 N1（2026-10-06 UI 审查）：变量表已**移出** Chakra 的 `styles.global` —— 对象通道会把
+   含顶层逗号的值切碎（`--font-mono` 只剩 "Consolas"、sticky 只剩一层）。现由 theme.ts
+   在 import 期以**裸 CSS 文本**注入 <head>，故断言改读 `cssVarsText`：读的是生成出来的
+   文本本身 ⇒ 这条守卫在 node 环境同样成立（不需要 jsdom，也不必等 ADR-003 引第三方）。 */
+const rootVars: Record<string, string> = Object.fromEntries(
+  (cssVarsText.match(/--[a-z0-9-]+:[^;]+/g) ?? []).map((pair) => {
+    const i = pair.indexOf(":");
+    return [pair.slice(0, i), pair.slice(i + 1).trim()];
+  }),
+);
 
 /* ── 对比度独立复算（不引用 tokens 里任何「声称值」）──────────────────────── */
 
@@ -107,8 +118,41 @@ describe("键集契约 —— 两包 × 六维全扫（不只看 activePack）",
     });
   }
 
-  it("colors 键数 = 24（含 focus-ring，覆盖基数已同步）", () => {
-    expect(COLOR_TOKEN_KEYS.length).toBe(24);
+  it("🔴 N1 回归：含顶层逗号的令牌值必须完整出口（不被生成期切碎）", () => {
+    /* 本用例存在的理由：2026-10-06 之前，`--font-mono` 与 `--aegis-elevation-sticky`
+       经 Chakra 对象通道注入后被静默截断，而 tsc / vitest / build 全绿、肉眼也看不出
+       （Consolas 同为等宽）。断言打在**生成的 CSS 文本**上，换通道也拦得住。 */
+    expect(
+      rootVars["--font-mono"],
+      "mono 字体栈被截断 ⇒ 全站 var(--font-mono) 用不到 §七 指定的 JetBrains Mono",
+    ).toBe(MONO_FONT_STACK);
+    expect(
+      rootVars["--aegis-elevation-sticky"],
+      "elevation.sticky 阴影层被截断 ⇒ §一 #3 唯一允许的阴影失真",
+    ).toBe(nvidiaDark.elevation.sticky);
+    expect(
+      (rootVars["--font-mono"]?.match(/,/g) ?? []).length,
+      "顶层逗号数量对不上即说明掉段",
+    ).toBe(2);
+  });
+
+  it("colors 键数 = 25（含 focus-ring、error-fill，覆盖基数已同步）", () => {
+    expect(COLOR_TOKEN_KEYS.length).toBe(25);
+  });
+
+  it("🔴 §二 spacing 维已接进 Chakra `theme.space`（UI 审查 B1 回归守卫）", () => {
+    /* 只断言 CSS 变量出口（--aegis-space-*）**拦不住**「刻度没接进 Chakra」这一类缺陷：
+       styled-system 解析 spacing / gap / margin 时查的是 `theme.space`，缺键即原样透传成
+       `gap: lg` 这类非法值被浏览器丢弃 ⇒ 命名间距静默归零（B1 的实测形态）。
+       故必须直接对 `theme.space` 断言键集与值，且值要带单位（无单位数会破坏 Chakra 数字语义）。 */
+    const want = [...SPACING_TOKEN_KEYS].sort();
+    const got = Object.keys(th.space)
+      .filter((k) => (SPACING_TOKEN_KEYS as readonly string[]).includes(k))
+      .sort();
+    expect(got, 'theme.space 缺规范命名档 ⇒ 页面里 spacing="lg" 之类全部归零').toEqual(want);
+    for (const k of SPACING_TOKEN_KEYS) {
+      expect(th.space[k], `theme.space.${k} 必须是带单位字符串`).toMatch(/^\d+(\.\d+)?px$/);
+    }
   });
 });
 
@@ -124,6 +168,26 @@ describe("颜色语义", () => {
     const lightR = ratio(nvidiaLight.colors["focus-ring"], nvidiaLight.colors.canvas);
     expect(darkR, "Dark focus-ring 仅 " + darkR.toFixed(2) + ":1").toBeGreaterThanOrEqual(3);
     expect(lightR, "Light focus-ring 仅 " + lightR.toFixed(2) + ":1").toBeGreaterThanOrEqual(3);
+  });
+
+  it("🔴 error 与 error-fill 双令牌各自达标（2026-10-06 UI 审查批次②）", () => {
+    // 两岗各守一条门禁，缺任一即断言失败：
+    //   error      → 错误**文字**压在 canvas 上 ≥ 4.5
+    //   error-fill → danger 按钮**底色**，白字 ≥ 4.5
+    // 若有人试图合并回单令牌，这两条不可能同时成立（无解证明在 tokens.ts）。
+    for (const pack of [nvidiaDark, nvidiaLight]) {
+      const c = pack.colors;
+      const textR = ratio(c.error, c.canvas);
+      expect(
+        textR,
+        pack.name + " error 作文字色仅 " + textR.toFixed(2) + ":1",
+      ).toBeGreaterThanOrEqual(4.5);
+      const fillR = ratio(c["on-dark"], c["error-fill"]);
+      expect(
+        fillR,
+        pack.name + " 白字压 error-fill 仅 " + fillR.toFixed(2) + ":1",
+      ).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it("🔴 深色下 surface-soft 必须比 canvas 更亮、surface-inset 更暗（语义反转）", () => {
