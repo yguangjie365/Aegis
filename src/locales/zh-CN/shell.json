@@ -26,7 +26,8 @@
       "musicManager": "音乐管理",
       "gameManager": "游戏管理",
       "restore": "重装助手",
-      "settings": "设置"
+      "settings": "设置",
+      "systemOptimization": "系统优化"
     }
   },
   "status": {
@@ -45,5 +46,126 @@
     "telemetryLabel": "遥测",
     "note": "本应用不采集、不上传任何遥测数据；所有数据仅保存在本机。"
   },
-  "mainRegionLabel": "主内容区"
+  "mainRegionLabel": "主内容区",
+  "sidebar": {
+    "displayFilter": "滤镜",
+    "crosshair": "准心",
+    "overlayPanel": "悬浮框",
+    "gpuRename": "显卡改写",
+    "resolutionConverter": "分辨率管理",
+    "dlssPreset": "三角洲DLSS设置",
+    "diskHealth": "磁盘健康",
+    "nvidiaDriver": "显卡设置（仅NVIDIA）",
+    "audioEq": "EQ调音",
+    "nvidiaDriverDownload": "NVIDIA显卡驱动下载",
+    "autoclicker": "连点器",
+    "speedtest": "网络测速",
+    "runtimeRepair": "运行库修复",
+    "vtxVirtualization": "VT-X 虚拟化修复",
+    "hiddenFeatures": "Windows 隐藏功能",
+    "contextMenu": "右键菜单管理",
+    "downloadAccelerator": "下载器",
+    "nvidiaRecording": "N卡录制管理",
+    "vacRepair": "CS:GO VAC 修复",
+    "appManager": "应用管理",
+    "timeSync": "时间校准",
+    "screenTest": "屏幕检测",
+    "bsodLog": "蓝屏日志"
+  },
+  "builtinTools": {
+    "title": "内置工具",
+    "displayFilterDesc": "调整显示器色彩滤镜",
+    "crosshairDesc": "游戏屏幕准心辅助工具",
+    "overlayPanelDesc": "显示系统硬件状态的悬浮框",
+    "gpuRenameDesc": "改写显卡名称以优化游戏性能",
+    "resolutionConverterDesc": "管理显示器分辨率与画面比例",
+    "dlssPresetDesc": "切换DLSS模型预设以优化游戏画质",
+    "diskHealthDesc": "检测硬盘健康状态与SMART信息",
+    "nvidiaDriverDesc": "通过 NVAPI 直接控制 NVIDIA 驱动图形设置",
+    "audioEqDesc": "系统级音频均衡器调音",
+    "nvidiaDriverDownloadDesc": "查询并下载 NVIDIA 显卡驱动程序（含历史版本）",
+    "autoclickerDesc": "自动连点鼠标，支持左右键、频率预设与热键",
+    "speedtestDesc": "测试网络下载/上传速度、延迟与抖动",
+    "runtimeRepairDesc": "检测并修复缺失的 VC++ / .NET / DirectX 运行库",
+    "vtxVirtualizationDesc": "关闭/恢复内存完整性与 Hyper-V，修复虚拟化弹窗",
+    "hiddenFeaturesDesc": "查询/启用/禁用 Windows 隐藏的 A/B 实验功能开关",
+    "contextMenuDesc": "管理系统右键菜单与「此电脑」中的多余盘符/网盘",
+    "downloadAcceleratorDesc": "多线程动态分段下载，充分跑满带宽",
+    "nvidiaRecordingDesc": "自动扫描 N卡录制视频，按时间管理、预览与清理",
+    "vacRepairDesc": "修复 CS:GO / CS2 的 VAC 屏蔽问题，恢复 Steam 服务与系统设置",
+    "appManagerDesc": "查看并卸载本机已安装的应用软件",
+    "timeSyncDesc": "校准系统时间，检测时间服务器延迟与偏差",
+    "screenTestDesc": "检测显示器坏点、响应时间、刷新率与画面均匀性",
+    "bsodLogDesc": "分析蓝屏崩溃事件与转储文件，定位问题驱动与硬件",
+    "shaderCacheDesc": "强制清理 NVIDIA/AMD/Intel/DirectX 着色器缓存释放磁盘空间",
+    "psoCacheDesc": "清理《三角洲行动》PSO 着色器缓存（默认移入回收站）"
+  },
+  "optimization": {
+    "pageTitle": "优化",
+    "memoryCleanup": {
+      "title": "Windows优化",
+      "description": "优化系统性能，提升游戏体验"
+    },
+    "aceOptimize": {
+      "title": "Windows优化",
+      "description": "优化系统性能，提升游戏体验"
+    },
+    "memoryLimit": {
+      "title": "Windows优化",
+      "description": "优化系统性能，提升游戏体验"
+    },
+    "powerManagement": {
+      "title": "Windows优化",
+      "description": "优化系统性能，提升游戏体验"
+    },
+    "startupManager": {
+      "title": "Windows优化",
+      "description": "优化系统性能，提升游戏体验"
+    },
+    "cpuScheduler": {
+      "title": "Windows优化",
+      "description": "优化系统性能，提升游戏体验"
+    },
+    "gameProcessOptimize": {
+      "title": "Windows优化",
+      "description": "优化系统性能，提升游戏体验"
+    }
+  },
+  "view": {
+    "grid": "网格视图",
+    "list": "列表视图"
+  },
+  "storageClean": {
+    "title": "存储清理",
+    "description": "清理系统临时文件、缓存和垃圾文件释放磁盘空间"
+  },
+  "shaderCache": {
+    "title": "着色器缓存清理"
+  },
+  "systemOptimizer": {
+    "pageTitle": "系统优化",
+    "pageDesc": "一键开关系统各项优化，提升性能与隐私保护"
+  },
+  "networkOptimize": {
+    "pageTitle": "网络优化",
+    "pageDesc": "优化网络参数，配置 DNS 提升解析速度"
+  },
+  "peripheralOptimize": {
+    "pageTitle": "外设优化",
+    "pageDesc": "优化鼠标和键盘注册表参数，降低输入延迟"
+  },
+  "windowsUpdate": {
+    "pageTitle": "Windows 更新与 Defender",
+    "pageDesc": "完全关闭 Windows 自动更新与 Windows Defender（均支持恢复）"
+  },
+  "psoCache": {
+    "title": "PSO 缓存清理"
+  },
+  "sysOptimize": {
+    "unknownTool": "未知工具",
+    "placeholderPending": "该工具页面尚未迁入本模块（按批次逐步迁入），点击不会执行任何操作。",
+    "placeholderNeedsElevation": "该工具的操作需要管理员权限；本项目的按需提权通道尚未落地，现阶段操作区保持禁用。",
+    "placeholderSpecBlocked": "该工具属规格明令不搬入的范围（见功能规格 08 §明确不做），此处仅保留卡片占位，不提供功能。",
+    "backToTools": "返回系统优化"
+  }
 }

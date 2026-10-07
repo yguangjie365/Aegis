@@ -279,8 +279,61 @@ mod guard_system_path_removed_tests {
     }
 }
 
+/// 🔴 审查 R-2（2026-10-07）：守卫③白名单的**分隔符边界**回归钉。
+///   原实现 `starts_with` 会让 `d:\backup` 放行 `d:\backup-evil\...`；
+///   修复改词法判定后，这两个方向都必须钉住。
+#[cfg(test)]
+mod guard_whitelist_boundary_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn whitelist_of(root: &str) -> HashSet<String> {
+        let mut set = HashSet::new();
+        set.insert(root.to_ascii_lowercase());
+        set
+    }
+
+    #[test]
+    fn sibling_directory_with_shared_prefix_is_rejected() {
+        let whitelist = whitelist_of("d:\\backup");
+        assert!(
+            guard_whitelist(
+                Path::new("D:\\backup-evil\\payload.bin"),
+                "D:\\backup-evil\\payload.bin",
+                &whitelist
+            )
+            .is_some(),
+            "同前缀兄弟目录必须被拒（原 starts_with 缺陷的阳性样本）"
+        );
+    }
+
+    #[test]
+    fn real_source_root_and_subpath_are_accepted() {
+        let whitelist = whitelist_of("d:\\backup");
+        assert!(
+            guard_whitelist(
+                Path::new("D:\\backup\\settings\\app.conf"),
+                "D:\\backup\\settings\\app.conf",
+                &whitelist
+            )
+            .is_none(),
+            "白名单根内的正常恢复必须放行"
+        );
+        // 带尾分隔符的根登记形态同样要放行子路径
+        let whitelist = whitelist_of("d:\\backup\\");
+        assert!(
+            guard_whitelist(
+                Path::new("D:\\backup\\settings\\app.conf"),
+                "D:\\backup\\settings\\app.conf",
+                &whitelist
+            )
+            .is_none(),
+            "根带尾分隔符登记时子路径仍须放行"
+        );
+    }
+}
+
 /// 守卫②：本程序受保护目录（配置与记录所在处）。
-/// 守卫①（原 ②）：本程序受保护目录（配置与记录所在处）。
 fn guard_protected_dir(dest: &Path) -> Option<FailureView> {
     // 🔴 2026-10-07 改：子串匹配 → **词法前缀比较**。
     //   原实现 `text.contains("\\aegis\\")` 有两个方向都错的失败形态：
@@ -306,11 +359,17 @@ fn guard_whitelist(
     if whitelist.is_empty() {
         return Some(reject(dest, "来源白名单为空，无法确认目标在允许范围内"));
     }
-    let dest_text = dest.to_string_lossy().to_ascii_lowercase();
     // 用**原始绝对位置**判定归属：它是清单里记录的源端位置，语义最明确
-    let origin_text = original.to_ascii_lowercase();
     let in_whitelist = whitelist.iter().any(|root| {
-        dest_text.starts_with(root) || (!origin_text.is_empty() && origin_text.starts_with(root))
+        // 🔴 2026-10-07（审查 R-2）：原实现 `dest_text.starts_with(root)` **无分隔符边界**
+        //   —— 白名单根 `d:\backup` 会放行 `d:\backup-evil\...`（前缀命中但已越出根）。
+        //   与 `guard_protected_dir` 同标准：改用词法包含判定
+        //   （`infra::safe::is_lexically_under` 内部自带大小写归一 + 补分隔符，
+        //   此处只需去掉根尾分隔符，避免 `\` 参与段比较）。
+        let root_path = Path::new(root.trim_end_matches(['\\', '/']));
+        infra::safe::is_lexically_under(root_path, dest)
+            || (!original.is_empty()
+                && infra::safe::is_lexically_under(root_path, Path::new(original)))
     });
     if in_whitelist {
         None

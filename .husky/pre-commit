@@ -21,12 +21,13 @@ export PATH="$HOME/.cargo/bin:$PATH"
 if ! npx eslint . --max-warnings 0 \
   --ignore-pattern 'src/features/MusicManager/**' \
   --ignore-pattern 'src/features/GameManager/**' \
+  --ignore-pattern 'src/features/SystemOptimization/**' \
   --ignore-pattern 'src/types/music.ts'; then
   echo "pre-commit: ESLint 未过（非复刻域 --max-warnings 0），提交已拦截" >&2
   exit 1
 fi
 
-if ! npx eslint src/features/MusicManager src/features/GameManager src/types/music.ts --quiet; then
+if ! npx eslint src/features/MusicManager src/features/GameManager src/features/SystemOptimization src/types/music.ts --quiet; then
   echo "pre-commit: 复刻域存在 ESLint **error**（warning 已按复刻口径放行），提交已拦截" >&2
   exit 1
 fi

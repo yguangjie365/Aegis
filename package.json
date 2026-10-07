@@ -16,7 +16,7 @@
     "format:check": "prettier --check .",
     "tauri": "tauri",
     "prepare": "husky",
-    "lint:strict": "eslint . --max-warnings 0"
+    "lint:strict": "eslint . --config eslint.strict.mjs --max-warnings 0"
   },
   "dependencies": {
     "@chakra-ui/react": "^2.10.9",

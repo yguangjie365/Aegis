@@ -237,12 +237,18 @@ mod imp {
                     None // 保持上一次状态，防抖
                 };
                 if let Some(out) = emit_state {
+                    let cleared = out.is_none();
                     let mut guard = CURRENT
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     *guard = out.clone();
                     drop(guard);
                     let _ = app.emit("external-player:state", out);
+                    if cleared {
+                        // 会话清空 ⇒ 封面缓存一并作废：下次同曲目再出现时须重读封面，
+                        // 否则消费方清屏后拿不回封面（审查 R-8 契约的另一半）
+                        cover_key = None;
+                    }
                 }
             }
 
@@ -356,7 +362,13 @@ mod imp {
             *cover_key = Some(current_key.clone());
             c
         } else {
-            current_state().and_then(|s| s.track).and_then(|t| t.cover)
+            // 🔴 2026-10-07（审查 R-8）：曲目未变时**不再回填封面**。
+            //   原实现每拍都把缓存里的 base64 封面塞进状态并整包 emit——进度每秒
+            //   变化 ⇒ 每秒一次 MB 级 IPC 序列化 + 拷贝。契约改为：
+            //   **封面只在换曲的那一拍携带，其余拍为 None**，消费方须保留上一张
+            //   （该事件当前尚无前端消费者，`music-store.externalTrack` 未接线；
+            //   接线时按此契约实现，轮询取数走 `external_player_state` 命令则不受影响）。
+            None
         };
 
         Some(ExternalPlayback {

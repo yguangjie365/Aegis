@@ -15,6 +15,11 @@ import SettingsPage from "@/features/Settings/pages/settings-page";
 import { FileTransferPage } from "@/features/FileTransfer/pages/file-transfer-page";
 // M-06 文件备份（2026-10-05）：左栏规则 + 右栏快照 + 恢复向导
 import { FileBackupPage } from "@/features/FileBackup/pages/file-backup-page";
+// M-09 系统优化（2026-10-07 用户裁决新增）：NexBox「内置工具 + 优化」全量搬迁
+// ——批次 0 交付两个入口页 + 诚实占位；37 个工具子页按批次逐个迁入（见模块 README）。
+import SystemOptimizationBuiltinToolsPage from "@/features/SystemOptimization/pages/builtin-tools-page";
+import SystemOptimizationOptimizePage from "@/features/SystemOptimization/pages/optimize-page";
+import { ToolPlaceholderPage } from "@/features/SystemOptimization/pages/tool-placeholder-page";
 
 // 路由由模块注册表派生（W1-06）：未注册 = 404，与导航缺失同源。
 // 各 M-xx 开工时逐模块在 PAGE_OVERRIDES 登记真实页，未登记者继续落 ModulePlaceholder。
@@ -29,6 +34,8 @@ const PAGE_OVERRIDES: Record<string, ReactElement> = {
   "file-transfer": <FileTransferPage />,
   // M-06 文件备份（2026-10-05）：规则 CRUD / 立即备份 / 快照校验 / 恢复向导
   "file-backup": <FileBackupPage />,
+  // M-09 系统优化（2026-10-07）：入口 = NexBox「内置工具」页（逐字复刻）
+  "system-optimization": <SystemOptimizationBuiltinToolsPage />,
 };
 
 export const router = createBrowserRouter([
@@ -41,6 +48,17 @@ export const router = createBrowserRouter([
         path: m.route.slice(1),
         element: PAGE_OVERRIDES[m.id] ?? <ModulePlaceholder module={m} />,
       })),
+      // 🔴 M-09 系统优化的模块内子路由（2026-10-07）。
+      //   入口页在 PAGE_OVERRIDES（与其余模块同源派生）；子路由因是**模块私有命名空间**
+      //   （`/system-optimization/**`），不进 SHELL_MODULES 派生表。
+      //   · optimize            → NexBox `OptimizePage`（逐字复刻）
+      //   · tools/:toolId       → 37 个工具子页；批次 0 统一落诚实占位（不假装可用），
+      //                          B1~B5 逐个替换为真实页（保持同一路由 ⇒ 卡片零改动）
+      {
+        path: "system-optimization/optimize",
+        element: <SystemOptimizationOptimizePage />,
+      },
+      { path: "system-optimization/tools/:toolId", element: <ToolPlaceholderPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
   },

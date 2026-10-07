@@ -59,8 +59,19 @@ mod imp {
     static ENABLED: AtomicBool = AtomicBool::new(true);
     /// 主窗口句柄（用于恢复原窗口过程），以 isize 保存避免原始指针非 Send
     static MAIN_HWND: Mutex<Option<isize>> = Mutex::new(None);
-    /// RegisterHotKey 消息窗口句柄（应用生命周期内创建一次），以 isize 保存
+    /// RegisterClassExW 消息窗口句柄（应用生命周期内创建一次），以 isize 保存
     static MSG_HWND: Mutex<Option<isize>> = Mutex::new(None);
+    /// 子类化安装/恢复的互斥锁（审查 R-7，2026-10-07）。
+    ///
+    /// 🔴 为什么需要单独一把锁：`install_main_subclass` 的「检查 `MAIN_HWND` →
+    ///   `SetWindowLongPtrW` → 写 `ORIGINAL_WNDPROC`/`MAIN_HWND`」与
+    ///   `restore_main_subclass` 的「take → 恢复 → 写回」都是**多步非原子**操作，
+    ///   而 `apply()` 既在 setup（主线程）调用、也由开关命令（Tauri 命令线程）调用。
+    ///   并发交错时第二次子类化会把 `wnd_proc` 自身读成 `prev` 存进
+    ///   `ORIGINAL_WNDPROC` ⇒ 恢复链损坏（窗口过程指向自身/丢失），媒体键路由
+    ///   错乱且不可自愈。此锁贯穿安装/恢复全程；`SetWindowLongPtrW` 是快速
+    ///   系统调用，持锁开销可忽略。`wnd_proc` 热路径不取此锁，不受影响。
+    static SUBCLASS_LOCK: Mutex<()> = Mutex::new(());
     /// 消息窗口线程是否已创建
     static THREAD_CREATED: AtomicBool = AtomicBool::new(false);
 
@@ -109,6 +120,9 @@ mod imp {
 
     /// 常驻子类化主窗口（幂等）：拦截冒泡上来的 WM_APPCOMMAND 媒体命令
     fn install_main_subclass(app: &AppHandle) {
+        // 🔴 全程持 `SUBCLASS_LOCK`：与 `restore_main_subclass` 及并发的第二次
+        //   install 互斥（竞态分析见该静态的文档注释，审查 R-7）。
+        let _guard = lock_ok(&SUBCLASS_LOCK);
         if lock_ok(&MAIN_HWND).is_some() {
             return;
         }
@@ -133,6 +147,8 @@ mod imp {
 
     /// 恢复主窗口原窗口过程（关闭开关时调用；关闭模式下按键由全局热键直接处理）
     fn restore_main_subclass() {
+        // 🔴 全程持 `SUBCLASS_LOCK`（与 install 互斥，审查 R-7）
+        let _guard = lock_ok(&SUBCLASS_LOCK);
         let orig = lock_ok(&ORIGINAL_WNDPROC).take();
         let main_hwnd = *lock_ok(&MAIN_HWND);
         if let (Some(orig), Some(main_hwnd)) = (orig, main_hwnd) {

@@ -1,6 +1,7 @@
 // 模块注册表（W1-06）：导航项与路由由同一张表派生——
 // 🔴 禁用 = 不注册（不出现在表内即无路由、无导航、无后台组件），非仅隐藏导航项。
-// features/ 是 8 模块封闭清单（04 分册 §一）；重装助手/设置未纳入功能规格（TASKS W2~W5 表下"范围外"注），
+// features/ 是 9 模块封闭清单（04 分册 §一，2026-10-07 用户裁决新增「系统优化」）；
+// 重装助手/设置未纳入功能规格（TASKS W2~W5 表下"范围外"注），
 // 故只挂外壳级占位路由，不建 feature 目录、不注册任何服务。
 
 // 图标统一语系（规范 §七 lucide-react，1.5px 描边，轨内恒 22px 档——2026-10-06 用户裁决，原 20）：
@@ -16,6 +17,7 @@ import {
   Gamepad,
   History,
   Settings,
+  Cog,
   type LucideIcon,
 } from "lucide-react";
 
@@ -105,6 +107,17 @@ export const SHELL_MODULES: readonly ShellModule[] = [
     group: "modules",
     milestone: "M-08",
     featureDir: "GameManager",
+  },
+  {
+    // 🔴 2026-10-07 用户裁决新增：NexBox「内置工具 + 优化」两模块全量搬迁（M-09）。
+    //   图标 Cog = 有界形状（外框接近圆形轮廓），符合本文件「禁悬散细线」口径。
+    id: "system-optimization",
+    route: "/system-optimization",
+    nameKey: "nav.item.systemOptimization",
+    icon: Cog,
+    group: "modules",
+    milestone: "M-09",
+    featureDir: "SystemOptimization",
   },
   {
     id: "restore",

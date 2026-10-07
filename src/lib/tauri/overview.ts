@@ -63,7 +63,12 @@ export async function writeSnapshot(
   cards?: readonly StatCard[],
 ): Promise<void> {
   return invoke<void>("overview_snapshot_write", OVERVIEW, "overviewSnapshotWrite", {
-    ...payload,
+    // 🔴 2026-10-07（审查 C-1）：此前写 `...payload` 顶层展开 ⇒ 线上没有 "payload" 键，
+    //   而后端按**参数名** `payload: HardwareDetailDto` 取值（Tauri 参数名绑定铁律，
+    //   见 backup/commands.rs:61-71）⇒ 绑定必然失败，每次写快照都被 catch 成 warn，
+    //   F-09 快照秒显从未真正生效过。改为**按名传参**：payload 键对位后端参数名。
+    //   `cards` 同形可按名绑定，保持顶层键不变。
+    payload,
     cards: cards ?? [],
   });
 }

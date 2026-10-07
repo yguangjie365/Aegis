@@ -162,10 +162,41 @@ impl Sidecar {
                     // 🔴 按字节读 + lossy 转：母本用 UTF-8 读，而 sidecar 的中文日志在
                     // 非 UTF-8 控制台代码页下会成非法字节序列，`read_line::<String>` 直接报错
                     // → 诊断信息静默丢失（违 R-08）。lossy 至少保留可读部分。
-                    match reader.read_until(b'\n', &mut buf) {
-                        Ok(0) | Err(_) => break,
-                        Ok(_) => stderr_sink(String::from_utf8_lossy(&buf).trim_end()),
+                    //
+                    // 🔴 与 stdout 同款限幅（审查 R-4，2026-10-07）：`read_until` 会把一整行
+                    //   **无界**读进内存，stdout 侧已用 `take(MAX_LINE_BYTES)` 堵住，stderr
+                    //   不能只装一扇门。差异：stdout 超限即断（协议已坏），stderr 超限
+                    //   **必须继续排空**——子进程若阻塞在写满的管道上，会反向卡死 stdout
+                    //   读取（见 spawn 处注释），故丢弃超限内容、吞掉该行剩余字节后继续。
+                    let n = match std::io::Read::take(&mut reader, MAX_LINE_BYTES)
+                        .read_until(b'\n', &mut buf)
+                    {
+                        Ok(n) => n,
+                        Err(_) => break,
+                    };
+                    if n == 0 {
+                        break; // EOF（子进程退出）
                     }
+                    if n as u64 >= MAX_LINE_BYTES && !buf.ends_with(b"\n") {
+                        // 超限：丢内容、只留一条痕，然后排空到行尾（防管道反压）
+                        stderr_sink(&format!(
+                            "[sidecar] stderr 单行超过 {MAX_LINE_BYTES} 字节，该行已丢弃"
+                        ));
+                        let mut sink = [0u8; 8192];
+                        loop {
+                            // `read` 在 `Read` trait 上（本模块只 use 了 `BufRead`），故全限定调用
+                            match std::io::Read::read(&mut reader, &mut sink) {
+                                Ok(0) | Err(_) => return, // EOF：读线程结束
+                                Ok(m) => {
+                                    if sink[..m].contains(&b'\n') {
+                                        break; // 本行已排空，回到外层读下一行
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    stderr_sink(String::from_utf8_lossy(&buf).trim_end());
                 }
             });
         }

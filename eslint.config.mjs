@@ -154,4 +154,35 @@ export default tseslint.config(
       ],
     },
   },
+  // ── M-09 系统优化域 lint 豁免（2026-10-07 用户裁决新增模块）──
+  // 依据：NexBox「内置工具 + 优化」两模块全量搬迁（GPL-3.0 同源衍生），
+  // 口径与上面两个复刻域**完全一致**：只关闭依赖 strict 类型信息 / 与 strict 收窄耦合的规则，
+  // 结构性规则（rules-of-hooks / exhaustive-deps / no-empty / no-useless-catch）保留但降 warn。
+  // 与音乐/游戏域的差别：复刻代码**不含** `src/types/music.ts` 那类共享类型文件，
+  // 故豁免范围只有 feature 目录本身。
+  {
+    files: ["src/features/SystemOptimization/**/*.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/no-floating-promises": "off",
+      "@typescript-eslint/no-misused-promises": "off",
+      "@typescript-eslint/require-await": "off",
+      "@typescript-eslint/no-base-to-string": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-unnecessary-type-assertion": "off",
+      "@typescript-eslint/prefer-promise-reject-errors": "off",
+      "react-hooks/rules-of-hooks": "warn",
+      "react-hooks/exhaustive-deps": "warn",
+      "prefer-const": "warn",
+      "no-empty": ["warn", { allowEmptyCatch: false }],
+      "no-useless-catch": "warn",
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", ignoreRestSiblings: true },
+      ],
+    },
+  },
 );

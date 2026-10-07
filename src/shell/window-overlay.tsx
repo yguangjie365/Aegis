@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import styled from "@emotion/styled";
 import { Minus, X } from "lucide-react";
 import { isTauriRuntime } from "@/lib/tauri/invoke";
+import { log } from "@/lib/logging";
 
 // ── 窗口拖动条（2026-10-05 由 fixed 覆盖层改为进文档流）──────────────────────
 // 参照 NexBox `src/components/ui/title-bar.tsx`：透明、只承载拖动区 + 窗口控制。
@@ -125,10 +126,14 @@ export function WindowOverlay() {
                ① capabilities/default.json 缺 core:window:allow-toggle-maximize —— Tauri 直接拒绝；
                ② tauri.conf.json 的 maximizable: false。
                两者都需改配置后**重启进程**才生效（配置不热重载）。 */
-            console.error(
-              "[window-overlay] toggleMaximize 被拒：检查 capabilities 的 allow-toggle-maximize 与 maximizable 配置，并重启进程",
-              err,
-            );
+            // 🔴 走 log() 不裸 console：降级路径必须进八字段 JSONL 才可检索（审查 R-3）
+            log({
+              level: "error",
+              module: "Shell",
+              action: "windowToggleMaximize",
+              result: "Failed",
+              exception: err instanceof Error ? err.message : String(err),
+            });
           }
         })();
         return;
@@ -138,7 +143,13 @@ export function WindowOverlay() {
           const { getCurrentWindow } = await import("@tauri-apps/api/window");
           await getCurrentWindow().startDragging();
         } catch (err) {
-          console.error("[window-overlay] startDragging 失败", err);
+          log({
+            level: "error",
+            module: "Shell",
+            action: "windowStartDragging",
+            result: "Failed",
+            exception: err instanceof Error ? err.message : String(err),
+          });
         }
       })();
     },
@@ -154,7 +165,19 @@ export function WindowOverlay() {
           title={live ? t("window.minimize") : t("status.browserPreview")}
           disabled={!live}
           onClick={() => {
-            void import("@tauri-apps/api/window").then((m) => m.getCurrentWindow().minimize());
+            // 🔴 三个窗口动作统一 catch 后走 log()：裸 .then 的拒绝是 unhandled
+            //   rejection，且降级路径不进 JSONL（审查 R-3 + 同文件 minimize 补漏）
+            void import("@tauri-apps/api/window")
+              .then((m) => m.getCurrentWindow().minimize())
+              .catch((err) => {
+                log({
+                  level: "error",
+                  module: "Shell",
+                  action: "windowMinimize",
+                  result: "Failed",
+                  exception: err instanceof Error ? err.message : String(err),
+                });
+              });
           }}
         >
           <Minus size={14} strokeWidth={1.5} aria-hidden="true" />
@@ -170,7 +193,13 @@ export function WindowOverlay() {
             void import("@tauri-apps/api/window")
               .then((m) => m.getCurrentWindow().toggleMaximize())
               .catch((err) => {
-                console.error("[window-overlay] 最大化按钮 toggleMaximize 被拒", err);
+                log({
+                  level: "error",
+                  module: "Shell",
+                  action: "windowToggleMaximize",
+                  result: "Failed",
+                  exception: err instanceof Error ? err.message : String(err),
+                });
               });
           }}
         >

@@ -51,6 +51,99 @@ const ONLINE_TIMEOUT_SECS: u64 = 15;
 /// API Key 的落盘文件名（放在 Steam 目录的 config 下，与客户端配置同域）。
 const API_KEY_FILE: &str = "aegis_steam_api_key.txt";
 
+/// 🔴 2026-10-07（审查 R-6，用户裁决方案 C）：Key 落盘由明文改为 **DPAPI 加密**。
+///
+/// 原实现把 32 位十六进制**明文**直接写盘，与项目红线「凭据只经系统安全存储、
+/// 禁明文落盘」冲突。改为 `CryptProtectData`（DPAPI）：密文绑定**当前 Windows
+/// 用户**解密；文件路径、`.bak` 纪律、命令签名全部不变，只有文件内容变为密文。
+///
+/// 兼容与降级（已在规格 08 登记）：
+/// - 旧版**明文**文件在首次读取时自动迁移为密文（迁移失败保留旧文件继续用，留痕）；
+/// - 换机/重装系统后旧密文不可解密 → 按「未配置」处理，用户重贴 Key 即可。
+///
+/// 🔴 与 `keyring` 依赖的关系：Cargo.toml 已预置 keyring（MU-4 注释）供后续
+///   凭据场景（如音乐域 cookie）选用；本处按裁决用 DPAPI 保住「与 Steam 目录
+///   同域、可随目录迁移」的既有语义，二者不冲突。
+#[cfg(windows)]
+mod key_dpapi {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+
+    /// 域分隔串：作为可选熵防止同用户其它 DPAPI 密文被挪到此处解密（反之亦然）。
+    /// 换代（v2）= 改这里 + 全量重新迁移。
+    const ENTROPY: &[u8] = b"Aegis.SteamApiKey.v1";
+
+    fn blob(bytes: &[u8]) -> CRYPT_INTEGER_BLOB {
+        CRYPT_INTEGER_BLOB {
+            cbData: bytes.len() as u32,
+            pbData: bytes.as_ptr() as *mut u8,
+        }
+    }
+
+    /// 取回 DPAPI 输出 blob 的内容并释放其 LocalAlloc 内存。
+    fn take(out: CRYPT_INTEGER_BLOB) -> Vec<u8> {
+        let bytes = unsafe { std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec() };
+        unsafe {
+            LocalFree(out.pbData.cast());
+        }
+        bytes
+    }
+
+    /// 加密。失败即返回 Err（调用方不得降级为明文落盘）。
+    pub fn protect(plain: &[u8]) -> Result<Vec<u8>, String> {
+        unsafe {
+            let mut out = CRYPT_INTEGER_BLOB {
+                cbData: 0,
+                pbData: std::ptr::null_mut(),
+            };
+            let ok = CryptProtectData(
+                &blob(plain),
+                std::ptr::null(),
+                &blob(ENTROPY),
+                std::ptr::null(),
+                std::ptr::null(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut out,
+            );
+            if ok == 0 {
+                return Err(format!(
+                    "DPAPI 加密失败: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            Ok(take(out))
+        }
+    }
+
+    /// 解密。密文无效（含换机后本用户解不开）时返回 Err。
+    pub fn unprotect(cipher: &[u8]) -> Result<Vec<u8>, String> {
+        unsafe {
+            let mut out = CRYPT_INTEGER_BLOB {
+                cbData: 0,
+                pbData: std::ptr::null_mut(),
+            };
+            let ok = CryptUnprotectData(
+                &blob(cipher),
+                std::ptr::null_mut(),
+                &blob(ENTROPY),
+                std::ptr::null(),
+                std::ptr::null(),
+                CRYPTPROTECT_UI_FORBIDDEN,
+                &mut out,
+            );
+            if ok == 0 {
+                return Err(format!(
+                    "DPAPI 解密失败: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            Ok(take(out))
+        }
+    }
+}
+
 /// 校验前端传入的 `steam_dir` 是否就是本机真实 Steam 目录（纵深防御）
 ///
 /// 🔴 三个公开命令（`steam_save_api_key` / `steam_api_key_status` /
@@ -92,24 +185,64 @@ fn validate_steam_dir(candidate: &str) -> Result<(), String> {
 
 /// 读取已保存的 API Key；未配置返回 `None`。
 ///
-/// 🔴 只读 Steam 目录的单个纯文本文件，**不写注册表、不改客户端配置**（规格 08 §一
+/// 🔴 只读 Steam 目录的单个文件，**不写注册表、不改客户端配置**（规格 08 §一
 /// 「本模块不修改任何游戏文件」）。文件不存在 = 未配置，属正常态而非错误。
+/// 🔴 2026-10-07（R-6）：文件内容为 DPAPI 密文；旧明文自动迁移；解不开 = 未配置。
 pub fn load_api_key(steam_dir: &str) -> Option<String> {
     let path = format!("{}\\{}", steam_dir, API_KEY_FILE);
-    let raw = std::fs::read_to_string(&path).ok()?;
-    let key = raw.trim().to_string();
-    if key.is_empty() {
-        None
-    } else {
-        log::info!("[Steam] API Key 已配置（{} 字节）", key.len());
-        Some(key)
+    let raw = std::fs::read(&path).ok()?;
+    if raw.is_empty() {
+        return None;
     }
+
+    // 🔴 兼容迁移（仅 Windows）：旧版存的是**明文** 32 位十六进制（判据与
+    //   `steam_save_api_key` 的写盘预检一致）。命中即原地重写为密文。
+    //   迁移失败保留旧文件继续用 —— 留痕不阻断（禁静默失败，但不因加密迁移
+    //   失败而把用户本可用的 Key 判成未配置）。
+    #[cfg(windows)]
+    if let Ok(legacy) = String::from_utf8(raw.clone()) {
+        let legacy = legacy.trim();
+        if is_wellformed_key(legacy) {
+            log::info!("[Steam] 检测到旧版明文 Key，自动迁移为 DPAPI 加密存储");
+            match save_api_key(steam_dir, legacy) {
+                Ok(()) => {
+                    // 迁移成功后 .bak 里是**明文旧值**，必须一并清掉（否则加密白做）
+                    let _ = std::fs::remove_file(format!("{}.bak", path));
+                }
+                Err(e) => {
+                    log::warn!("[Steam] Key 加密迁移失败（保留原文件继续使用）: {e}");
+                }
+            }
+            return Some(legacy.to_string());
+        }
+        // 非空但不符合 Key 格式的"明文"：多半是损坏文件，落到底部按密文解密失败
+        // → 未配置态，与「换机后解不开」同一出口。
+    }
+
+    #[cfg(windows)]
+    let decoded = key_dpapi::unprotect(&raw).ok()?;
+    #[cfg(not(windows))]
+    let decoded = raw;
+
+    let key = String::from_utf8(decoded).ok()?.trim().to_string();
+    if key.is_empty() {
+        return None;
+    }
+    log::info!("[Steam] API Key 已配置（{} 字节）", key.len());
+    Some(key)
+}
+
+/// 与 `steam_save_api_key` 的写盘预检同口径：Steam Web API Key 固定 32 位十六进制。
+fn is_wellformed_key(s: &str) -> bool {
+    s.len() == 32 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// 保存 API Key。空串视为**清除**（删文件），返回是否成功。
 ///
 /// 🔴 覆写前先备份为 `.bak` —— 规格 08 §一要求「改写客户端的登录记录，写前留备份」
 /// 是针对切账户的；Key 属本程序自有配置，同样按此纪律处理。
+/// 🔴 2026-10-07（R-6）：写盘内容为 DPAPI 密文，盘上不再出现明文；
+///   Windows 加密失败时**返回错误**，不得降级为明文落盘。
 pub fn save_api_key(steam_dir: &str, key: &str) -> Result<(), String> {
     let path = format!("{}\\{}", steam_dir, API_KEY_FILE);
     let key = key.trim();
@@ -126,11 +259,23 @@ pub fn save_api_key(steam_dir: &str, key: &str) -> Result<(), String> {
         };
     }
 
+    // 🔴 加密先行（R-6）：先拿到密文再动盘 —— 加密失败时旧文件与 .bak 原样不动
+    let payload = {
+        #[cfg(windows)]
+        {
+            key_dpapi::protect(key.as_bytes())?
+        }
+        #[cfg(not(windows))]
+        {
+            key.as_bytes().to_vec()
+        }
+    };
+
     // 写前备份
     if std::path::Path::new(&path).exists() {
         let _ = std::fs::copy(&path, format!("{}.bak", path));
     }
-    std::fs::write(&path, key).map_err(|e| format!("保存失败: {}", e))
+    std::fs::write(&path, payload).map_err(|e| format!("保存失败: {}", e))
 }
 
 // ============================================================================
@@ -649,5 +794,110 @@ mod tests {
     fn 百分号编码() {
         assert_eq!(url_encode("abc123"), "abc123");
         assert_eq!(url_encode("a b&c"), "a%20b%26c");
+    }
+}
+
+/// 🔴 审查 R-6（2026-10-07，用户裁决方案 C）：Key 落盘 DPAPI 加密的回归钉。
+///   Windows 真实 DPAPI 调用（同用户加密/解密），故 `cfg(windows)`。
+#[cfg(all(test, windows))]
+mod key_dpapi_tests {
+    use super::*;
+
+    /// 独立临时目录（真实文件读写走 load/save 全链路）。
+    struct TempDir(std::path::PathBuf);
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "aegis-key-test-{}-{}-{}",
+                tag,
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.subsec_nanos())
+                    .unwrap_or(0)
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("创建临时目录");
+            TempDir(dir)
+        }
+        fn dir(&self) -> String {
+            self.0.to_string_lossy().to_string()
+        }
+    }
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    const KEY: &str = "0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn dpapi_roundtrip_recovers_plain() {
+        let cipher = key_dpapi::protect(KEY.as_bytes()).expect("DPAPI 加密不应失败");
+        assert_ne!(
+            cipher,
+            KEY.as_bytes(),
+            "盘上形态必须不同于明文（禁明文落盘红线）"
+        );
+        assert_ne!(
+            String::from_utf8_lossy(&cipher).trim(),
+            KEY,
+            "密文不得可读出明文"
+        );
+        let back = key_dpapi::unprotect(&cipher).expect("DPAPI 解密应成功");
+        assert_eq!(back, KEY.as_bytes());
+    }
+
+    #[test]
+    fn dpapi_rejects_garbage() {
+        assert!(
+            key_dpapi::unprotect(b"definitely-not-a-dpapi-blob").is_err(),
+            "垃圾输入必须报错而非解出内容"
+        );
+    }
+
+    #[test]
+    fn save_then_load_roundtrip_and_no_plaintext_on_disk() {
+        let tmp = TempDir::new("roundtrip");
+        let dir = tmp.dir();
+        save_api_key(&dir, KEY).expect("保存应成功");
+
+        let stored = std::fs::read(format!("{}\\{}", dir, API_KEY_FILE)).expect("文件应存在");
+        assert_ne!(
+            String::from_utf8_lossy(&stored).trim(),
+            KEY,
+            "盘上文件不得是明文 Key"
+        );
+        assert_eq!(
+            load_api_key(&dir).as_deref(),
+            Some(KEY),
+            "加密后读取应还原出原 Key"
+        );
+    }
+
+    #[test]
+    fn legacy_plaintext_file_is_auto_migrated() {
+        let tmp = TempDir::new("migrate");
+        let dir = tmp.dir();
+        let path = format!("{}\\{}", dir, API_KEY_FILE);
+        // 旧版形态：明文 32 位十六进制
+        std::fs::write(&path, KEY).expect("写入旧明文文件");
+
+        assert_eq!(
+            load_api_key(&dir).as_deref(),
+            Some(KEY),
+            "旧明文应能读出（迁移不改变本次结果）"
+        );
+        let stored = std::fs::read(&path).expect("迁移后文件应存在");
+        assert_ne!(
+            String::from_utf8_lossy(&stored).trim(),
+            KEY,
+            "读取后旧明文应已被重写为密文"
+        );
+        assert!(
+            !std::path::Path::new(&format!("{}.bak", path)).exists(),
+            "迁移成功后 .bak 里是明文旧值，必须已清除"
+        );
     }
 }
